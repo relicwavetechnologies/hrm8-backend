@@ -6,9 +6,9 @@ export abstract class BaseController {
     return res.json(ApiResponse.success(data, message));
   }
 
-  public sendError(res: Response, error: unknown) {
+  public sendError(res: Response, error: unknown, statusCode: number = 400) {
     if (error instanceof Error) {
-        return res.status(400).json({ success: false, error: error.message });
+        return res.status(statusCode).json({ success: false, error: error.message });
     }
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }

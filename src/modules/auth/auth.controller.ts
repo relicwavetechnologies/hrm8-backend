@@ -21,7 +21,12 @@ export class AuthController extends BaseController {
       res.cookie('sessionId', sessionId, getSessionCookieOptions());
       
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { user: userData });
+      return this.sendSuccess(res, { 
+        user: { 
+          ...userData, 
+          companyId: user.company_id 
+        } 
+      });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -45,7 +50,12 @@ export class AuthController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { user: userData });
+      return this.sendSuccess(res, { 
+        user: { 
+          ...userData, 
+          companyId: user.company_id 
+        } 
+      });
     } catch (error) {
       return this.sendError(res, error);
     }

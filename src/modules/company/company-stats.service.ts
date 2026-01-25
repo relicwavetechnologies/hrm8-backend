@@ -51,6 +51,28 @@ export class CompanyStatsService extends BaseService {
     return count;
   }
 
+  async getCompanyWalletBalance(companyId: string): Promise<number> {
+    const account = await prisma.virtualAccount.findUnique({
+      where: {
+        owner_type_owner_id: {
+          owner_type: 'COMPANY',
+          owner_id: companyId
+        }
+      }
+    });
+    return account?.balance || 0;
+  }
+
+  async getCompanyActiveSubscriptions(companyId: string): Promise<number> {
+    const count = await prisma.subscription.count({
+      where: {
+        company_id: companyId,
+        status: 'ACTIVE'
+      }
+    });
+    return count;
+  }
+
   async getCompanyStats(companyId: string) {
     const startTime = Date.now();
 
@@ -59,21 +81,33 @@ export class CompanyStatsService extends BaseService {
         this.getCompanyEmployeeCount(companyId),
         this.getCompanyJobsPostedThisMonth(companyId),
         this.getCompanyActiveJobs(companyId),
-        this.getCompanyApplicationsThisMonth(companyId)
+        this.getCompanyApplicationsThisMonth(companyId),
+        this.getCompanyWalletBalance(companyId),
+        this.getCompanyActiveSubscriptions(companyId)
       ]);
 
-      const [employeeCount, jobsPostedThisMonth, activeJobs, applicationsThisMonth] = results;
+      const [
+        employeeCount, 
+        jobsPostedThisMonth, 
+        activeJobs, 
+        applicationsThisMonth,
+        walletBalance,
+        activeSubscriptions
+      ] = results;
+      
       const duration = Date.now() - startTime;
 
       return {
         employeeCount,
         jobsPostedThisMonth,
         activeJobs,
-        applicationsThisMonth
+        applicationsThisMonth,
+        walletBalance,
+        activeSubscriptions
       };
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      console.error('[CompanyStatsService.getCompanyStats] Failed after', duration, 'ms:', error.message);
+      console.error('[CompanyStatsService] Failed after', duration, 'ms:', error.message);
       throw error;
     }
   }

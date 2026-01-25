@@ -11,12 +11,12 @@ export class UserService extends BaseService {
   }
 
   async createUser(
-    companyId: string, 
+    companyId: string,
     creatorId: string,
     data: { email: string; name: string; role: any; password?: string }
   ): Promise<User> {
     const email = normalizeEmail(data.email);
-    
+
     // Check if email already exists
     const exists = await this.userRepository.countByEmail(email);
     if (exists > 0) {
@@ -71,19 +71,61 @@ export class UserService extends BaseService {
   // --- Notification Preferences ---
 
   async getNotificationPreferences(userId: string) {
-    return this.userRepository.getNotificationPreferences(userId);
+    const prefs = await this.userRepository.getNotificationPreferences(userId);
+
+    // Default preferences structure matches frontend expectations
+    const defaultEventPrefs = {
+      new_application: { enabled: true, channels: ['email', 'in-app'] },
+      application_status_change: { enabled: true, channels: ['email', 'in-app'] },
+      interview_scheduled: { enabled: true, channels: ['email', 'in-app'] },
+      job_posted: { enabled: true, channels: ['email', 'in-app'] },
+      payment_received: { enabled: true, channels: ['email', 'in-app'] },
+      payment_failed: { enabled: true, channels: ['email', 'in-app'] },
+      subscription_change: { enabled: true, channels: ['email', 'in-app'] },
+      system_announcement: { enabled: true, channels: ['email', 'in-app'] },
+      user_signup: { enabled: true, channels: ['email', 'in-app'] },
+      support_ticket: { enabled: true, channels: ['email', 'in-app'] },
+    };
+
+    const defaultQuietHours = { enabled: false, start: '22:00', end: '08:00' };
+
+    if (!prefs) {
+      // Return defaults mapped to camelCase for API
+      return {
+        userId,
+        eventPreferences: defaultEventPrefs,
+        quietHours: defaultQuietHours,
+      };
+    }
+
+    // Map DB snake_case to API camelCase
+    return {
+      userId: prefs.user_id,
+      eventPreferences: prefs.event_preferences || defaultEventPrefs,
+      quietHours: prefs.quiet_hours || defaultQuietHours,
+    };
   }
 
   async updateNotificationPreferences(userId: string, data: any) {
-    // Ensure user_id is set for create
-    return this.userRepository.updateNotificationPreferences(userId, {
-      ...data,
+    // Map API camelCase to DB snake_case
+    const dbData: any = {};
+    if (data.eventPreferences) dbData.event_preferences = data.eventPreferences;
+    if (data.quietHours) dbData.quiet_hours = data.quietHours;
+
+    const prefs = await this.userRepository.updateNotificationPreferences(userId, {
+      ...dbData,
       user: { connect: { id: userId } }
     });
+
+    return {
+      userId: prefs.user_id,
+      eventPreferences: prefs.event_preferences,
+      quietHours: prefs.quiet_hours,
+    };
   }
 
   // --- Alert Rules ---
-  
+
   async getAlertRules(userId: string) {
     return this.userRepository.getAlertRules(userId);
   }

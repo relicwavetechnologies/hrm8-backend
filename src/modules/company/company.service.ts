@@ -106,6 +106,16 @@ export class CompanyService extends BaseService {
 
   // --- Settings ---
 
+  async getJobAssignmentSettings(id: string) {
+    const company = await this.companyRepository.findById(id);
+    if (!company) throw new HttpException(404, 'Company not found');
+
+    return {
+      jobAssignmentMode: company.job_assignment_mode,
+      preferredRecruiterId: company.preferred_recruiter_id,
+    };
+  }
+
   async updateJobAssignmentMode(id: string, mode: JobAssignmentMode) {
     return this.companyRepository.update(id, { job_assignment_mode: mode });
   }

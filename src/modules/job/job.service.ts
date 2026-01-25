@@ -1,22 +1,28 @@
 import { BaseService } from '../../core/service';
 import { JobRepository } from './job.repository';
-import { Job, JobStatus, AssignmentMode, JobAssignmentMode } from '@prisma/client';
+import { ApplicationRepository } from '../application/application.repository';
+import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
+import { NotificationService } from '../notification/notification.service';
 
 export class JobService extends BaseService {
-  constructor(private jobRepository: JobRepository) {
+  constructor(
+    private jobRepository: JobRepository,
+    private applicationRepository?: ApplicationRepository,
+    private notificationService?: NotificationService
+  ) {
     super();
   }
 
   async createJob(companyId: string, createdBy: string, data: any): Promise<Job> {
     const jobCode = await this.generateJobCode(companyId);
-    
+
     // Check company settings for assignment mode
     // Ideally this should fetch company settings from CompanyService/Repo
     // Assuming defaults for now or logic to be injected
     const assignmentMode = data.assignmentMode || 'AUTO';
 
-    return this.jobRepository.create({
+    const job = await this.jobRepository.create({
       ...data,
       company: { connect: { id: companyId } },
       created_by: createdBy,
@@ -33,6 +39,8 @@ export class JobService extends BaseService {
       promotional_tags: data.promotionalTags || [],
       video_interviewing_enabled: data.videoInterviewingEnabled || false,
     });
+
+    return this.mapToResponse(job);
   }
 
   async updateJob(id: string, companyId: string, data: any) {
@@ -42,26 +50,163 @@ export class JobService extends BaseService {
 
     // Map fields for update
     // Note: In a real scenario, use a mapper or cleaner input object
-    return this.jobRepository.update(id, data);
+    const updatedJob = await this.jobRepository.update(id, data);
+    return this.mapToResponse(updatedJob);
   }
 
   async getJob(id: string, companyId: string) {
     const job = await this.jobRepository.findById(id);
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
-    return job;
+    return this.mapToResponse(job);
   }
 
   async getCompanyJobs(companyId: string, filters: any) {
-    return this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
+    const jobs = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
+
+    // Map database fields to API response format (camelCase)
+    const mappedJobs = jobs.map(job => this.mapToResponse(job));
+
+    // If ApplicationRepository is available, add application counts to each job
+    if (this.applicationRepository) {
+      const jobsWithCounts = await Promise.all(
+        mappedJobs.map(async (job) => {
+          const counts = await this.applicationRepository!.countByJobId(job.id);
+          const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
+
+          return {
+            ...job,
+            totalApplications: counts,
+            unreadApplicants: unreadCounts,
+          };
+        })
+      );
+      return jobsWithCounts;
+    }
+
+    return mappedJobs;
+  }
+
+  private mapToResponse(job: any): any {
+    if (!job) return null;
+
+    return {
+      ...job,
+      // Map snake_case to camelCase
+      companyId: job.company_id,
+      createdBy: job.created_by,
+      jobCode: job.job_code,
+      hiringMode: job.hiring_mode,
+      workArrangement: job.work_arrangement,
+      employmentType: job.employment_type,
+      numberOfVacancies: job.number_of_vacancies,
+      salaryMin: job.salary_min,
+      salaryMax: job.salary_max,
+      salaryCurrency: job.salary_currency,
+      salaryPeriod: job.salary_period,
+      salaryDescription: job.salary_description,
+      promotionalTags: job.promotional_tags,
+      videoInterviewingEnabled: job.video_interviewing_enabled,
+      assignmentMode: job.assignment_mode,
+      createdAt: job.created_at,
+      updatedAt: job.updated_at,
+      postingDate: job.posting_date,
+      closeDate: job.close_date,
+      archivedAt: job.archived_at,
+      archivedBy: job.archived_by,
+      savedAsTemplate: job.saved_as_template,
+      applicationForm: job.application_form,
+      hiringTeam: job.hiring_team,
+      jobBoardDistribution: job.job_board_distribution,
+      serviceType: job.service_type,
+      serviceStatus: job.service_status,
+      assignedConsultantId: job.assigned_consultant_id,
+      assignedConsultantName: job.assigned_consultant_name,
+      applicantsCount: job._count?.applications || 0,
+    };
   }
 
   async deleteJob(id: string, companyId: string) {
     const job = await this.jobRepository.findById(id);
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
-    
+
     return this.jobRepository.delete(id);
+  }
+
+  async bulkDeleteJobs(jobIds: string[], companyId: string): Promise<number> {
+    if (!jobIds || jobIds.length === 0) {
+      throw new HttpException(400, 'No job IDs provided');
+    }
+
+    // Verify all jobs belong to company
+    const jobs = await this.jobRepository.findByCompanyId(companyId);
+    const validJobIds = jobs.filter(job => jobIds.includes(job.id)).map(job => job.id);
+
+    if (validJobIds.length === 0) {
+      throw new HttpException(400, 'No valid jobs found for deletion');
+    }
+
+    const deletedCount = await this.jobRepository.bulkDelete(validJobIds, companyId);
+    return deletedCount;
+  }
+
+  async publishJob(id: string, companyId: string, userId?: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+
+    // Idempotency: if already published, return success
+    if (job.status === 'OPEN') {
+      return job;
+    }
+
+    if (job.status !== 'DRAFT') {
+      throw new HttpException(400, 'Only draft jobs can be published');
+    }
+
+    // TODO: Implement wallet payment logic here
+    // For now, just change status to OPEN
+    const updatedJob = await this.jobRepository.update(id, {
+      status: 'OPEN',
+      posting_date: new Date(),
+    });
+
+    // Trigger notification
+    if (this.notificationService && userId) {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.USER,
+        recipientId: userId,
+        type: UniversalNotificationType.JOB_PUBLISHED,
+        title: 'Job Published',
+        message: `Your job "${updatedJob.title}" has been successfully published.`,
+        data: { jobId: id, companyId },
+        actionUrl: `/ats/jobs/${id}`
+      });
+    }
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async saveDraft(id: string, companyId: string, data: any): Promise<Job> {
+    await this.getJob(id, companyId); // Verify ownership
+
+    const updatedJob = await this.jobRepository.update(id, {
+      ...data,
+      status: 'DRAFT',
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async saveTemplate(id: string, companyId: string, data: any): Promise<Job> {
+    await this.getJob(id, companyId); // Verify ownership
+
+    // For now, just mark the job as a template
+    const updatedJob = await this.jobRepository.update(id, {
+      ...data,
+      saved_as_template: true,
+    });
+
+    return this.mapToResponse(updatedJob);
   }
 
   private async generateJobCode(companyId: string): Promise<string> {

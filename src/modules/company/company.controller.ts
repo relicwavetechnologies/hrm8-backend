@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { CompanyService } from './company.service';
 import { CompanyRepository } from './company.repository';
+import { companyStatsService } from './company-stats.service';
 import { AuthenticatedRequest } from '../../types';
 
 export class CompanyController extends BaseController {
@@ -73,6 +74,19 @@ export class CompanyController extends BaseController {
   };
 
   // Settings
+  getJobAssignmentSettings = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const settings = await this.companyService.getJobAssignmentSettings(id);
+      return this.sendSuccess(res, settings);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   updateJobAssignmentMode = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
@@ -82,6 +96,19 @@ export class CompanyController extends BaseController {
       const { mode } = req.body;
       const company = await this.companyService.updateJobAssignmentMode(id, mode);
       return this.sendSuccess(res, { company });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getStats = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const stats = await companyStatsService.getCompanyStats(id);
+      return this.sendSuccess(res, stats);
     } catch (error) {
       return this.sendError(res, error);
     }
