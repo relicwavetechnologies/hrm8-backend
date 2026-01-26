@@ -4,6 +4,8 @@ import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
+import { JobPaymentService } from './job-payment.service';
+import { jobAllocationService } from '../hrm8/job-allocation.service';
 
 export class JobService extends BaseService {
   constructor(
@@ -23,21 +25,37 @@ export class JobService extends BaseService {
     const assignmentMode = data.assignmentMode || 'AUTO';
 
     const job = await this.jobRepository.create({
-      ...data,
+      title: data.title,
+      description: data.description,
+      job_summary: data.jobSummary,
+      category: data.category,
+      number_of_vacancies: data.numberOfVacancies || 1,
+      department: data.department,
+      location: data.location,
+      employment_type: data.employmentType,
+      work_arrangement: data.workArrangement,
+      salary_min: data.salaryMin,
+      salary_max: data.salaryMax,
+      salary_currency: data.salaryCurrency || 'USD',
+      salary_description: data.salaryDescription,
+      stealth: data.stealth,
+      visibility: data.visibility,
+      requirements: data.requirements,
+      responsibilities: data.responsibilities,
+      hiring_mode: data.hiringMode,
+      promotional_tags: data.promotionalTags || [],
+      terms_accepted: data.termsAccepted,
+      terms_accepted_at: data.termsAcceptedAt ? new Date(data.termsAcceptedAt) : null,
+      terms_accepted_by: data.termsAcceptedBy,
+      hiring_team: data.hiringTeam,
+      application_form: data.applicationForm,
+      video_interviewing_enabled: data.videoInterviewingEnabled || false,
+      assignment_mode: assignmentMode,
+      service_package: data.servicePackage || 'self-managed',
       company: { connect: { id: companyId } },
       creator: { connect: { id: createdBy } },
       job_code: jobCode,
       status: 'DRAFT',
-      assignment_mode: assignmentMode,
-      // Map other fields as necessary from data...
-      // Ensure camelCase to snake_case mapping or rely on Prisma types matching
-      hiring_mode: data.hiringMode,
-      work_arrangement: data.workArrangement,
-      employment_type: data.employmentType,
-      number_of_vacancies: data.numberOfVacancies || 1,
-      salary_currency: data.salaryCurrency || 'USD',
-      promotional_tags: data.promotionalTags || [],
-      video_interviewing_enabled: data.videoInterviewingEnabled || false,
     });
 
     return this.mapToResponse(job);
@@ -48,9 +66,37 @@ export class JobService extends BaseService {
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
-    // Map fields for update
-    // Note: In a real scenario, use a mapper or cleaner input object
-    const updatedJob = await this.jobRepository.update(id, data);
+    const updateData: any = {};
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.jobSummary !== undefined) updateData.job_summary = data.jobSummary;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.numberOfVacancies !== undefined) updateData.number_of_vacancies = data.numberOfVacancies;
+    if (data.department !== undefined) updateData.department = data.department;
+    if (data.location !== undefined) updateData.location = data.location;
+    if (data.employmentType !== undefined) updateData.employment_type = data.employmentType;
+    if (data.workArrangement !== undefined) updateData.work_arrangement = data.workArrangement;
+    if (data.salaryMin !== undefined) updateData.salary_min = data.salaryMin;
+    if (data.salaryMax !== undefined) updateData.salary_max = data.salaryMax;
+    if (data.salaryCurrency !== undefined) updateData.salary_currency = data.salaryCurrency;
+    if (data.salaryDescription !== undefined) updateData.salary_description = data.salaryDescription;
+    if (data.stealth !== undefined) updateData.stealth = data.stealth;
+    if (data.visibility !== undefined) updateData.visibility = data.visibility;
+    if (data.requirements !== undefined) updateData.requirements = data.requirements;
+    if (data.responsibilities !== undefined) updateData.responsibilities = data.responsibilities;
+    if (data.hiringMode !== undefined) updateData.hiring_mode = data.hiringMode;
+    if (data.promotionalTags !== undefined) updateData.promotional_tags = data.promotionalTags;
+    if (data.termsAccepted !== undefined) updateData.terms_accepted = data.termsAccepted;
+    if (data.termsAcceptedAt !== undefined) updateData.terms_accepted_at = data.termsAcceptedAt ? new Date(data.termsAcceptedAt) : null;
+    if (data.termsAcceptedBy !== undefined) updateData.terms_accepted_by = data.termsAcceptedBy;
+    if (data.hiringTeam !== undefined) updateData.hiring_team = data.hiringTeam;
+    if (data.applicationForm !== undefined) updateData.application_form = data.applicationForm;
+    if (data.videoInterviewingEnabled !== undefined) updateData.video_interviewing_enabled = data.videoInterviewingEnabled;
+    if (data.assignmentMode !== undefined) updateData.assignment_mode = data.assignmentMode;
+    if (data.servicePackage !== undefined) updateData.service_package = data.servicePackage;
+    if (data.status !== undefined) updateData.status = data.status;
+
+    const updatedJob = await this.jobRepository.update(id, updateData);
     return this.mapToResponse(updatedJob);
   }
 
@@ -118,8 +164,8 @@ export class JobService extends BaseService {
       applicationForm: job.application_form,
       hiringTeam: job.hiring_team,
       jobBoardDistribution: job.job_board_distribution,
-      serviceType: job.service_type,
-      serviceStatus: job.service_status,
+      servicePackage: job.service_package,
+      paymentStatus: job.payment_status,
       assignedConsultantId: job.assigned_consultant_id,
       assignedConsultantName: job.assigned_consultant_name,
       applicantsCount: job._count?.applications || 0,
@@ -163,8 +209,9 @@ export class JobService extends BaseService {
       throw new HttpException(400, 'Only draft jobs can be published');
     }
 
-    // TODO: Implement wallet payment logic here
-    // For now, just change status to OPEN
+    // Process payment before publishing
+    await JobPaymentService.processJobPayment(id, companyId, userId);
+
     const updatedJob = await this.jobRepository.update(id, {
       status: 'OPEN',
       posting_date: new Date(),
@@ -183,13 +230,16 @@ export class JobService extends BaseService {
       });
     }
 
+    // Auto-assignment
+    await jobAllocationService.autoAssignJob(id);
+
     return this.mapToResponse(updatedJob);
   }
 
   async saveDraft(id: string, companyId: string, data: any): Promise<Job> {
     await this.getJob(id, companyId); // Verify ownership
 
-    const updatedJob = await this.jobRepository.update(id, {
+    const updatedJob = await this.updateJob(id, companyId, {
       ...data,
       status: 'DRAFT',
     });
@@ -201,9 +251,9 @@ export class JobService extends BaseService {
     await this.getJob(id, companyId); // Verify ownership
 
     // For now, just mark the job as a template
-    const updatedJob = await this.jobRepository.update(id, {
+    const updatedJob = await this.updateJob(id, companyId, {
       ...data,
-      saved_as_template: true,
+      savedAsTemplate: true,
     });
 
     return this.mapToResponse(updatedJob);

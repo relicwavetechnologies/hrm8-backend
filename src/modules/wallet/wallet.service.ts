@@ -1,11 +1,12 @@
 import { prisma } from '../../utils/prisma';
-import { 
-  VirtualAccountOwner, 
-  VirtualAccountStatus, 
-  VirtualTransactionType, 
-  TransactionDirection, 
-  TransactionStatus 
+import {
+  VirtualAccountOwner,
+  VirtualAccountStatus,
+  VirtualTransactionType,
+  TransactionDirection,
+  TransactionStatus
 } from '@prisma/client';
+import { HttpException } from '../../core/http-exception';
 
 export class WalletService {
   /**
@@ -54,7 +55,7 @@ export class WalletService {
    */
   static async getTransactions(ownerType: VirtualAccountOwner, ownerId: string, options: { limit?: number; offset?: number } = {}) {
     const account = await this.getOrCreateAccount(ownerType, ownerId);
-    
+
     const transactions = await prisma.virtualTransaction.findMany({
       where: { virtual_account_id: account.id },
       orderBy: { created_at: 'desc' },
@@ -136,7 +137,7 @@ export class WalletService {
       if (!account) throw new Error('Account not found');
 
       if (account.balance < params.amount) {
-        throw new Error('Insufficient balance');
+        throw new HttpException(402, 'Insufficient balance');
       }
 
       const newBalance = account.balance - params.amount;
@@ -165,6 +166,29 @@ export class WalletService {
       });
 
       return transaction;
+    });
+  }
+
+  /**
+   * Debit account for job posting
+   */
+  static async debitForJobPosting(params: {
+    companyId: string;
+    jobId: string;
+    amount: number;
+    description: string;
+    createdBy?: string;
+  }) {
+    const account = await this.getOrCreateAccount('COMPANY', params.companyId);
+
+    return this.debitAccount({
+      accountId: account.id,
+      amount: params.amount,
+      type: 'JOB_POSTING_DEDUCTION',
+      description: params.description,
+      referenceId: params.jobId,
+      referenceType: 'JOB',
+      createdBy: params.createdBy
     });
   }
 }
