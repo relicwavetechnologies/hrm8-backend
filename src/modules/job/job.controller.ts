@@ -24,7 +24,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const job = await this.jobService.createJob(req.user.companyId, req.user.id, req.body);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -46,7 +46,7 @@ export class JobController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.getJob(id, req.user.companyId);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -57,7 +57,7 @@ export class JobController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.updateJob(id, req.user.companyId, req.body);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -99,7 +99,7 @@ export class JobController extends BaseController {
       const { id } = req.params as { id: string };
 
       const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -109,9 +109,8 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
-
       const job = await this.jobService.saveDraft(id, req.user.companyId, req.body);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -121,9 +120,8 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
-
       const job = await this.jobService.saveTemplate(id, req.user.companyId, req.body);
-      return this.sendSuccess(res, { job });
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }

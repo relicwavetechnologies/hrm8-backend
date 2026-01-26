@@ -20,7 +20,9 @@ import interviewRoutes from '../modules/interview/interview.routes';
 import offerRoutes from '../modules/offer/offer.routes';
 import walletRoutes from '../modules/wallet/wallet.routes';
 import subscriptionRoutes from '../modules/subscription/subscription.routes';
+import paymentRoutes from '../modules/payment/payment.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
+import { env } from '../config/env';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
 const expressLoader = async (app: Application): Promise<void> => {
@@ -31,7 +33,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use(loggingMiddleware);
 
   // CORS setup
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
+  const frontendUrl = env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
   const corsOptions = {
     origin: frontendUrl.includes(',') ? frontendUrl.split(',').map(u => u.trim()) : frontendUrl,
     credentials: true,
@@ -49,13 +51,14 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/assessment', assessmentRoutes);
   app.use('/api/communication', communicationRoutes);
   app.use('/api/public', publicRoutes);
-  app.use('/api/integration', integrationRoutes);
+  app.use('/api/integrations', integrationRoutes);
   app.use('/api/integrations/stripe', stripeRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/interviews', interviewRoutes);
   app.use('/api/offers', offerRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
+  app.use('/api/payments', paymentRoutes);
   app.use('/api/candidate', candidateRoutes);
   app.use('/api/consultant', consultantRoutes);
   app.use('/api/sales', salesRoutes);

@@ -29,6 +29,14 @@ export const CLOUDINARY_CLOUD_NAME = getEnv('CLOUDINARY_CLOUD_NAME', '');
 export const CLOUDINARY_API_KEY = getEnv('CLOUDINARY_API_KEY', '');
 export const CLOUDINARY_API_SECRET = getEnv('CLOUDINARY_API_SECRET', '');
 
+// Stripe
+export const STRIPE_SECRET_KEY = getEnv('STRIPE_SECRET_KEY', '');
+export const STRIPE_PUBLISHABLE_KEY = getEnv('STRIPE_PUBLISHABLE_KEY', '');
+export const STRIPE_WEBHOOK_SECRET = getEnv('STRIPE_WEBHOOK_SECRET', '');
+export const USE_MOCK_STRIPE = getEnv('USE_MOCK_STRIPE', 'true');
+export const FRONTEND_URL = getEnv('FRONTEND_URL');
+export const BACKEND_URL = getEnv('BACKEND_URL', 'http://localhost:3000');
+
 // Default export object for convenient access
 export const env = {
   PORT,
@@ -44,5 +52,11 @@ export const env = {
   SMTP_FROM,
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET
+  CLOUDINARY_API_SECRET,
+  STRIPE_SECRET_KEY,
+  STRIPE_PUBLISHABLE_KEY,
+  STRIPE_WEBHOOK_SECRET,
+  USE_MOCK_STRIPE,
+  FRONTEND_URL,
+  BACKEND_URL
 };
