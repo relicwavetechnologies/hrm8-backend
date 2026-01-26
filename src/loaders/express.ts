@@ -14,6 +14,7 @@ import applicationRoutes from '../modules/application/application.routes';
 import communicationRoutes from '../modules/communication/communication.routes';
 import publicRoutes from '../modules/public/public.routes';
 import integrationRoutes from '../modules/integration/integration.routes';
+import stripeRoutes from '../modules/stripe/stripe.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
 import interviewRoutes from '../modules/interview/interview.routes';
 import offerRoutes from '../modules/offer/offer.routes';
@@ -22,10 +23,14 @@ import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import paymentRoutes from '../modules/payment/payment.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { env } from '../config/env';
+import { loggingMiddleware } from '../middleware/logging.middleware';
 
 const expressLoader = async (app: Application): Promise<void> => {
   app.use(express.json());
   app.use(cookieParser());
+
+  // HTTP request logging
+  app.use(loggingMiddleware);
 
   // CORS setup
   const frontendUrl = env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
@@ -47,6 +52,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/communication', communicationRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/integrations', integrationRoutes);
+  app.use('/api/integrations/stripe', stripeRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/interviews', interviewRoutes);
   app.use('/api/offers', offerRoutes);

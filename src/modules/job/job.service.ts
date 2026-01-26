@@ -25,7 +25,7 @@ export class JobService extends BaseService {
     const job = await this.jobRepository.create({
       ...data,
       company: { connect: { id: companyId } },
-      created_by: createdBy,
+      creator: { connect: { id: createdBy } },
       job_code: jobCode,
       status: 'DRAFT',
       assignment_mode: assignmentMode,
