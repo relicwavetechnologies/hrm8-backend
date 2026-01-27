@@ -18,9 +18,9 @@ export class CandidateController extends BaseController {
     try {
       const { email, password } = req.body;
       const { candidate, sessionId } = await this.candidateService.login({ email, password });
-      
+
       res.cookie('candidateSessionId', sessionId, getSessionCookieOptions());
-      
+
       const { password_hash, ...candidateData } = candidate;
       return this.sendSuccess(res, { candidate: candidateData });
     } catch (error) {
@@ -80,6 +80,61 @@ export class CandidateController extends BaseController {
       const { currentPassword, newPassword } = req.body;
       await this.candidateService.updatePassword(req.candidate.id, currentPassword, newPassword);
       return this.sendSuccess(res, { message: 'Password updated successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  me = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      const candidate = await this.candidateService.getProfile(req.candidate.id);
+      const { password_hash, ...candidateData } = candidate;
+      return this.sendSuccess(res, { candidate: candidateData });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deleteAccount = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      await this.candidateService.deleteAccount(req.candidate.id);
+      res.clearCookie('candidateSessionId', getSessionCookieOptions());
+      return this.sendSuccess(res, { message: 'Account deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  exportData = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      const data = await this.candidateService.exportData(req.candidate.id);
+      return this.sendSuccess(res, data);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  verifyEmail = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      const { token } = req.query;
+      if (!token) return this.sendError(res, new Error('Token is required'));
+      const result = await this.candidateService.verifyEmail(token as string);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updatePhoto = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      const { photoUrl } = req.body;
+      const candidate = await this.candidateService.updatePhoto(req.candidate.id, photoUrl);
+      const { password_hash, ...candidateData } = candidate;
+      return this.sendSuccess(res, { candidate: candidateData }, 'Photo updated successfully');
     } catch (error) {
       return this.sendError(res, error);
     }

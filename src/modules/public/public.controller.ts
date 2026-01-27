@@ -44,12 +44,127 @@ export class PublicController extends BaseController {
     try {
       const { id } = req.params as { id: string };
       const job = await this.publicService.getPublicJob(id);
-      
+
       if (!job) {
         return this.sendError(res, new Error('Job not found or no longer available'));
       }
 
       return this.sendSuccess(res, { job });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/careers/companies
+  getCareersCompanies = async (req: Request, res: Response) => {
+    try {
+      const companies = await this.publicService.getCareersCompanies();
+      return this.sendSuccess(res, { companies });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/careers/companies/:id
+  getCompanyCareersPage = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const company = await this.publicService.getCompanyCareersPage(id);
+
+      if (!company) {
+        return this.sendError(res, new Error('Company careers page not found'));
+      }
+
+      return this.sendSuccess(res, { company });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/filters
+  getJobFilters = async (req: Request, res: Response) => {
+    try {
+      const filters = await this.publicService.getJobFilters();
+      return this.sendSuccess(res, filters);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/aggregations
+  getJobAggregations = async (req: Request, res: Response) => {
+    try {
+      const aggregations = await this.publicService.getJobAggregations(req.query);
+      return this.sendSuccess(res, aggregations);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/:jobId/application-form
+  getJobApplicationForm = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const form = await this.publicService.getJobApplicationForm(jobId);
+
+      if (!form) {
+        return this.sendError(res, new Error('Job not found or application form not available'));
+      }
+
+      return this.sendSuccess(res, form);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/:jobId/related
+  getRelatedJobs = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const jobs = await this.publicService.getRelatedJobs(jobId);
+      return this.sendSuccess(res, { jobs });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/companies/:domain/jobs
+  getCompanyJobsByDomain = async (req: Request, res: Response) => {
+    try {
+      const { domain } = req.params as { domain: string };
+      const company = await this.publicService.getCompanyJobsByDomain(domain);
+
+      if (!company) {
+        return this.sendError(res, new Error('Company not found'));
+      }
+
+      return this.sendSuccess(res, { company });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/companies/:domain/branding
+  getCompanyBranding = async (req: Request, res: Response) => {
+    try {
+      const { domain } = req.params as { domain: string };
+      const branding = await this.publicService.getCompanyBranding(domain);
+
+      if (!branding) {
+        return this.sendError(res, new Error('Company not found'));
+      }
+
+      return this.sendSuccess(res, { branding });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/categories
+  getPublicCategories = async (req: Request, res: Response) => {
+    try {
+      const categories = await this.publicService.getPublicCategories();
+      return this.sendSuccess(res, { categories });
     } catch (error) {
       return this.sendError(res, error);
     }

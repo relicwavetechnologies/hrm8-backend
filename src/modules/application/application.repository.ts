@@ -1,4 +1,4 @@
-import type { Prisma, Application, ApplicationStatus, ApplicationStage } from '@prisma/client';
+import type { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 import { ApplicationFilters } from './application.model';
 
@@ -230,5 +230,69 @@ export class ApplicationRepository extends BaseRepository {
 
     const results = await this.prisma.$transaction(updatePromises);
     return results.length;
+  }
+
+  async moveToRound(id: string, roundId: string): Promise<ApplicationRoundProgress> {
+    return this.prisma.applicationRoundProgress.upsert({
+      where: {
+        application_id_job_round_id: {
+          application_id: id,
+          job_round_id: roundId,
+        },
+      },
+      create: {
+        application_id: id,
+        job_round_id: roundId,
+        completed: false,
+      },
+      update: {
+        completed: false,
+      },
+    });
+  }
+
+  async updateManualScreening(id: string, data: any): Promise<Application> {
+    return this.prisma.application.update({
+      where: { id },
+      data: {
+        manual_screening_score: data.score,
+        manual_screening_status: data.status,
+        screening_notes: data.notes,
+        manual_screening_completed: data.completed,
+      },
+    });
+  }
+
+  async findInvitationByToken(token: string) {
+    return this.prisma.jobInvitation.findUnique({
+      where: { token },
+      include: { job: true },
+    });
+  }
+
+  async updateInvitationStatus(
+    id: string,
+    status: any,
+    acceptedAt?: Date,
+    applicationId?: string
+  ) {
+    return this.prisma.jobInvitation.update({
+      where: { id },
+      data: {
+        status,
+        accepted_at: acceptedAt,
+        application_id: applicationId,
+      },
+    });
+  }
+
+  async hasApplication(candidateId: string, jobId: string): Promise<boolean> {
+    const count = await this.prisma.application.count({
+      where: {
+        candidate_id: candidateId,
+        job_id: jobId,
+      },
+    });
+    return count > 0;
   }
 }

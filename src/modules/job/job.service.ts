@@ -259,6 +259,54 @@ export class JobService extends BaseService {
     return this.mapToResponse(updatedJob);
   }
 
+  async submitAndActivate(id: string, companyId: string, userId?: string): Promise<Job> {
+    // This is essentially the same as publishJob, but usually triggered at the end of a wizard
+    return this.publishJob(id, companyId, userId);
+  }
+
+  async updateAlerts(id: string, companyId: string, alerts: any): Promise<Job> {
+    await this.getJob(id, companyId);
+    const updatedJob = await this.jobRepository.update(id, {
+      alerts_enabled: alerts,
+    });
+    return this.mapToResponse(updatedJob);
+  }
+
+  async generateDescription(data: any): Promise<{ description: string; requirements: string[]; responsibilities: string[] }> {
+    // Stub for AI description generation
+    return {
+      description: `Job Description for ${data.title || 'the role'}: This is an automatically generated placeholder description.`,
+      requirements: ['Requirement 1', 'Requirement 2'],
+      responsibilities: ['Responsibility 1', 'Responsibility 2'],
+    };
+  }
+
+  async inviteHiringTeamMember(id: string, companyId: string, userId: string, data: any) {
+    const job = await this.getJob(id, companyId);
+
+    // In a real implementation, this would use hiringTeamInvitationService
+    // For now, let's update the hiring_team JSON field as a simple implementation
+    const currentTeam = (job.hiringTeam as any[]) || [];
+    const memberExists = currentTeam.some((m: any) => m.email === data.email);
+
+    if (memberExists) {
+      throw new HttpException(400, 'User already invited to hiring team');
+    }
+
+    const updatedTeam = [...currentTeam, {
+      email: data.email,
+      role: data.role || 'INTERVIEWER',
+      invitedAt: new Date().toISOString(),
+      invitedBy: userId
+    }];
+
+    const updatedJob = await this.jobRepository.update(id, {
+      hiring_team: updatedTeam,
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
   private async generateJobCode(companyId: string): Promise<string> {
     const count = await this.jobRepository.countByCompany(companyId);
     return `JOB-${String(count + 1).padStart(3, '0')}`;

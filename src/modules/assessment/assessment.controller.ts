@@ -41,4 +41,34 @@ export class AssessmentController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  getAssessmentConfig = async (req: Request, res: Response) => {
+    try {
+      const { roundId } = req.params as { roundId: string };
+      const config = await this.assessmentService.getAssessmentConfig(roundId);
+      return this.sendSuccess(res, { config });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  configureAssessment = async (req: Request, res: Response) => {
+    try {
+      const { roundId } = req.params as { roundId: string };
+      const config = await this.assessmentService.configureAssessment(roundId, req.body);
+      return this.sendSuccess(res, { config }, 'Assessment configured successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getRoundAssessments = async (req: Request, res: Response) => {
+    try {
+      const { roundId } = req.params as { roundId: string };
+      const assessments = await this.assessmentService.getRoundAssessments(roundId);
+      return this.sendSuccess(res, { assessments });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

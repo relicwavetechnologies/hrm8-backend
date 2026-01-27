@@ -1,8 +1,11 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage } from '@prisma/client';
+import { Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
-import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
+import { SubmitApplicationRequest, ApplicationFilters, AnonymousApplicationRequest } from './application.model';
+import { CandidateRepository } from '../candidate/candidate.repository';
+import { CandidateService } from '../candidate/candidate.service';
+import { JobRepository } from '../job/job.repository';
 
 export class ApplicationService extends BaseService {
   constructor(private applicationRepository: ApplicationRepository) {
@@ -165,5 +168,126 @@ export class ApplicationService extends BaseService {
 
   async checkApplication(candidateId: string, jobId: string): Promise<boolean> {
     return this.applicationRepository.checkExistingApplication(candidateId, jobId);
+  }
+
+  async submitAnonymousApplication(data: AnonymousApplicationRequest): Promise<Application> {
+    const candidateRepository = new CandidateRepository();
+    const candidateService = new CandidateService(candidateRepository);
+
+    // Register candidate (this will fail if email exists)
+    const candidate = await candidateService.register({
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      password: data.password || Math.random().toString(36).slice(-8), // Generate a random password if none provided
+      phone: data.phone,
+    });
+
+    return this.submitApplication({
+      candidateId: candidate.id,
+      jobId: data.jobId,
+      resumeUrl: data.resumeUrl,
+      coverLetterUrl: data.coverLetterUrl,
+      portfolioUrl: data.portfolioUrl,
+      linkedInUrl: data.linkedInUrl,
+      websiteUrl: data.websiteUrl,
+      customAnswers: data.customAnswers,
+      questionnaireData: data.questionnaireData,
+    });
+  }
+
+  async acceptJobInvitation(candidateId: string, token: string, applicationData: any): Promise<Application> {
+    const invitation = await this.applicationRepository.findInvitationByToken(token);
+    if (!invitation) throw new HttpException(404, 'Invitation not found');
+    if (invitation.expires_at < new Date()) throw new HttpException(400, 'Invitation expired');
+    if (invitation.status === 'ACCEPTED') throw new HttpException(400, 'Invitation already accepted');
+
+    const application = await this.submitApplication({
+      candidateId,
+      jobId: invitation.job_id,
+      ...applicationData,
+    });
+
+    await this.applicationRepository.updateInvitationStatus(
+      invitation.id,
+      'ACCEPTED' as any,
+      new Date(),
+      application.id
+    );
+
+    return application;
+  }
+
+  async createManualApplication(
+    companyId: string,
+    jobId: string,
+    candidateId: string,
+    recruiterId: string,
+    data: any
+  ): Promise<Application> {
+    const jobRepository = new JobRepository();
+    const job = await jobRepository.findById(jobId);
+    if (!job || job.company_id !== companyId) {
+      throw new HttpException(403, 'Job not found or access denied');
+    }
+
+    const hasApplied = await this.applicationRepository.checkExistingApplication(candidateId, jobId);
+    if (hasApplied) throw new HttpException(400, 'Candidate already applied');
+
+    // Create the application manually
+    return this.applicationRepository.create({
+      candidate: { connect: { id: candidateId } },
+      job: { connect: { id: jobId } },
+      status: 'NEW',
+      stage: 'NEW_APPLICATION',
+      resume_url: data.resumeUrl,
+      cover_letter_url: data.coverLetterUrl,
+      portfolio_url: data.portfolioUrl,
+      linked_in_url: data.linkedInUrl,
+      website_url: data.websiteUrl,
+      manually_added: true,
+      added_by: recruiterId,
+      added_at: new Date(),
+    } as any);
+  }
+
+  async addFromTalentPool(
+    jobId: string,
+    candidateId: string,
+    recruiterId: string,
+    companyId: string
+  ): Promise<any> {
+    const jobRepository = new JobRepository();
+    const job = await jobRepository.findById(jobId);
+    if (!job || job.company_id !== companyId) {
+      throw new HttpException(403, 'Job not found or access denied');
+    }
+
+    const hasApplied = await this.applicationRepository.checkExistingApplication(candidateId, jobId);
+    if (hasApplied) throw new HttpException(400, 'Candidate already applied');
+
+    // For now, let's just create a manual application
+    return this.createManualApplication(companyId, jobId, candidateId, recruiterId, {});
+  }
+
+  async moveToRound(id: string, roundId: string): Promise<ApplicationRoundProgress> {
+    return this.applicationRepository.moveToRound(id, roundId);
+  }
+
+  async updateManualScreening(id: string, data: any): Promise<Application> {
+    return this.applicationRepository.updateManualScreening(id, data);
+  }
+
+  async getApplicationResume(id: string): Promise<any> {
+    const application = await this.applicationRepository.findById(id);
+    if (!application) throw new HttpException(404, 'Application not found');
+    if (!application.resume_url) throw new HttpException(404, 'Resume not found');
+    return { url: application.resume_url };
+  }
+
+  async getApplicationForAdmin(id: string): Promise<Application | null> {
+    const application = await this.applicationRepository.findById(id);
+    if (!application) throw new HttpException(404, 'Application not found');
+    return application;
   }
 }

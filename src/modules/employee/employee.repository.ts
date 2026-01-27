@@ -199,4 +199,25 @@ export class EmployeeRepository extends BaseRepository {
     });
     return company?.name;
   }
+
+  /**
+   * Find invitation by token
+   */
+  async findInvitationByToken(token: string) {
+    return this.prisma.invitation.findUnique({
+      where: { token },
+    });
+  }
+
+  /**
+   * Accept invitation (mark as accepted)
+   */
+  async acceptInvitation(invitationId: string) {
+    return this.prisma.invitation.update({
+      where: { id: invitationId },
+      data: {
+        status: InvitationStatus.ACCEPTED,
+      },
+    });
+  }
 }

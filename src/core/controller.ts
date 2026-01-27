@@ -10,8 +10,18 @@ export abstract class BaseController {
     this.logger = Logger.create(namespace);
   }
 
-  public sendSuccess<T>(res: Response, data: T, message?: string) {
-    return res.json(ApiResponse.success(data, message));
+  public sendSuccess<T>(res: Response, data: T, statusCodeOrMessage?: number | string, message?: string) {
+    let statusCode = 200;
+    let msg: string | undefined = undefined;
+
+    if (typeof statusCodeOrMessage === 'number') {
+      statusCode = statusCodeOrMessage;
+      msg = message;
+    } else {
+      msg = statusCodeOrMessage;
+    }
+
+    return res.status(statusCode).json(ApiResponse.success(data, msg));
   }
 
   public sendError(res: Response, error: unknown, statusCode: number = 400) {

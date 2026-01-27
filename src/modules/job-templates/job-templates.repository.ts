@@ -82,4 +82,17 @@ export class JobTemplateRepository extends BaseRepository {
             where: { id: jobId },
         });
     }
+
+    /**
+     * Increment usage count for a template
+     */
+    async incrementUsageCount(id: string) {
+        return this.prisma.jobTemplate.update({
+            where: { id },
+            data: {
+                usage_count: { increment: 1 },
+                last_used_at: new Date(),
+            },
+        });
+    }
 }

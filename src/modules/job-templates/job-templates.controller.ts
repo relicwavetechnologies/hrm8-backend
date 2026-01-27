@@ -132,4 +132,20 @@ export class JobTemplateController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    /**
+     * Record template usage
+     * POST /api/job-templates/:id/use
+     */
+    recordUsage = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+
+            const id = req.params.id as string;
+            const template = await this.service.recordUsage(id, req.user.companyId);
+            return this.sendSuccess(res, template, 'Template usage recorded');
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }

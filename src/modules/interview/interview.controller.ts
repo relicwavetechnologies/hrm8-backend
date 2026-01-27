@@ -4,11 +4,11 @@ import { InterviewService } from './interview.service';
 import { AuthenticatedRequest } from '../../types';
 
 export class InterviewController extends BaseController {
-  
+
   create = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
-      
+
       const interview = await InterviewService.createInterview({
         applicationId,
         scheduledDate: new Date(scheduledDate),
@@ -64,6 +64,26 @@ export class InterviewController extends BaseController {
       const feedback = req.body; // Expects interviewer_id, overall_rating, etc.
       const interview = await InterviewService.addFeedback(id, feedback);
       return this.sendSuccess(res, { interview });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getInterviewConfig = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { roundId } = req.params as { roundId: string };
+      const config = await InterviewService.getInterviewConfig(roundId);
+      return this.sendSuccess(res, { config });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  configureInterview = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { roundId } = req.params as { roundId: string };
+      const config = await InterviewService.configureInterview(roundId, req.body);
+      return this.sendSuccess(res, { config }, 'Interview configured successfully');
     } catch (error) {
       return this.sendError(res, error);
     }

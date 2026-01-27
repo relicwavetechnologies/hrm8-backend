@@ -53,12 +53,9 @@ export enum DocumentCategory {
     OTHER = 'OTHER'
 }
 
-export enum DocumentStatus {
-    PENDING = 'PENDING',
-    UPLOADED = 'UPLOADED',
-    APPROVED = 'APPROVED',
-    REJECTED = 'REJECTED'
-}
+// Re-export from Prisma to avoid conflicts
+import { DocumentStatus } from '@prisma/client';
+export { DocumentStatus };
 
 export interface DocumentRequest {
     name: string;

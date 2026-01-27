@@ -17,15 +17,15 @@ export class AssessmentService extends BaseService {
   async getAssessmentByToken(token: string) {
     const assessment = await this.assessmentRepository.findByInvitationToken(token);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
-    
+
     // Check if expired
     if (assessment.expiry_date && new Date() > assessment.expiry_date) {
       throw new HttpException(410, 'Assessment expired');
     }
-    
+
     // Fetch questions
     const questions = await this.assessmentRepository.getQuestions(assessment.id);
-    
+
     return { ...assessment, questions };
   }
 
@@ -60,5 +60,17 @@ export class AssessmentService extends BaseService {
       status: 'COMPLETED',
       completed_at: new Date(),
     });
+  }
+
+  async getAssessmentConfig(jobRoundId: string) {
+    return this.assessmentRepository.findConfiguration(jobRoundId);
+  }
+
+  async configureAssessment(jobRoundId: string, data: any) {
+    return this.assessmentRepository.upsertConfiguration(jobRoundId, data);
+  }
+
+  async getRoundAssessments(jobRoundId: string) {
+    return this.assessmentRepository.findByRound(jobRoundId);
   }
 }

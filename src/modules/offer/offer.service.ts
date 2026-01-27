@@ -245,7 +245,7 @@ export class OfferService extends BaseService {
     if (!doc) throw new HttpException(404, 'Document request not found');
 
     return this.repository.updateDocument(documentId, {
-      status: DocumentStatus.UPLOADED,
+      status: DocumentStatus.SUBMITTED,
       file_url: fileUrl,
       file_name: fileName,
       uploaded_date: new Date(),

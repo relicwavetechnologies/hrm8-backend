@@ -2,7 +2,7 @@ import type { Prisma, Assessment, AssessmentQuestion, AssessmentResponse } from 
 import { BaseRepository } from '../../core/repository';
 
 export class AssessmentRepository extends BaseRepository {
-  
+
   async create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
     return this.prisma.assessment.create({ data });
   }
@@ -49,6 +49,37 @@ export class AssessmentRepository extends BaseRepository {
     return this.prisma.assessmentQuestion.findMany({
       where: { assessment_id: assessmentId },
       orderBy: { order: 'asc' },
+    });
+  }
+
+  // Configurations
+  async findConfiguration(jobRoundId: string) {
+    return this.prisma.assessmentConfiguration.findUnique({
+      where: { job_round_id: jobRoundId },
+    });
+  }
+
+  async upsertConfiguration(jobRoundId: string, data: any) {
+    return this.prisma.assessmentConfiguration.upsert({
+      where: { job_round_id: jobRoundId },
+      create: {
+        ...data,
+        job_round: { connect: { id: jobRoundId } },
+      },
+      update: data,
+    });
+  }
+
+  async findByRound(jobRoundId: string): Promise<Assessment[]> {
+    return this.prisma.assessment.findMany({
+      where: { job_round_id: jobRoundId },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+          },
+        },
+      },
     });
   }
 

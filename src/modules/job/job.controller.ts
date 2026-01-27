@@ -7,6 +7,7 @@ import { AuthenticatedRequest } from '../../types';
 
 import { NotificationRepository } from '../notification/notification.repository';
 import { NotificationService } from '../notification/notification.service';
+import { JobPaymentService } from './job-payment.service';
 
 export class JobController extends BaseController {
   private jobService: JobService;
@@ -122,6 +123,61 @@ export class JobController extends BaseController {
       const { id } = req.params as { id: string };
       const job = await this.jobService.saveTemplate(id, req.user.companyId, req.body);
       return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  submitAndActivate = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.submitAndActivate(id, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, job, 'Job submitted and activated successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  createJobPayment = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      // Process payment (wallet deduction)
+      await JobPaymentService.processJobPayment(id, req.user.companyId, req.user.id);
+      const job = await this.jobService.getJob(id, req.user.companyId);
+      return this.sendSuccess(res, job, 'Payment processed successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateAlerts = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.updateAlerts(id, req.user.companyId, req.body);
+      return this.sendSuccess(res, job, 'Job alerts updated successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  generateDescription = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await this.jobService.generateDescription(req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  inviteHiringTeamMember = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.inviteHiringTeamMember(id, req.user.companyId, req.user.id, req.body);
+      return this.sendSuccess(res, job, 'Hiring team member invited successfully');
     } catch (error) {
       return this.sendError(res, error);
     }

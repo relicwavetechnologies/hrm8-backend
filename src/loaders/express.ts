@@ -30,6 +30,12 @@ import paymentRoutes from '../modules/payment/payment.routes';
 import videoInterviewRoutes from '../modules/video-interviews/video-interviews.routes';
 import talentPoolRoutes from '../modules/talent-pool/talent-pool.routes';
 import departmentsRoutes from '../modules/departments/departments.routes';
+import resumeRoutes from '../modules/resume/resume.routes';
+import jobRoundRoutes from '../modules/job-rounds/job-rounds.routes';
+import analyticsRoutes from '../modules/analytics/analytics.routes';
+import adminRoutes from '../modules/admin/admin.routes';
+import assessRoutes from '../modules/assess/assess.routes';
+import conversationRoutes from '../modules/conversation/conversation.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { env } from '../config/env';
 import { loggingMiddleware } from '../middleware/logging.middleware';
@@ -78,10 +84,16 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/sales', salesRoutes);
   app.use('/api/job-templates', jobTemplateRoutes);
   app.use('/api/hrm8', hrm8Routes);
+  app.use('/api/resumes', resumeRoutes);
+  app.use('/api/job-rounds', jobRoundRoutes);
 
   app.use('/api/email-templates', emailTemplateRoutes);
   app.use('/api/email-triggers', emailTriggersRoutes);
   app.use('/api/emails', emailsRoutes);
+  app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/assess', assessRoutes);
+  app.use('/api/conversations', conversationRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

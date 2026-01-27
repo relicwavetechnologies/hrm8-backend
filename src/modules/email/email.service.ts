@@ -59,6 +59,18 @@ export class EmailService extends BaseService {
     await this.sendEmail(data.to, 'Verify your email', html);
   }
 
+  async sendCompanyVerificationEmail(data: { to: string; companyName: string; verificationUrl: string }) {
+    const html = `
+      <p>Hi,</p>
+      <p>Thank you for registering <strong>${data.companyName}</strong>.</p>
+      <p>Please verify your email address by clicking the link below:</p>
+      <p><a href="${data.verificationUrl}">Verify Email Address</a></p>
+      <p>This link will expire in 24 hours.</p>
+      <p>If you didn't register this company, please ignore this email.</p>
+    `;
+    await this.sendEmail(data.to, 'Verify Your Company Registration', html);
+  }
+
   // Interview Emails
   async sendInterviewInvitation(data: {
     to: string;

@@ -13,7 +13,7 @@ export class CandidateService extends BaseService {
 
   async login(data: { email: string; password: string }) {
     const candidate = await this.candidateRepository.findByEmail(normalizeEmail(data.email));
-    
+
     if (!candidate) {
       throw new HttpException(401, 'Invalid credentials');
     }
@@ -93,5 +93,44 @@ export class CandidateService extends BaseService {
 
     const passwordHash = await hashPassword(newPass);
     return this.candidateRepository.update(id, { password_hash: passwordHash });
+  }
+
+  async deleteAccount(id: string) {
+    // Cascade delete is handled by Prisma (onDelete: Cascade in schema)
+    return this.candidateRepository.delete(id);
+  }
+
+  async exportData(id: string) {
+    const fullProfile = await this.candidateRepository.findFullProfile(id);
+    if (!fullProfile) throw new HttpException(404, 'Candidate not found');
+
+    // Remove sensitive data
+    const { password_hash, ...safeData } = fullProfile as any;
+    return safeData;
+  }
+
+  async verifyEmail(token: string) {
+    const tokenRecord = await this.candidateRepository.findVerificationToken(token);
+
+    if (!tokenRecord) {
+      throw new HttpException(404, 'Invalid verification token');
+    }
+
+    if (tokenRecord.used_at) {
+      throw new HttpException(400, 'Token already used');
+    }
+
+    if (tokenRecord.expires_at < new Date()) {
+      throw new HttpException(400, 'Token expired');
+    }
+
+    await this.candidateRepository.markTokenAsUsed(tokenRecord.id);
+    await this.candidateRepository.update(tokenRecord.candidate_id, { email_verified: true });
+
+    return { message: 'Email verified successfully' };
+  }
+
+  async updatePhoto(id: string, photoUrl: string) {
+    return this.candidateRepository.updatePhoto(id, photoUrl);
   }
 }

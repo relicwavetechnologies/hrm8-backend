@@ -98,12 +98,17 @@ export class JobTemplateService extends BaseService {
         const template = await this.getTemplate(id, companyId);
 
         // Increment usage count
-        await this.repository.update(id, {
-            usage_count: { increment: 1 },
-            last_used_at: new Date(),
-        });
+        await this.repository.incrementUsageCount(id);
 
         return template.job_data;
+    }
+
+    /**
+     * Record template usage (explicit route)
+     */
+    async recordUsage(id: string, companyId: string) {
+        await this.getTemplate(id, companyId);
+        return this.repository.incrementUsageCount(id);
     }
 
     /**

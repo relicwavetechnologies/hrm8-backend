@@ -26,4 +26,7 @@ router.put('/:id', authenticate, controller.updateTemplate);
 // Delete template
 router.delete('/:id', authenticate, controller.deleteTemplate);
 
+// Record template usage
+router.post('/:id/use', authenticate, controller.recordUsage);
+
 export default router;

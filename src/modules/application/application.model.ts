@@ -79,6 +79,25 @@ export interface SubmitApplicationRequest {
   questionnaireData?: any;
 }
 
+export interface AnonymousApplicationRequest {
+  email: string;
+  password?: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  jobId: string;
+  resumeUrl?: string;
+  coverLetterUrl?: string;
+  portfolioUrl?: string;
+  linkedInUrl?: string;
+  websiteUrl?: string;
+  customAnswers?: Array<{
+    questionId: string;
+    answer: string | string[];
+  }>;
+  questionnaireData?: any;
+}
+
 export interface ApplicationFilters {
   status?: ApplicationStatus;
   stage?: ApplicationStage;
