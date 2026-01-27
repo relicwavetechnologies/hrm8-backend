@@ -26,3 +26,22 @@ export interface CandidateSearchResponse {
     page: number;
     totalPages: number;
 }
+
+export interface CandidateResponse {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string; // Maybe hide if strict privacy? Usually recruiters see it.
+    phone?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    photo?: string;
+    title?: string; // Derived from last experience?
+    skills: string[];
+    experience: any[]; // Map from CandidateWorkExperience
+    education: any[]; // Map from CandidateEducation
+    resumeUrl?: string; // Default resume
+    createdAt: Date;
+    updatedAt: Date;
+}

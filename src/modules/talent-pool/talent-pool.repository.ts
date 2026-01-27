@@ -125,4 +125,38 @@ export class TalentPoolRepository extends BaseRepository {
             },
         });
     }
+
+    /**
+     * Find Candidate by ID with full details
+     */
+    async findCandidateById(id: string) {
+        return this.prisma.candidate.findUnique({
+            where: { id },
+            include: {
+                skills: true,
+                work_experience: {
+                    orderBy: { start_date: 'desc' }
+                },
+                education: {
+                    orderBy: { end_date: 'desc' }
+                },
+                resumes: {
+                    where: { is_default: true },
+                    take: 1
+                }
+            }
+        });
+    }
+
+    /**
+     * Get default resume for candidate
+     */
+    async findCandidateResume(id: string) {
+        return this.prisma.candidateResume.findFirst({
+            where: {
+                candidate_id: id,
+                is_default: true
+            }
+        });
+    }
 }

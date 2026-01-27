@@ -34,6 +34,7 @@ import {
   VideoInterview,
   InterviewFeedback,
   OfferStatus,
+  TemplateCategory,
 } from '@prisma/client';
 
 export {
@@ -65,6 +66,7 @@ export {
   VideoInterview,
   InterviewFeedback,
   OfferStatus,
+  TemplateCategory,
 };
 
 // ============================================================================

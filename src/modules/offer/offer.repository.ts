@@ -1,5 +1,5 @@
 import { BaseRepository } from '../../core/repository';
-import { Prisma, OfferLetter } from '@prisma/client';
+import { Prisma, OfferLetter, OfferNegotiation, OfferDocument } from '@prisma/client';
 
 export class OfferRepository extends BaseRepository {
     /**
@@ -66,6 +66,74 @@ export class OfferRepository extends BaseRepository {
                 }
             },
             orderBy: { created_at: 'desc' }
+        });
+    }
+
+    /**
+     * Create Negotiation
+     */
+    async createNegotiation(data: Prisma.OfferNegotiationCreateInput): Promise<OfferNegotiation> {
+        return this.prisma.offerNegotiation.create({ data });
+    }
+
+    /**
+     * Find negotiation history for an offer
+     */
+    async findNegotiationsByOfferId(offerId: string): Promise<OfferNegotiation[]> {
+        return this.prisma.offerNegotiation.findMany({
+            where: { offer_id: offerId },
+            orderBy: { created_at: 'asc' }
+        });
+    }
+
+    /**
+     * Find Specific Negotiation
+     */
+    async findNegotiationById(id: string): Promise<OfferNegotiation | null> {
+        return this.prisma.offerNegotiation.findUnique({ where: { id } });
+    }
+
+    /**
+     * Update Negotiation
+     */
+    async updateNegotiation(id: string, data: Prisma.OfferNegotiationUpdateInput): Promise<OfferNegotiation> {
+        return this.prisma.offerNegotiation.update({
+            where: { id },
+            data
+        });
+    }
+
+    /**
+     * Create Document Request
+     */
+    async createDocument(data: Prisma.OfferDocumentCreateInput): Promise<OfferDocument> {
+        return this.prisma.offerDocument.create({ data });
+    }
+
+    /**
+     * Find Documents for an offer
+     */
+    async findDocumentsByOfferId(offerId: string): Promise<OfferDocument[]> {
+        return this.prisma.offerDocument.findMany({
+            where: { offer_id: offerId },
+            orderBy: { created_at: 'asc' }
+        });
+    }
+
+    /**
+     * Find Document by ID
+     */
+    async findDocumentById(id: string): Promise<OfferDocument | null> {
+        return this.prisma.offerDocument.findUnique({ where: { id } });
+    }
+
+    /**
+     * Update Document
+     */
+    async updateDocument(id: string, data: Prisma.OfferDocumentUpdateInput): Promise<OfferDocument> {
+        return this.prisma.offerDocument.update({
+            where: { id },
+            data
         });
     }
 }

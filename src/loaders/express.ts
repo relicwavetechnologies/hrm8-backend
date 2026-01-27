@@ -29,6 +29,7 @@ import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import paymentRoutes from '../modules/payment/payment.routes';
 import videoInterviewRoutes from '../modules/video-interviews/video-interviews.routes';
 import talentPoolRoutes from '../modules/talent-pool/talent-pool.routes';
+import departmentsRoutes from '../modules/departments/departments.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { env } from '../config/env';
 import { loggingMiddleware } from '../middleware/logging.middleware';
@@ -67,6 +68,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/interviews', interviewRoutes);
   app.use('/api/video-interviews', videoInterviewRoutes);
   app.use('/api/talent-pool', talentPoolRoutes);
+  app.use('/api/departments', departmentsRoutes);
   app.use('/api/offers', offerRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);

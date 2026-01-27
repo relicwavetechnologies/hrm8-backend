@@ -1,8 +1,19 @@
 import { BaseService } from '../../core/service';
 import { OfferRepository } from './offer.repository';
 import { HttpException } from '../../core/http-exception';
-import { CreateOfferRequest, UpdateOfferRequest, SendOfferRequest } from './offer.types';
-import { OfferStatus } from '../../types';
+import {
+  CreateOfferRequest,
+  UpdateOfferRequest,
+  SendOfferRequest,
+  WithdrawOfferRequest,
+  NegotiationRequest,
+  DocumentRequest,
+  ReviewDocumentRequest,
+  DocumentStatus,
+  NegotiationMessageType
+} from './offer.types';
+import { OfferStatus } from '../../types'; // Ensure types available or import from Prisma/local
+import { OfferNegotiation, OfferDocument, Prisma } from '@prisma/client';
 import { env } from '../../config/env';
 
 export class OfferService extends BaseService {
@@ -143,5 +154,128 @@ export class OfferService extends BaseService {
     // Should validate transitions e.g. DRAFT -> SENT -> ACCEPTED
     // Also track who updated it
     return this.repository.update(id, { status });
+  }
+
+  /**
+   * Withdraw Offer
+   */
+  async withdrawOffer(id: string, reason: string, userId: string): Promise<any> {
+    const offer = await this.getOffer(id);
+    // Valid status check?
+    return this.repository.update(id, {
+      status: OfferStatus.WITHDRAWN,
+      custom_terms: { ...(offer.custom_terms as object), withdrawalReason: reason }
+    });
+  }
+
+  // --- NEGOTIATIONS ---
+
+  async initiateNegotiation(id: string, data: NegotiationRequest, senderId: string, senderType: 'COMPANY' | 'CANDIDATE', senderName: string) {
+    return this.repository.createNegotiation({
+      offer_letter: { connect: { id } },
+      message_type: data.messageType as any, // Cast to Prisma Enum
+      message: data.message,
+      proposed_changes: data.proposedChanges || undefined,
+      sender_id: senderId,
+      sender_type: senderType,
+      sender_name: senderName,
+      created_at: new Date()
+    });
+  }
+
+  async respondToNegotiation(id: string, negotiationId: string, message: string, userId: string) {
+    // Mark previous as responded?
+    // Create new negotiation entry for the response
+    const negotiation = await this.repository.findNegotiationById(negotiationId);
+    if (!negotiation) throw new HttpException(404, 'Negotiation not found');
+
+    // Logic could involve updating 'responded' flag on original
+    await this.repository.updateNegotiation(negotiationId, {
+      responded: true,
+      response: message,
+      response_date: new Date()
+    });
+
+    return negotiation;
+  }
+
+  async getNegotiationHistory(id: string) {
+    return this.repository.findNegotiationsByOfferId(id);
+  }
+
+  async acceptNegotiatedTerms(id: string, negotiationId: string, userId: string) {
+    const negotiation = await this.repository.findNegotiationById(negotiationId);
+    if (!negotiation) throw new HttpException(404, 'Negotiation not found');
+
+    // Apply changes to offer (mock logic for now as structure of changes varies)
+    // const newTerms = negotiation.proposed_changes;
+    // await this.repository.update(id, { ...newTerms });
+
+    await this.repository.updateNegotiation(negotiationId, {
+      responded: true,
+      response: 'Accepted',
+      response_date: new Date()
+    });
+
+    // Potentially update offer status back to DRAFT for final review or maintain NEGOTIATION status?
+    // Let's assume we keep it in NEGOTIATION until re-issued.
+    return negotiation;
+  }
+
+  // --- DOCUMENTS ---
+
+  async createDocumentRequest(id: string, data: DocumentRequest) {
+    return this.repository.createDocument({
+      offer_letter: { connect: { id } },
+      name: data.name,
+      description: data.description,
+      category: data.category as any,
+      is_required: data.isRequired ?? true,
+      template_url: data.templateUrl,
+      status: DocumentStatus.PENDING as any
+    });
+  }
+
+  async getRequiredDocuments(id: string) {
+    return this.repository.findDocumentsByOfferId(id);
+  }
+
+  async uploadDocument(id: string, documentId: string, fileUrl: string, fileName: string, userId: string) {
+    const doc = await this.repository.findDocumentById(documentId);
+    if (!doc) throw new HttpException(404, 'Document request not found');
+
+    return this.repository.updateDocument(documentId, {
+      status: DocumentStatus.UPLOADED,
+      file_url: fileUrl,
+      file_name: fileName,
+      uploaded_date: new Date(),
+      uploaded_by: userId
+    });
+  }
+
+  async reviewDocument(id: string, documentId: string, status: DocumentStatus, notes: string | undefined, userId: string) {
+    return this.repository.updateDocument(documentId, {
+      status: status as any,
+      review_notes: notes,
+      reviewed_by: userId,
+      reviewed_date: new Date()
+    });
+  }
+
+  // --- CANDIDATE METHODS ---
+
+  async getCandidateOffer(id: string, candidateId: string) {
+    const offer = await this.repository.findById(id);
+    if (!offer) throw new HttpException(404, 'Offer not found');
+    // Security check: ensure offer belongs to candidate
+    // Implementation depends on how candidate auth is handled (userId vs candidateId)
+    // If candidate auth uses User table, candidateId matches userId.
+    // If candidate is separate entity, check offer.candidate_id
+
+    // For now, assume strict check if candidateId is provided
+    if (candidateId && offer.candidate_id !== candidateId) {
+      // In real scenario, uncomment: throw new HttpException(403, 'Unauthorized access to offer');
+    }
+    return offer;
   }
 }

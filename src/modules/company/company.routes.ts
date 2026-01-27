@@ -26,4 +26,23 @@ router.put('/:id/job-assignment-mode', authenticate, companyController.updateJob
 router.get('/:id/stats', authenticate, companyController.getStats);
 router.get('/:id/subscription/active', authenticate, subscriptionController.getActive); // Proxy to SubscriptionController
 
+// Company Settings (New Phase 2 Routes)
+import { CompanySettingsController } from './company-settings.controller';
+const settingsController = new CompanySettingsController();
+router.get('/settings', authenticate, settingsController.getSettings);
+router.put('/settings', authenticate, settingsController.updateSettings);
+
+// Company Careers (New Phase 2 Routes)
+import { CompanyCareersController } from './company-careers.controller';
+const careersController = new CompanyCareersController();
+router.get('/careers', authenticate, careersController.getCareersPage);
+router.put('/careers', authenticate, careersController.updateCareersPage);
+router.post('/careers/upload', authenticate, careersController.uploadCareersImage);
+
+// Job Board Settings (New Phase 2 Routes)
+import { JobBoardSettingsController } from './job-board-settings.controller';
+const jobBoardSettingsController = new JobBoardSettingsController();
+router.get('/job-board-settings', authenticate, jobBoardSettingsController.getSettings);
+router.put('/job-board-settings', authenticate, jobBoardSettingsController.updateSettings);
+
 export default router;

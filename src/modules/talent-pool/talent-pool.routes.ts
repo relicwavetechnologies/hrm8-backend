@@ -9,6 +9,10 @@ const controller = new TalentPoolController();
 router.get('/search', authenticate, controller.search);
 router.post('/invite', authenticate, controller.invite);
 
+// Candidate Details
+router.get('/candidates/:id', authenticate, controller.getCandidate);
+router.get('/candidates/:id/resume', authenticate, controller.getResume);
+
 // Public Routes (for viewing invitation details via link)
 router.get('/invitation/:token', controller.getInvitation);
 

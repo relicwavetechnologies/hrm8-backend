@@ -63,4 +63,36 @@ export class TalentPoolController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    /**
+     * Get Candidate Details
+     */
+    getCandidate = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) {
+                return this.sendError(res, new Error('User not authenticated'));
+            }
+            const { id } = req.params;
+            const result = await this.service.getCandidate(id as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Get Candidate Resume
+     */
+    getResume = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) {
+                return this.sendError(res, new Error('User not authenticated'));
+            }
+            const { id } = req.params;
+            const result = await this.service.getCandidateResume(id as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }

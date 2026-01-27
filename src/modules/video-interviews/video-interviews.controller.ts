@@ -6,7 +6,13 @@ import { AuthenticatedRequest } from '../../types';
 import {
     CreateInterviewRequest,
     UpdateInterviewRequest,
-    SubmitFeedbackRequest
+    SubmitFeedbackRequest,
+    AutoScheduleRequest,
+    FinalizeInterviewRequest,
+    SendInvitationRequest,
+    AutoScheduleResponse,
+    ProgressionStatusResponse,
+    CalendarEventResponse
 } from './video-interviews.types';
 
 export class VideoInterviewController extends BaseController {
@@ -120,4 +126,81 @@ export class VideoInterviewController extends BaseController {
         // Logic for retrieving interviewer schedule would go here
         return this.sendSuccess(res, [], 'Feature pending');
     }
+
+    /**
+     * Auto Schedule Interviews
+     * POST /api/video-interviews/auto-schedule
+     */
+    autoSchedule = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const data: AutoScheduleRequest = req.body;
+            const result = await this.service.autoSchedule(data);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Finalize Interviews
+     * POST /api/video-interviews/finalize
+     */
+    finalizeInterviews = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const data: FinalizeInterviewRequest = req.body;
+            const result = await this.service.finalizeInterviews(data, req.user.id);
+            return this.sendSuccess(res, result, 'Interviews finalized');
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Send Invitation
+     * POST /api/video-interviews/:id/send-invitation
+     */
+    sendInvitation = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const { id } = req.params;
+            const data: SendInvitationRequest = req.body;
+            const result = await this.service.sendInvitation(id as string, data, req.user.id);
+            return this.sendSuccess(res, result, 'Invitation sent');
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Get Progression Status
+     * GET /api/video-interviews/:id/progression-status
+     */
+    getProgressionStatus = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const { id } = req.params;
+            const result = await this.service.getProgressionStatus(id as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Get Calendar Events
+     * GET /api/video-interviews/job/:jobId/calendar
+     */
+    getCalendarEvents = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const { jobId } = req.params;
+            const result = await this.service.getCalendarEvents(jobId as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
 }

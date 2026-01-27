@@ -33,3 +33,47 @@ export interface UpdateOfferRequest {
 export interface SendOfferRequest {
     customMessage?: string;
 }
+
+export enum NegotiationMessageType {
+    CANDIDATE_PROPOSAL = 'CANDIDATE_PROPOSAL',
+    COMPANY_COUNTER = 'COMPANY_COUNTER',
+    CLARIFICATION = 'CLARIFICATION'
+}
+
+export interface NegotiationRequest {
+    messageType: NegotiationMessageType;
+    message: string;
+    proposedChanges?: any; // JSON with suggested salary/terms
+}
+
+export enum DocumentCategory {
+    ID_PROOF = 'ID_PROOF',
+    EDUCATION_CERT = 'EDUCATION_CERT',
+    TAX_FORM = 'TAX_FORM',
+    OTHER = 'OTHER'
+}
+
+export enum DocumentStatus {
+    PENDING = 'PENDING',
+    UPLOADED = 'UPLOADED',
+    APPROVED = 'APPROVED',
+    REJECTED = 'REJECTED'
+}
+
+export interface DocumentRequest {
+    name: string;
+    description?: string;
+    category: DocumentCategory;
+    isRequired?: boolean;
+    templateUrl?: string;
+}
+
+export interface WithdrawOfferRequest {
+    reason: string;
+}
+
+export interface ReviewDocumentRequest {
+    status: DocumentStatus; // APPROVED or REJECTED
+    notes?: string;
+}
+

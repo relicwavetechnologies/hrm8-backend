@@ -90,4 +90,69 @@ export class TalentPoolService extends BaseService {
 
         return invitation;
     }
+
+    /**
+     * Get Candidate Details
+     */
+    async getCandidate(candidateId: string) {
+        const candidate = await this.repository.findCandidateById(candidateId);
+        if (!candidate) {
+            throw new HttpException(404, 'Candidate not found');
+        }
+
+        // Map to response DTO
+        return {
+            id: candidate.id,
+            firstName: candidate.first_name,
+            lastName: candidate.last_name,
+            email: candidate.email,
+            phone: candidate.phone || undefined,
+            city: candidate.city || undefined,
+            state: candidate.state || undefined,
+            country: candidate.country || undefined,
+            photo: candidate.photo || undefined,
+            title: candidate.work_experience?.[0]?.role, // Most recent role as title
+            skills: candidate.skills?.map(s => s.name) || [],
+            experience: candidate.work_experience?.map(exp => ({
+                id: exp.id,
+                company: exp.company,
+                role: exp.role,
+                startDate: exp.start_date,
+                endDate: exp.end_date,
+                current: exp.current,
+                description: exp.description,
+                location: exp.location,
+            })) || [],
+            education: candidate.education?.map(edu => ({
+                id: edu.id,
+                institution: edu.institution,
+                degree: edu.degree,
+                field: edu.field,
+                startDate: edu.start_date,
+                endDate: edu.end_date,
+                current: edu.current,
+            })) || [],
+            resumeUrl: candidate.resumes?.[0]?.file_url,
+            createdAt: candidate.created_at,
+            updatedAt: candidate.updated_at,
+        };
+    }
+
+    /**
+     * Get Candidate Resume
+     */
+    async getCandidateResume(candidateId: string) {
+        const resume = await this.repository.findCandidateResume(candidateId);
+
+        if (!resume) {
+            throw new HttpException(404, 'No resume found for this candidate');
+        }
+
+        return {
+            url: resume.file_url,
+            filename: resume.file_name,
+            type: resume.file_type,
+            size: resume.file_size
+        };
+    }
 }

@@ -39,3 +39,50 @@ export interface SubmitFeedbackRequest {
 export interface VideoInterviewResponse extends VideoInterview {
     interviewFeedback?: InterviewFeedback[];
 }
+
+export interface AutoScheduleRequest {
+    jobId: string;
+    candidates: string[];
+    dateRange: { start: string | Date; end: string | Date };
+    duration: number;
+    timeZone: string;
+}
+
+export interface Suggestion {
+    candidateId: string;
+    suggestedSlots: string[];
+    score: number;
+}
+
+export interface AutoScheduleResponse {
+    suggestions: Suggestion[];
+}
+
+export interface FinalizeInterviewRequest {
+    interviewIds: string[];
+    confirmNotifications: boolean;
+}
+
+export interface SendInvitationRequest {
+    method: 'email' | 'sms' | 'both';
+}
+
+export interface ProgressionStatusResponse {
+    interviewId: string;
+    currentStage: string;
+    completedStages: string[];
+    nextStage?: string;
+    isBlocked: boolean;
+    blockReason?: string;
+}
+
+export interface CalendarEventResponse {
+    id: string;
+    title: string;
+    start: Date;
+    end: Date;
+    interviewId: string;
+    candidateName: string;
+    interviewerNames: string[];
+    status: InterviewStatus;
+}
