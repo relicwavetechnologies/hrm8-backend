@@ -29,6 +29,11 @@ import {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
 } from '@prisma/client';
 
 export {
@@ -55,6 +60,11 @@ export {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
 };
 
 // ============================================================================

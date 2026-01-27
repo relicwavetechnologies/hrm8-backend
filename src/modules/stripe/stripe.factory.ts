@@ -78,7 +78,7 @@ export class StripeFactory {
       }
 
       this.realClient = new Stripe(apiKey, {
-        apiVersion: '2024-12-18.acacia', // Latest stable version
+        apiVersion: '2025-02-24.acacia', // Latest stable version
       });
     }
 
