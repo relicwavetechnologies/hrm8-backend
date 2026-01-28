@@ -11,6 +11,7 @@ router.get('/jobs/filters', publicController.getJobFilters);
 router.get('/jobs/aggregations', publicController.getJobAggregations);
 router.get('/jobs/:jobId/application-form', publicController.getJobApplicationForm);
 router.get('/jobs/:jobId/related', publicController.getRelatedJobs);
+router.post('/jobs/:jobId/track', publicController.trackAnalytics);
 
 // Careers Pages
 router.get('/careers/companies', publicController.getCareersCompanies);

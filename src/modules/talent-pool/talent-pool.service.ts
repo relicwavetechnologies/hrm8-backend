@@ -1,7 +1,7 @@
 import { BaseService } from '../../core/service';
 import { TalentPoolRepository } from './talent-pool.repository';
 import { HttpException } from '../../core/http-exception';
-import { SearchTalentRequest, InviteCandidateRequest } from './talent-pool.types';
+import { SearchTalentRequest, InviteCandidateRequest, BulkInviteRequest } from './talent-pool.types';
 import { JobInvitationStatus } from '../../types';
 import crypto from 'crypto';
 import { env } from '../../config/env';
@@ -73,6 +73,39 @@ export class TalentPoolService extends BaseService {
         // await emailService.sendJobInvitation(email, inviteLink, message);
 
         return invitation;
+    }
+
+    /**
+     * Bulk Invite Candidates
+     */
+    async bulkInviteCandidates(data: BulkInviteRequest, inviterId: string) {
+        const results = [];
+        const errors = [];
+
+        for (const candidate of data.candidates) {
+            try {
+                const invitation = await this.inviteCandidate({
+                    jobId: data.jobId,
+                    candidateId: candidate.candidateId,
+                    email: candidate.email,
+                    name: candidate.name,
+                    message: data.message
+                }, inviterId);
+                results.push(invitation);
+            } catch (error) {
+                errors.push({
+                    email: candidate.email,
+                    error: error instanceof Error ? error.message : 'Failed to invite'
+                });
+            }
+        }
+
+        return {
+            invitedCount: results.length,
+            errorCount: errors.length,
+            results,
+            errors
+        };
     }
 
     /**

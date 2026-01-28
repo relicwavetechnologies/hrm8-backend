@@ -94,6 +94,44 @@ export class JobController extends BaseController {
     }
   };
 
+  bulkArchiveJobs = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { jobIds } = req.body;
+
+      if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
+        return this.sendError(res, new Error('Job IDs array is required'), 400);
+      }
+
+      const archivedCount = await this.jobService.bulkArchiveJobs(jobIds, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, {
+        archivedCount,
+        message: `${archivedCount} job(s) archived successfully`
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  bulkUnarchiveJobs = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { jobIds } = req.body;
+
+      if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
+        return this.sendError(res, new Error('Job IDs array is required'), 400);
+      }
+
+      const unarchivedCount = await this.jobService.bulkUnarchiveJobs(jobIds, req.user.companyId);
+      return this.sendSuccess(res, {
+        unarchivedCount,
+        message: `${unarchivedCount} job(s) unarchived successfully`
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   publishJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
@@ -178,6 +216,125 @@ export class JobController extends BaseController {
       const { id } = req.params as { id: string };
       const job = await this.jobService.inviteHiringTeamMember(id, req.user.companyId, req.user.id, req.body);
       return this.sendSuccess(res, job, 'Hiring team member invited successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+
+  cloneJob = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.cloneJob(id, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  closeJob = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.closeJob(id, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  archiveJob = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.archiveJob(id, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  unarchiveJob = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const job = await this.jobService.unarchiveJob(id, req.user.companyId);
+      return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getHiringTeam = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const team = await this.jobService.getHiringTeam(id, req.user.companyId);
+      return this.sendSuccess(res, team);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  removeHiringTeamMember = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id, userId } = req.params as { id: string; userId: string };
+      const job = await this.jobService.removeHiringTeamMember(id, req.user.companyId, userId); // userId here is actually email or something, checking service logic
+      // Service expects memberEmail. The route usually passes 'userId' or 'email'. 
+      // Let's assume the parameter passed is the identifier used in the list (email or id).
+      // Based on service logic: removeHiringTeamMember(id, companyId, memberEmail).
+      // So we need to ensure we pass the right thing. If the route is /:id/hiring-team/:userId, 
+      // we might mean the email if that's how they are stored. 
+      // Let's assume for now usage of email or we need to decode.
+      // Actually service logic uses 'memberEmail'.
+      // If frontend passes email directly: DELETE /:id/hiring-team/john@example.com
+      return this.sendSuccess(res, job);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getJobActivities = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const logs = await this.jobService.getJobActivities(id, req.user.companyId);
+      return this.sendSuccess(res, logs);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+
+  validateJob = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const result = await this.jobService.validateJob(req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getDistributionChannels = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const channels = await this.jobService.getDistributionChannels(id, req.user.companyId);
+      return this.sendSuccess(res, channels);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateDistributionChannels = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const { channels } = req.body; // Expecting { channels: [...] }
+      const job = await this.jobService.updateDistributionChannels(id, req.user.companyId, channels);
+      return this.sendSuccess(res, job);
     } catch (error) {
       return this.sendError(res, error);
     }

@@ -15,7 +15,15 @@ export interface UpdateEmailTemplateRequest extends Partial<CreateEmailTemplateR
 export interface GenerateAITemplateRequest {
     prompt: string;
     category?: string;
-    tone?: string;
+    tone?: 'professional' | 'friendly' | 'casual' | 'formal' | string;
+    jobId?: string;
+    companyId?: string;
+    templateType?: EmailTemplateType;
+}
+
+export interface EnhanceAITemplateRequest {
+    body: string;
+    instructions: string;
 }
 
 export interface PreviewTemplateRequest {

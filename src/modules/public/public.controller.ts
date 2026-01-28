@@ -15,18 +15,22 @@ export class PublicController extends BaseController {
 
   getJobs = async (req: Request, res: Response) => {
     try {
-      const { search, page, limit } = req.query;
+      const { search, page, limit, location, category, employmentType, companyId } = req.query;
       const pageNum = parseInt(page as string) || 1;
       const limitNum = parseInt(limit as string) || 20;
       const offset = (pageNum - 1) * limitNum;
 
       const result = await this.publicService.getPublicJobs({
         search,
+        location,
+        category,
+        employmentType,
+        companyId,
         limit: limitNum,
         offset
       });
 
-      return this.sendSuccess(res, { 
+      return this.sendSuccess(res, {
         jobs: result.jobs,
         pagination: {
           total: result.total,
@@ -165,6 +169,30 @@ export class PublicController extends BaseController {
     try {
       const categories = await this.publicService.getPublicCategories();
       return this.sendSuccess(res, { categories });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // POST /api/public/jobs/:jobId/track
+  trackAnalytics = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const { event_type, source, session_id, referrer } = req.body;
+
+      const ip_address = req.ip || req.socket.remoteAddress;
+      const user_agent = req.headers['user-agent'];
+
+      await this.publicService.trackAnalytics(jobId, {
+        event_type,
+        source,
+        session_id,
+        referrer,
+        ip_address: typeof ip_address === 'string' ? ip_address : undefined,
+        user_agent
+      });
+
+      return this.sendSuccess(res, { success: true });
     } catch (error) {
       return this.sendError(res, error);
     }

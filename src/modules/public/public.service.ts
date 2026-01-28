@@ -12,17 +12,31 @@ export class PublicService extends BaseService {
   }
 
   async getPublicJobs(filters: any) {
-    const { limit, offset, ...queryFilters } = filters;
+    const { limit, offset, search, location, category, employmentType, companyId } = filters;
 
-    // Transform filters to Prisma where clause format
     const where: any = {};
-    if (queryFilters.search) {
+    if (search) {
       where.OR = [
-        { title: { contains: queryFilters.search, mode: 'insensitive' } },
-        { description: { contains: queryFilters.search, mode: 'insensitive' } }
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
       ];
     }
-    // Add other filter mappings as needed...
+
+    if (location && location !== 'All Locations') {
+      where.location = location;
+    }
+
+    if (category && category !== 'All Categories') {
+      where.category = category;
+    }
+
+    if (employmentType && employmentType !== 'All Types') {
+      where.employment_type = employmentType;
+    }
+
+    if (companyId) {
+      where.company_id = companyId;
+    }
 
     return this.jobRepository.findPublicJobs(where, limit, offset);
   }
@@ -97,33 +111,51 @@ export class PublicService extends BaseService {
 
   // Get available filter options
   async getJobFilters() {
-    const [locations, employmentTypes] = await Promise.all([
+    const [locations, employmentTypes, categories] = await Promise.all([
       this.prisma.job.findMany({
-        where: { status: 'OPEN' },
+        where: { status: 'OPEN', visibility: 'public', archived: false },
         select: { location: true },
         distinct: ['location'],
       }),
       this.prisma.job.findMany({
-        where: { status: 'OPEN' },
+        where: { status: 'OPEN', visibility: 'public', archived: false },
         select: { employment_type: true },
         distinct: ['employment_type'],
+      }),
+      this.prisma.job.findMany({
+        where: { status: 'OPEN', visibility: 'public', archived: false },
+        select: { category: true },
+        distinct: ['category'],
       }),
     ]);
 
     return {
       locations: locations.map((l: any) => l.location).filter(Boolean),
-      categories: [], // Category model needs to be added to schema
+      categories: categories.map((c: any) => c.category).filter(Boolean),
       employmentTypes: employmentTypes.map((e: any) => e.employment_type).filter(Boolean),
     };
   }
 
   // Get filter aggregations for faceted search
   async getJobAggregations(filters: any) {
+    const { search, location, category, employmentType, companyId } = filters;
+
     const where: any = {
       status: 'OPEN',
+      visibility: 'public',
+      archived: false
     };
 
-    const [locationCounts, typeCounts] = await Promise.all([
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    if (companyId) where.company_id = companyId;
+
+    const [locationCounts, typeCounts, categoryCounts] = await Promise.all([
       this.prisma.job.groupBy({
         by: ['location'],
         where,
@@ -134,12 +166,17 @@ export class PublicService extends BaseService {
         where,
         _count: { id: true },
       }),
+      this.prisma.job.groupBy({
+        by: ['category'],
+        where,
+        _count: { id: true },
+      }),
     ]);
 
     return {
       locations: locationCounts.map((l: any) => ({ value: l.location, count: l._count.id })),
-      categories: [], // Category model needs to be added to schema
       employmentTypes: typeCounts.map((t: any) => ({ value: t.employment_type, count: t._count.id })),
+      categories: categoryCounts.map((c: any) => ({ value: c.category, count: c._count.id }))
     };
   }
 
@@ -153,6 +190,7 @@ export class PublicService extends BaseService {
       select: {
         id: true,
         title: true,
+        application_form: true,
       },
     });
 
@@ -160,10 +198,19 @@ export class PublicService extends BaseService {
       return null;
     }
 
+    // Default fields if application_form is empty
+    const defaultFields = [
+      { id: 'first_name', label: 'First Name', type: 'text', required: true },
+      { id: 'last_name', label: 'Last Name', type: 'text', required: true },
+      { id: 'email', label: 'Email', type: 'email', required: true },
+      { id: 'phone', label: 'Phone Number', type: 'text', required: true },
+      { id: 'resume', label: 'Resume', type: 'file', required: true },
+    ];
+
     return {
       jobId: job.id,
       jobTitle: job.title,
-      fields: [], // Application form fields to be implemented
+      fields: job.application_form || defaultFields,
     };
   }
 
@@ -250,5 +297,41 @@ export class PublicService extends BaseService {
     // NOTE: Category model needs to be added to Prisma schema
     // For now, returning empty array
     return [];
+  }
+
+  // Track analytics event
+  async trackAnalytics(jobId: string, data: {
+    event_type: string;
+    source?: string;
+    session_id?: string;
+    referrer?: string;
+    ip_address?: string;
+    user_agent?: string;
+  }) {
+    await this.prisma.jobAnalytics.create({
+      data: {
+        job_id: jobId,
+        event_type: data.event_type,
+        source: data.source || 'HRM8_BOARD',
+        session_id: data.session_id,
+        ip_address: data.ip_address,
+        user_agent: data.user_agent,
+        referrer: data.referrer,
+      }
+    });
+
+    if (data.event_type === 'DETAIL_VIEW') {
+      await this.prisma.job.update({
+        where: { id: jobId },
+        data: { views_count: { increment: 1 } }
+      });
+    } else if (data.event_type === 'APPLY_CLICK') {
+      await this.prisma.job.update({
+        where: { id: jobId },
+        data: { clicks_count: { increment: 1 } }
+      });
+    }
+
+    return { success: true };
   }
 }

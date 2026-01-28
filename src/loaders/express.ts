@@ -36,6 +36,8 @@ import analyticsRoutes from '../modules/analytics/analytics.routes';
 import adminRoutes from '../modules/admin/admin.routes';
 import assessRoutes from '../modules/assess/assess.routes';
 import conversationRoutes from '../modules/conversation/conversation.routes';
+import consultant360Routes from '../modules/consultant-360/consultant-360.routes';
+import employerRoutes from '../modules/employer/employer.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { env } from '../config/env';
 import { loggingMiddleware } from '../middleware/logging.middleware';
@@ -94,6 +96,8 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/admin', adminRoutes);
   app.use('/api/assess', assessRoutes);
   app.use('/api/conversations', conversationRoutes);
+  app.use('/api/consultant360', consultant360Routes);
+  app.use('/api/employer', employerRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

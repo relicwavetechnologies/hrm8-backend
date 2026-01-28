@@ -30,27 +30,48 @@ export class EmailRepository extends BaseRepository {
      * Find emails
      */
     async findAll(filter: EmailFilter, page = 1, limit = 20) {
-        const where: any = {};
-        if (filter.senderId) where.sender_id = filter.senderId;
-        if (filter.status) where.status = filter.status;
-        if (filter.jobId) where.job_id = filter.jobId;
-        // For 'inbox' concept - usually means received by someone.
-        // In this system, if we are filtering by 'candidateId', it might mean emails sent TO the candidate?
-        // The current model stores 'to', so we might search by 'to' email, or 'candidate_id' foreign key.
-
-        // If candidateId is provided, we likely want emails where candidate_id matches.
-        if (filter.candidateId) where.candidate_id = filter.candidateId;
+        const where = this.buildWhere(filter);
 
         return this.prisma.emailMessage.findMany({
             where,
             orderBy: { sent_at: 'desc' },
             skip: (page - 1) * limit,
-            take: limit,
+            take: Number(limit),
             include: {
                 job: { select: { title: true } },
                 email_template: { select: { name: true } }
             }
         });
+    }
+
+    /**
+     * Count emails matching filter
+     */
+    async count(filter: EmailFilter) {
+        const where = this.buildWhere(filter);
+        return this.prisma.emailMessage.count({ where });
+    }
+
+    /**
+     * Internal helper to build where clause
+     */
+    private buildWhere(filter: EmailFilter) {
+        const where: any = {};
+        if (filter.senderId) where.sender_id = filter.senderId;
+        if (filter.status) where.status = filter.status;
+        if (filter.jobId) where.job_id = filter.jobId;
+        if (filter.candidateId) where.candidate_id = filter.candidateId;
+        if (filter.applicationId) where.application_id = filter.applicationId;
+        if (filter.jobRoundId) where.job_round_id = filter.jobRoundId;
+
+        // Date range
+        if (filter.startDate || filter.endDate) {
+            where.sent_at = {};
+            if (filter.startDate) where.sent_at.gte = new Date(filter.startDate);
+            if (filter.endDate) where.sent_at.lte = new Date(filter.endDate);
+        }
+
+        return where;
     }
 
     /**

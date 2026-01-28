@@ -8,6 +8,7 @@ const controller = new TalentPoolController();
 // Protected Routes
 router.get('/search', authenticate, controller.search);
 router.post('/invite', authenticate, controller.invite);
+router.post('/bulk-invite', authenticate, controller.bulkInvite);
 
 // Candidate Details
 router.get('/candidates/:id', authenticate, controller.getCandidate);

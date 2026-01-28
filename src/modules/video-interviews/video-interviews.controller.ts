@@ -69,6 +69,49 @@ export class VideoInterviewController extends BaseController {
     };
 
     /**
+     * Get all interviews for the company
+     */
+    getCompanyInterviews = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user?.companyId) {
+                return this.sendError(res, new Error('Company ID not found in request'), 400);
+            }
+            const interviews = await this.service.getCompanyInterviews(req.user.companyId);
+            return this.sendSuccess(res, interviews);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Get interviews for an application (Candidate)
+     */
+    getApplicationInterviews = async (req: any, res: Response) => {
+        try {
+            const { applicationId } = req.params;
+            const interviews = await this.service.getApplicationInterviews(applicationId);
+            return this.sendSuccess(res, interviews);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Update Interview Status
+     */
+    updateStatus = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const { id } = req.params;
+            const { status } = req.body;
+            const result = await this.service.updateStatus(id as string, status, req.user.id);
+            return this.sendSuccess(res, result, 'Interview status updated');
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
      * Reschedule Interview
      */
     rescheduleInterview = async (req: AuthenticatedRequest, res: Response) => {

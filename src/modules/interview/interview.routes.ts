@@ -3,12 +3,22 @@ import { InterviewController } from './interview.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 
 const router = Router();
-const interviewController = new InterviewController();
+const controller = new InterviewController();
 
-router.post('/', authenticate, interviewController.create);
-router.get('/job/:jobId', authenticate, interviewController.listByJob);
-router.get('/:id', authenticate, interviewController.getById);
-router.patch('/:id/status', authenticate, interviewController.updateStatus);
-router.post('/:id/feedback', authenticate, interviewController.addFeedback);
+router.use(authenticate);
+
+router.post('/', controller.create);
+router.get('/', controller.getInterviews);
+router.post('/bulk/reschedule', controller.bulkReschedule);
+router.post('/bulk/cancel', controller.bulkCancel);
+router.get('/calendar/events', controller.getCalendarEvents);
+router.get('/job/:jobId', controller.listByJob);
+router.get('/:id', controller.getById);
+router.patch('/:id/status', controller.updateStatus);
+router.put('/:id/status', controller.updateStatus); // Alias for compatibility
+router.post('/:id/feedback', controller.addFeedback);
+router.put('/:id/reschedule', controller.rescheduleInterview);
+router.put('/:id/cancel', controller.cancelInterview);
+router.put('/:id/no-show', controller.markAsNoShow);
 
 export default router;

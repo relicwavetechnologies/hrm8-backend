@@ -16,8 +16,19 @@ import { OfferStatus } from '../../types'; // Ensure types available or import f
 import { OfferNegotiation, OfferDocument, Prisma } from '@prisma/client';
 import { env } from '../../config/env';
 
+import { ApplicationService } from '../application/application.service';
+import { EmailService } from '../email/email.service';
+import { JobRoundRepository } from '../job/job-round.repository';
+import { ApplicationRepository } from '../application/application.repository';
+
 export class OfferService extends BaseService {
-  constructor(private repository: OfferRepository) {
+  constructor(
+    private repository: OfferRepository,
+    private applicationService: ApplicationService,
+    private emailService: EmailService,
+    private jobRoundRepository: JobRoundRepository,
+    private applicationRepository: ApplicationRepository
+  ) {
     super();
   }
 
@@ -104,7 +115,9 @@ export class OfferService extends BaseService {
   async sendOffer(id: string, userId: string, request: SendOfferRequest) {
     const offer = await this.getOffer(id);
 
-    // Logic: Authenticate that user can send? (Controller handles auth)
+    if (offer.status !== OfferStatus.DRAFT && offer.status !== 'PENDING_APPROVAL') {
+      throw new HttpException(400, 'Offer must be in draft or pending approval to send');
+    }
 
     // 1. Update Status
     const sentDate = new Date();
@@ -114,13 +127,35 @@ export class OfferService extends BaseService {
       custom_message: request.customMessage,
     });
 
-    // 2. Generate PDF (Mock)
-    // const pdfUrl = await pdfService.generateOfferPdf(updatedOffer);
+    // 2. Move application to OFFER round
+    const jobRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'OFFER');
+    if (jobRound) {
+      await this.applicationService.moveToRound(offer.application_id, jobRound.id, userId);
+    }
 
-    // 3. Send Email (Mock)
+    // 3. Update application stage
+    await this.applicationRepository.updateStage(offer.application_id, 'OFFER_EXTENDED' as any);
+
+    // 4. Send Email
     if (offer.candidate && offer.candidate.email) {
-      console.log(`[Email Mock] Sending Offer Letter to ${offer.candidate.email}`);
-      // emailService.sendOffer(offer.candidate.email, updatedOffer);
+      try {
+        await this.emailService.sendOfferEmail({
+          to: offer.candidate.email,
+          candidateName: `${offer.candidate.first_name} ${offer.candidate.last_name}`,
+          jobTitle: (offer.job as any)?.title || 'Position',
+          offerUrl: `${env.FRONTEND_URL}/candidate/offers/${id}`,
+          salary: offer.salary,
+          salaryCurrency: offer.salary_currency,
+          salaryPeriod: offer.salary_period,
+          startDate: offer.start_date,
+          benefits: (offer.benefits as string[]) || [],
+          offerType: offer.offer_type,
+          workLocation: offer.work_location,
+          workArrangement: offer.work_arrangement
+        });
+      } catch (err) {
+        console.warn('Failed to send offer email:', err);
+      }
     }
 
     return updatedOffer;
@@ -137,7 +172,27 @@ export class OfferService extends BaseService {
    * Accept Offer
    */
   async acceptOffer(id: string, userId: string) {
-    return this.updateStatus(id, OfferStatus.ACCEPTED, userId);
+    const offer = await this.getOffer(id);
+
+    if (offer.status !== OfferStatus.SENT && offer.status !== 'UNDER_NEGOTIATION') {
+      throw new HttpException(400, 'Offer cannot be accepted in current status');
+    }
+
+    const updatedOffer = await this.repository.update(id, {
+      status: OfferStatus.ACCEPTED,
+      responded_date: new Date()
+    });
+
+    // Move to HIRED round
+    const hiredRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'HIRED');
+    if (hiredRound) {
+      await this.applicationService.moveToRound(offer.application_id, hiredRound.id, userId);
+    }
+
+    // Update Stage
+    await this.applicationRepository.updateStage(offer.application_id, 'OFFER_ACCEPTED' as any);
+
+    return updatedOffer;
   }
 
   /**

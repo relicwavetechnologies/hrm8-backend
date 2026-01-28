@@ -1,12 +1,16 @@
 import { BaseService } from '../../core/service';
 import { EmailTriggerRepository } from './email-triggers.repository';
+import { EmailTemplateRepository } from './email-templates.repository';
 import { CreateTriggerRequest, UpdateTriggerRequest, TestTriggerRequest } from './email-triggers.types';
 import { HttpException } from '../../core/http-exception';
 import { AuthenticatedRequest } from '../../types';
 
 export class EmailTriggerService extends BaseService {
+    private templateRepository: EmailTemplateRepository;
+
     constructor(private repository: EmailTriggerRepository) {
         super();
+        this.templateRepository = new EmailTemplateRepository();
     }
 
     /**
@@ -33,9 +37,11 @@ export class EmailTriggerService extends BaseService {
     async createTrigger(data: CreateTriggerRequest, user: AuthenticatedRequest['user']) {
         if (!user) throw new HttpException(401, 'Unauthorized');
 
-        // We should ideally check if the user has access to the job round / template company
-        // Assuming for now that if they can access the IDs, they are valid, or DB constrains will fail
-        // In a real app, verify ownership of templateId and jobRoundId
+        // Verify template ownership
+        const template = await this.templateRepository.findByIdAndCompany(data.templateId, user.companyId);
+        if (!template) {
+            throw new HttpException(404, 'Email template not found or does not belong to your company');
+        }
 
         return this.repository.create({
             templateId: data.templateId,

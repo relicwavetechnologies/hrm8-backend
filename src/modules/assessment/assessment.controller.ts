@@ -2,6 +2,7 @@ import { Response, Request } from 'express';
 import { BaseController } from '../../core/controller';
 import { AssessmentService } from './assessment.service';
 import { AssessmentRepository } from './assessment.repository';
+import { AuthenticatedRequest } from '../../types';
 
 export class AssessmentController extends BaseController {
   private assessmentService: AssessmentService;
@@ -67,6 +68,71 @@ export class AssessmentController extends BaseController {
       const { roundId } = req.params as { roundId: string };
       const assessments = await this.assessmentService.getRoundAssessments(roundId);
       return this.sendSuccess(res, { assessments });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getAssessmentResults = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const data = await this.assessmentService.getAssessmentResults(id);
+      return this.sendSuccess(res, { assessment: data });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getAssessmentForGrading = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const data = await this.assessmentService.getAssessmentForGrading(id);
+      return this.sendSuccess(res, { assessment: data });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resendAssessmentInvitation = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      await this.assessmentService.resendAssessmentInvitation(id);
+      return this.sendSuccess(res, { message: 'Invitation resent successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  gradeResponse = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { responseId, score, feedback } = req.body;
+      const graderId = req.user?.id || 'system';
+      const result = await this.assessmentService.gradeResponse(responseId, { score, feedback, graderId });
+      return this.sendSuccess(res, { result }, 'Response graded successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addAssessmentComment = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const { comment } = req.body;
+      const authorId = req.user?.id || 'system';
+      const authorName = req.user?.name || 'Recruiter';
+      const result = await this.assessmentService.addAssessmentComment(id, { comment, authorId, authorName });
+      return this.sendSuccess(res, { comment: result }, 'Comment added successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  scoreAssessment = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const { totalScore, passed, feedback } = req.body;
+      const result = await this.assessmentService.scoreAssessment(id, { totalScore, passed, feedback });
+      return this.sendSuccess(res, { assessment: result }, 'Assessment scored successfully');
     } catch (error) {
       return this.sendError(res, error);
     }

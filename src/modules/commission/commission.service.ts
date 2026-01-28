@@ -138,4 +138,29 @@ export class CommissionService extends BaseService {
             return { success: false, error: error.message };
         }
     }
+
+    /**
+     * Confirm all pending commissions associated with a specific job
+     * This is typically triggered when an employer approves a hire.
+     */
+    static async confirmCommissionForJob(jobId: string): Promise<{ success: boolean; error?: string }> {
+        try {
+            const result = await prisma.commission.updateMany({
+                where: {
+                    job_id: jobId,
+                    status: CommissionStatus.PENDING
+                },
+                data: {
+                    status: CommissionStatus.CONFIRMED,
+                    confirmed_at: new Date()
+                }
+            });
+
+            console.log(`✅ Confirmed ${result.count} commissions for job ${jobId}`);
+            return { success: true };
+        } catch (error: any) {
+            console.error('Confirm commission for job error:', error);
+            return { success: false, error: error.message };
+        }
+    }
 }

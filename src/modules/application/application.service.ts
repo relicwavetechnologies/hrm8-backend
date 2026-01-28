@@ -1,15 +1,20 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
+import { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters, AnonymousApplicationRequest } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
 import { CandidateService } from '../candidate/candidate.service';
 import { JobRepository } from '../job/job.repository';
+import { AssessmentService } from '../assessment/assessment.service';
+import { AssessmentRepository } from '../assessment/assessment.repository';
 
 export class ApplicationService extends BaseService {
+  private assessmentService: AssessmentService;
+
   constructor(private applicationRepository: ApplicationRepository) {
     super();
+    this.assessmentService = new AssessmentService(new AssessmentRepository());
   }
 
   async submitApplication(data: SubmitApplicationRequest): Promise<Application> {
@@ -270,8 +275,20 @@ export class ApplicationService extends BaseService {
     return this.createManualApplication(companyId, jobId, candidateId, recruiterId, {});
   }
 
-  async moveToRound(id: string, roundId: string): Promise<ApplicationRoundProgress> {
-    return this.applicationRepository.moveToRound(id, roundId);
+  async moveToRound(id: string, roundId: string, invitedBy?: string): Promise<ApplicationRoundProgress> {
+    const progress = await this.applicationRepository.moveToRound(id, roundId);
+
+    // Check if round is an assessment round
+    const round = await this.prisma.jobRound.findUnique({
+      where: { id: roundId },
+      select: { type: true }
+    });
+
+    if (round?.type === 'ASSESSMENT' && invitedBy) {
+      await this.assessmentService.autoAssignAssessment(id, roundId, invitedBy);
+    }
+
+    return progress;
   }
 
   async updateManualScreening(id: string, data: any): Promise<Application> {

@@ -11,6 +11,9 @@ router.get('/variables', authenticate, controller.getVariables);
 // Generate AI template
 router.post('/generate-ai', authenticate, controller.generateAITemplate);
 
+// Enhance AI template
+router.post('/enhance-ai', authenticate, controller.enhanceTemplate);
+
 // Create template
 router.post('/', authenticate, controller.createTemplate);
 

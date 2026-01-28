@@ -136,4 +136,21 @@ export class OfferRepository extends BaseRepository {
             data
         });
     }
+
+    /**
+     * Check if all required documents are approved
+     */
+    async areAllRequiredDocumentsApproved(offerId: string): Promise<boolean> {
+        const requiredDocs = await this.prisma.offerDocument.findMany({
+            where: {
+                offer_id: offerId,
+                is_required: true,
+            },
+        });
+
+        if (requiredDocs.length === 0) return true;
+
+        const allApproved = requiredDocs.every((doc) => doc.status === 'APPROVED');
+        return allApproved;
+    }
 }

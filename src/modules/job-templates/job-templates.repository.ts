@@ -1,32 +1,47 @@
 import { BaseRepository } from '../../core/repository';
-import { Prisma } from '@prisma/client';
+import { CreateJobTemplateRequest, UpdateJobTemplateRequest } from './job-templates.types';
+import { TemplateCategory } from '@prisma/client';
 
-export class JobTemplateRepository extends BaseRepository {
+export class JobTemplatesRepository extends BaseRepository {
     /**
      * Create a new job template
      */
-    async create(data: Prisma.JobTemplateCreateInput) {
+    async create(data: CreateJobTemplateRequest & { companyId: string; createdBy: string }) {
         return this.prisma.jobTemplate.create({
-            data,
+            data: {
+                company_id: data.companyId,
+                created_by: data.createdBy,
+                name: data.name,
+                description: data.description,
+                category: data.category || TemplateCategory.OTHER,
+                is_shared: data.isShared || false,
+                source_job_id: data.sourceJobId,
+                job_data: data.jobData,
+                usage_count: 0,
+            },
         });
     }
 
     /**
-     * Update a job template
+     * Find all templates for a company
      */
-    async update(id: string, data: Prisma.JobTemplateUpdateInput) {
-        return this.prisma.jobTemplate.update({
-            where: { id },
-            data,
-        });
-    }
-
-    /**
-     * Delete a job template
-     */
-    async delete(id: string) {
-        return this.prisma.jobTemplate.delete({
-            where: { id },
+    async findAll(companyId: string) {
+        return this.prisma.jobTemplate.findMany({
+            where: {
+                company_id: companyId,
+            },
+            orderBy: {
+                created_at: 'desc',
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true
+                    }
+                }
+            }
         });
     }
 
@@ -40,59 +55,53 @@ export class JobTemplateRepository extends BaseRepository {
     }
 
     /**
-     * Find all templates for a company
+     * Update a template
      */
-    async findAllByCompany(companyId: string) {
-        return this.prisma.jobTemplate.findMany({
-            where: {
-                company_id: companyId,
-            },
-            orderBy: {
-                created_at: 'desc',
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                    },
-                },
-            },
-        });
-    }
-
-    /**
-     * Find template by ID and Company ID to ensure ownership
-     */
-    async findByIdAndCompany(id: string, companyId: string) {
-        return this.prisma.jobTemplate.findFirst({
-            where: {
-                id,
-                company_id: companyId,
-            },
-        });
-    }
-
-    /**
-     * Find job by ID (used for creating template from job)
-     */
-    async findJobById(jobId: string) {
-        return this.prisma.job.findUnique({
-            where: { id: jobId },
-        });
-    }
-
-    /**
-     * Increment usage count for a template
-     */
-    async incrementUsageCount(id: string) {
+    async update(id: string, data: UpdateJobTemplateRequest) {
+        // Filter out undefined values to avoid overwriting with null/undefined if Prisma behaves strictly
+        // Although Prisma usually ignores undefined in update
         return this.prisma.jobTemplate.update({
             where: { id },
             data: {
-                usage_count: { increment: 1 },
+                name: data.name,
+                description: data.description,
+                category: data.category,
+                is_shared: data.isShared,
+                job_data: data.jobData,
+            },
+        });
+    }
+
+    /**
+     * Delete a template
+     */
+    async delete(id: string) {
+        return this.prisma.jobTemplate.delete({
+            where: { id },
+        });
+    }
+
+    /**
+     * Increment usage count
+     */
+    async recordUsage(id: string) {
+        return this.prisma.jobTemplate.update({
+            where: { id },
+            data: {
+                usage_count: {
+                    increment: 1,
+                },
                 last_used_at: new Date(),
             },
+        });
+    }
+
+    /**
+     * Find Job by ID (helper to get job data)
+     */
+    async findJobById(jobId: string) {
+        return this.prisma.job.findUnique({
+            where: { id: jobId }
         });
     }
 }

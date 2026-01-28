@@ -20,6 +20,16 @@ export interface InviteCandidateRequest {
     name?: string;
 }
 
+export interface BulkInviteRequest {
+    jobId: string;
+    candidates: {
+        candidateId?: string;
+        email: string;
+        name?: string;
+    }[];
+    message?: string;
+}
+
 export interface CandidateSearchResponse {
     candidates: any[];
     total: number;

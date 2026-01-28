@@ -16,6 +16,19 @@ export interface SendEmailRequest {
 export interface EmailFilter {
     senderId?: string; // For sent items
     candidateId?: string; // For inbox (if candidate is checking)
+    applicationId?: string;
+    jobRoundId?: string;
     status?: EmailStatus;
     jobId?: string;
+    startDate?: string | Date;
+    endDate?: string | Date;
+    page?: number;
+    limit?: number;
+}
+
+export interface EmailListResponse {
+    items: any[];
+    total: number;
+    page: number;
+    limit: number;
 }

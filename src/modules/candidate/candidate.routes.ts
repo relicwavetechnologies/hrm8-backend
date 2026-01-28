@@ -3,6 +3,7 @@ import { CandidateController } from './candidate.controller';
 import { CandidateProfileController } from './candidate-profile.controller';
 import { CandidateResumeController } from './candidate-resume.controller';
 import { CandidateDocumentController } from './candidate-document.controller';
+import { CandidateAssessmentController } from './candidate-assessment.controller';
 import { authenticateCandidate } from '../../middlewares/candidate-auth.middleware';
 
 const router = Router();
@@ -10,6 +11,7 @@ const candidateController = new CandidateController();
 const profileController = new CandidateProfileController();
 const resumeController = new CandidateResumeController();
 const documentController = new CandidateDocumentController();
+const assessmentController = new CandidateAssessmentController();
 
 // Auth
 router.post('/auth/login', candidateController.login);
@@ -100,5 +102,11 @@ router.delete('/saved-searches/:id', authenticateCandidate, profileController.de
 // Job Invitations
 router.get('/job-invitations', authenticateCandidate, profileController.getJobInvitations);
 router.post('/job-invitations/respond', authenticateCandidate, profileController.respondToInvitation);
+
+// Assessments
+router.get('/assessments', authenticateCandidate, assessmentController.getAssessments);
+router.get('/assessments/:id', authenticateCandidate, assessmentController.getAssessmentDetails);
+router.post('/assessments/:id/start', authenticateCandidate, assessmentController.startAssessment);
+router.post('/assessments/:id/submit', authenticateCandidate, assessmentController.submitAssessment);
 
 export default router;

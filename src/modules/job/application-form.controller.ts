@@ -3,6 +3,7 @@ import { BaseController } from '../../core/controller';
 import { JobService } from './job.service';
 import { JobRepository } from './job.repository';
 import { AuthenticatedRequest } from '../../types';
+import { QuestionGenerationService } from '../ai/question-generation.service';
 
 export class ApplicationFormController extends BaseController {
     private jobService: JobService;
@@ -38,11 +39,16 @@ export class ApplicationFormController extends BaseController {
 
     generateQuestions = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            // Stub for AI question generation
-            const questions = [
-                { id: '1', question: 'Why are you interested in this role?', type: 'TEXT', required: true },
-                { id: '2', question: 'What is your notice period?', type: 'TEXT', required: true }
-            ];
+            if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+            const { id } = req.params as { id: string };
+            const job = await this.jobService.getJob(id, req.user.companyId);
+
+            const questions = await QuestionGenerationService.generateQuestions(
+                job.title,
+                job.description || '',
+                5
+            );
+
             return this.sendSuccess(res, questions);
         } catch (error) {
             return this.sendError(res, error);

@@ -3,7 +3,7 @@ import { BaseController } from '../../core/controller';
 import { TalentPoolService } from './talent-pool.service';
 import { TalentPoolRepository } from './talent-pool.repository';
 import { AuthenticatedRequest } from '../../types';
-import { SearchTalentRequest, InviteCandidateRequest } from './talent-pool.types';
+import { SearchTalentRequest, InviteCandidateRequest, BulkInviteRequest } from './talent-pool.types';
 
 export class TalentPoolController extends BaseController {
     private service: TalentPoolService;
@@ -46,6 +46,22 @@ export class TalentPoolController extends BaseController {
             const data: InviteCandidateRequest = req.body;
             const result = await this.service.inviteCandidate(data, req.user.id);
             return this.sendSuccess(res, result, 'Invitation sent successfully');
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Bulk Invite Candidates
+     */
+    bulkInvite = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) {
+                return this.sendError(res, new Error('User not authenticated'));
+            }
+            const data: BulkInviteRequest = req.body;
+            const result = await this.service.bulkInviteCandidates(data, req.user.id);
+            return this.sendSuccess(res, result, 'Bulk invitations processed');
         } catch (error) {
             return this.sendError(res, error);
         }

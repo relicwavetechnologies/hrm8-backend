@@ -106,31 +106,15 @@ export class VideoInterviewService extends BaseService {
             throw new HttpException(404, 'Interview not found');
         }
 
-        // We can either update the main interview record or add to the specific InterviewFeedback table
-        // The schema allows both (VideoInterview has feedback JSON, and there is InterviewFeedback table)
-        // For now, let's assume we use the relation.
+        // 1. Add feedback entry
+        const feedback = await this.videoInterviewRepository.addFeedback(id, interviewerId, interviewerName, data);
 
-        // Using prisma directly here via repository ideally, but repository lacks specific feedback method
-        // We should probably add `addFeedback` to repository, but BaseRepository is generic.
-        // Let's rely on update or create relation through repository if we had extended it, 
-        // but here we can just update the main record for simplicity if that's the pattern, 
-        // OR create a feedback entry. Let's create feedback entry logic here, but since 
-        // `VideoInterviewRepository` only has basic CRUD, we might need to access prisma directly 
-        // or add a method.
-        // Let's just update the main interview status to COMPLETED if appropriate.
-
-        // For this migration, let's keep it simple: Update status to COMPLETED and store feedback in the JSON field 
-        // if that is sufficient, OR if strict schema usage is required.
-        // schema has `interview_feedback` relation.
-
-        // Let's Assume we just update the interview status for now.
-
-        const updated = await this.videoInterviewRepository.update(id, {
-            status: InterviewStatus.COMPLETED,
-            // feedback: data as any // Storing in JSON field
+        // 2. Update the main interview status to COMPLETED
+        await this.videoInterviewRepository.update(id, {
+            status: InterviewStatus.COMPLETED
         });
 
-        return updated;
+        return feedback;
     }
 
     async getInterview(id: string) {
@@ -139,6 +123,30 @@ export class VideoInterviewService extends BaseService {
 
     async getJobInterviews(jobId: string) {
         return this.videoInterviewRepository.findAllByJob(jobId);
+    }
+
+    /**
+     * Get all interviews for a company
+     */
+    async getCompanyInterviews(companyId: string) {
+        return this.videoInterviewRepository.findAllByCompany(companyId);
+    }
+
+    /**
+     * Get interviews for an application (Candidate Portal)
+     */
+    async getApplicationInterviews(applicationId: string) {
+        return this.videoInterviewRepository.findAllByApplication(applicationId);
+    }
+
+    /**
+     * Update interview status
+     */
+    async updateStatus(id: string, status: InterviewStatus, userId: string) {
+        const interview = await this.getInterview(id);
+        if (!interview) throw new HttpException(404, 'Interview not found');
+
+        return this.videoInterviewRepository.update(id, { status });
     }
 
     private generateMeetingLink() {

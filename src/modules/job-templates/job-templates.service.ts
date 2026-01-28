@@ -1,33 +1,28 @@
 import { BaseService } from '../../core/service';
-import { JobTemplateRepository } from './job-templates.repository';
-import { HttpException } from '../../core/http-exception';
+import { JobTemplatesRepository } from './job-templates.repository';
 import { CreateJobTemplateRequest, UpdateJobTemplateRequest } from './job-templates.types';
-import { AuthenticatedRequest } from '../../types';
+import { HttpException } from '../../core/http-exception';
+import { TemplateCategory } from '@prisma/client';
 
-export class JobTemplateService extends BaseService {
-    constructor(private repository: JobTemplateRepository) {
+export class JobTemplatesService extends BaseService {
+    constructor(private readonly repository: JobTemplatesRepository) {
         super();
     }
 
-    /**
-     * Create a template from an existing job
-     */
-    async createFromJob(jobId: string, name: string, user: AuthenticatedRequest['user']) {
-        if (!user) throw new HttpException(401, 'Unauthorized');
-
-        // 1. Get the source job
+    async createFromJob(jobId: string, name: string, user: { companyId: string; id: string }) {
         const job = await this.repository.findJobById(jobId);
         if (!job) {
             throw new HttpException(404, 'Job not found');
         }
 
-        // 2. Verify company ownership
+        // Check ownership
+        // Job model has company_id field name as per schema
         if (job.company_id !== user.companyId) {
-            throw new HttpException(403, 'You do not have permission to access this job');
+            throw new HttpException(403, 'Unauthorized access to job');
         }
 
-        // 3. Prepare job data for template
-        // Remove ID, timestamps, and specific fields that shouldn't be in template
+        // Clean job data for template
+        // We remove fields linked to specific job instance to avoid carrying over ID, dates, etc.
         const {
             id,
             created_at,
@@ -36,106 +31,66 @@ export class JobTemplateService extends BaseService {
             created_by,
             posting_date,
             close_date,
-            status, // Templates don't have job status
-            pipeline, // Pipeline progress irrelevant
-            clicks_count,
             views_count,
-            assignments, // Remove relation fields if any
-            applications,
-            ...templateData
+            clicks_count,
+            expires_at,
+            assigned_consultant_id,
+            assignment_source,
+            payment_status,
+            payment_completed_at,
+            ...jobData
         } = job as any;
 
-        // 4. Create the template
         return this.repository.create({
             name: name || `Template from ${job.title}`,
-            company: { connect: { id: user.companyId } },
-            user: { connect: { id: user.id } },
-            job: { connect: { id: jobId } },
-            job_data: templateData,
-            description: job.description?.substring(0, 100) || 'Created from existing job',
+            sourceJobId: jobId,
+            jobData: jobData,
+            companyId: user.companyId,
+            createdBy: user.id,
+            category: TemplateCategory.OTHER,
         });
     }
 
-    /**
-     * Create a new template from scratch
-     */
-    async createTemplate(data: CreateJobTemplateRequest, user: AuthenticatedRequest['user']) {
-        if (!user) throw new HttpException(401, 'Unauthorized');
-
+    async createTemplate(data: CreateJobTemplateRequest, user: { companyId: string; id: string }) {
         return this.repository.create({
-            name: data.name,
-            description: data.description,
-            category: data.category,
-            is_shared: data.isShared || false,
-            job_data: data.jobData,
-            company: { connect: { id: user.companyId } },
-            user: { connect: { id: user.id } },
+            ...data,
+            companyId: user.companyId,
+            createdBy: user.id
         });
     }
 
-    /**
-     * Get all templates for a company
-     */
-    async getCompanyTemplates(companyId: string) {
-        return this.repository.findAllByCompany(companyId);
+    async getTemplates(companyId: string) {
+        return this.repository.findAll(companyId);
     }
 
-    /**
-     * Get a specific template
-     */
     async getTemplate(id: string, companyId: string) {
-        const template = await this.repository.findByIdAndCompany(id, companyId);
+        const template = await this.repository.findById(id);
         if (!template) {
             throw new HttpException(404, 'Template not found');
+        }
+        if (template.company_id !== companyId) {
+            throw new HttpException(403, 'Unauthorized');
         }
         return template;
     }
 
-    /**
-     * Get just the job data from a template (for populating a new job)
-     */
     async getTemplateJobData(id: string, companyId: string) {
         const template = await this.getTemplate(id, companyId);
-
-        // Increment usage count
-        await this.repository.incrementUsageCount(id);
-
         return template.job_data;
     }
 
-    /**
-     * Record template usage (explicit route)
-     */
-    async recordUsage(id: string, companyId: string) {
-        await this.getTemplate(id, companyId);
-        return this.repository.incrementUsageCount(id);
+    async updateTemplate(id: string, data: UpdateJobTemplateRequest, companyId: string) {
+        await this.getTemplate(id, companyId); // Performs auth check
+        return this.repository.update(id, data);
     }
 
-    /**
-     * Update a template
-     */
-    async updateTemplate(id: string, data: UpdateJobTemplateRequest, user: AuthenticatedRequest['user']) {
-        if (!user) throw new HttpException(401, 'Unauthorized');
-
-        // Verify existence and ownership
-        await this.getTemplate(id, user.companyId);
-
-        return this.repository.update(id, {
-            name: data.name,
-            description: data.description,
-            category: data.category,
-            is_shared: data.isShared,
-            job_data: data.jobData,
-        });
-    }
-
-    /**
-     * Delete a template
-     */
     async deleteTemplate(id: string, companyId: string) {
-        // Verify existence and ownership
-        await this.getTemplate(id, companyId);
-
+        await this.getTemplate(id, companyId); // Performs auth check
         return this.repository.delete(id);
+    }
+
+    async recordUsage(id: string, companyId: string) {
+        await this.getTemplate(id, companyId); // Auth check
+        return this.repository.recordUsage(id);
     }
 }

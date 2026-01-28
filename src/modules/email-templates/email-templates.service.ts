@@ -4,10 +4,12 @@ import { HttpException } from '../../core/http-exception';
 import {
     CreateEmailTemplateRequest,
     UpdateEmailTemplateRequest,
-    GenerateAITemplateRequest
+    GenerateAITemplateRequest,
+    EnhanceAITemplateRequest
 } from './email-templates.types';
 import { AuthenticatedRequest } from '../../types';
 import { EmailTemplateType } from '@prisma/client';
+import { EmailTemplateAIService } from '../ai/email-template-ai.service';
 
 export class EmailTemplateService extends BaseService {
     constructor(private repository: EmailTemplateRepository) {
@@ -80,16 +82,23 @@ export class EmailTemplateService extends BaseService {
     }
 
     /**
-     * Generate AI template (Mock implementation)
+     * Generate AI template
      */
     async generateAITemplate(request: GenerateAITemplateRequest) {
-        // In a real implementation, this would call OpenAI
-        // returning a mock response for now
-        return {
-            subject: `Subject for: ${request.prompt}`,
-            body: `<p>This is an AI generated email body for the prompt: "${request.prompt}"</p><p>Tone: ${request.tone || 'Professional'}</p>`,
-            variables: ['{{variable1}}', '{{variable2}}']
-        };
+        return EmailTemplateAIService.generateTemplate({
+            type: request.templateType || (request.category as any) || 'CUSTOM',
+            jobTitle: request.jobId || 'Unknown Position', // Ideally fetch from job repository
+            companyName: request.companyId || 'Unknown Company', // Ideally fetch from company repository
+            candidateName: 'Candidate', // Placeholder
+            context: request.prompt + (request.tone ? `. Tone: ${request.tone}` : '')
+        });
+    }
+
+    /**
+     * Enhance existing template using AI
+     */
+    async enhanceTemplate(request: EnhanceAITemplateRequest) {
+        return EmailTemplateAIService.enhanceTemplate(request.body, request.instructions);
     }
 
     /**

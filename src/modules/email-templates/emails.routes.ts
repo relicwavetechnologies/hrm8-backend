@@ -19,4 +19,7 @@ router.get('/inbox', controller.getInbox);
 // Get email details
 router.get('/:id', controller.getEmail);
 
+// Resend email
+router.post('/:id/resend', controller.resendEmail);
+
 export default router;

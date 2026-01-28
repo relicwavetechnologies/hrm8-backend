@@ -11,8 +11,8 @@ export class JobRoundRepository extends BaseRepository {
         return rounds.map(this.mapToEntity);
     }
 
-    async findRound(roundId: string): Promise<JobRound | null> {
-        const round = await this.prisma.jobRound.findUnique({
+    async findRound(roundId: string): Promise<any | null> {
+        return this.prisma.jobRound.findUnique({
             where: { id: roundId },
             include: {
                 job: {
@@ -22,9 +22,13 @@ export class JobRoundRepository extends BaseRepository {
                 }
             }
         });
+    }
 
-        if (!round) return null;
-        return this.mapToEntity(round);
+    async findJobById(jobId: string) {
+        return this.prisma.job.findUnique({
+            where: { id: jobId },
+            select: { id: true, company_id: true }
+        });
     }
 
     async createRound(data: {
@@ -78,6 +82,22 @@ export class JobRoundRepository extends BaseRepository {
             orderBy: { order: 'desc' }
         });
         return (lastRound?.order || 0) + 1;
+    }
+
+    async reorderRounds(jobId: string): Promise<void> {
+        const rounds = await this.prisma.jobRound.findMany({
+            where: { job_id: jobId },
+            orderBy: { order: 'asc' }
+        });
+
+        for (let i = 0; i < rounds.length; i++) {
+            if (rounds[i].order !== i + 1) {
+                await this.prisma.jobRound.update({
+                    where: { id: rounds[i].id },
+                    data: { order: i + 1 }
+                });
+            }
+        }
     }
 
     // Helper to map Prisma result to domain entity

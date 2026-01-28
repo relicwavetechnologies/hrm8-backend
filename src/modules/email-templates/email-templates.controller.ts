@@ -102,12 +102,30 @@ export class EmailTemplateController extends BaseController {
      */
     generateAITemplate = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const { prompt, category, tone } = req.body;
-            if (!prompt) {
+            const data = req.body;
+            if (!data.prompt) {
                 return this.sendError(res, new Error('Prompt is required'), 400);
             }
 
-            const result = await this.service.generateAITemplate({ prompt, category, tone });
+            const result = await this.service.generateAITemplate(data);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Enhance template using AI
+     * POST /api/email-templates/enhance-ai
+     */
+    enhanceTemplate = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { body, instructions } = req.body;
+            if (!body || !instructions) {
+                return this.sendError(res, new Error('Body and instructions are required'), 400);
+            }
+
+            const result = await this.service.enhanceTemplate({ body, instructions });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

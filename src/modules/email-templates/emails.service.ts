@@ -1,6 +1,6 @@
 import { BaseService } from '../../core/service';
 import { EmailRepository } from './emails.repository';
-import { SendEmailRequest } from './emails.types';
+import { SendEmailRequest, EmailFilter, EmailListResponse } from './emails.types';
 import { HttpException } from '../../core/http-exception';
 import { AuthenticatedRequest } from '../../types';
 import { EmailStatus } from '@prisma/client';
@@ -44,10 +44,47 @@ export class EmailService extends BaseService {
     }
 
     /**
-     * Get sent emails (for current user)
+     * Get sent emails with pagination and filters
      */
-    async getSentEmails(userId: string) {
-        return this.repository.findAll({ senderId: userId });
+    async getSentEmails(userId: string, filter: EmailFilter): Promise<EmailListResponse> {
+        const page = filter.page || 1;
+        const limit = filter.limit || 20;
+
+        const [items, total] = await Promise.all([
+            this.repository.findAll({ ...filter, senderId: userId }, page, limit),
+            this.repository.count({ ...filter, senderId: userId })
+        ]);
+
+        return { items, total, page: Number(page), limit: Number(limit) };
+    }
+
+    /**
+     * Resend an email
+     */
+    async resendEmail(id: string, userId: string) {
+        const email = await this.repository.findById(id);
+        if (!email) throw new HttpException(404, 'Email not found');
+
+        // Ownership check
+        if (email.sender_id !== userId) {
+            throw new HttpException(403, 'Unauthorized to resend this email');
+        }
+
+        const resendData: SendEmailRequest = {
+            to: email.to,
+            cc: email.cc as string[],
+            bcc: email.bcc as string[],
+            subject: `[Resend] ${email.subject}`,
+            body: email.body,
+            candidateId: email.candidate_id!,
+            jobId: email.job_id!,
+            applicationId: email.application_id || undefined,
+            templateId: email.template_id || undefined,
+            jobRoundId: email.job_round_id || undefined,
+        };
+
+        const authenticatedUser = { id: userId, email: email.sender_email } as AuthenticatedRequest['user'];
+        return this.sendEmail(resendData, authenticatedUser);
     }
 
     /**

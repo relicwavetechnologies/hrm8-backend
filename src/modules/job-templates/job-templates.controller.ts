@@ -1,137 +1,120 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
-import { JobTemplateService } from './job-templates.service';
-import { JobTemplateRepository } from './job-templates.repository';
+import { JobTemplatesService } from './job-templates.service';
+import { JobTemplatesRepository } from './job-templates.repository';
 import { AuthenticatedRequest } from '../../types';
-import { CreateJobTemplateRequest, UpdateJobTemplateRequest } from './job-templates.types';
 
-export class JobTemplateController extends BaseController {
-    private service: JobTemplateService;
+export class JobTemplatesController extends BaseController {
+    private service: JobTemplatesService;
 
     constructor() {
         super('job-templates');
-        this.service = new JobTemplateService(new JobTemplateRepository());
+        this.service = new JobTemplatesService(new JobTemplatesRepository());
     }
 
     /**
-     * Create template from existing job
+     * Create a template from an existing job
      * POST /api/job-templates/from-job/:jobId
      */
     createFromJob = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const jobId = req.params.jobId as string;
+            if (!req.user) {
+                return this.sendError(res, new Error('Unauthorized'), 401);
+            }
+            const { jobId } = req.params;
             const { name } = req.body;
 
-            if (!jobId) {
-                return this.sendError(res, new Error('Job ID is required'), 400);
-            }
-
-            const template = await this.service.createFromJob(jobId, name, req.user);
-            return this.sendSuccess(res, template, 'Template created from job');
+            const result = await this.service.createFromJob(req.params.jobId as string, name, { companyId: req.user.companyId, id: req.user.id });
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Create new template
-     * POST /api/job-templates
+     * Create a new template manually
+     * POST /api/job-templates/
      */
     createTemplate = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const data: CreateJobTemplateRequest = req.body;
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
 
-            if (!data.name || !data.jobData) {
-                return this.sendError(res, new Error('Name and job data are required'), 400);
-            }
-
-            const template = await this.service.createTemplate(data, req.user);
-            return this.sendSuccess(res, template, 'Template created successfully');
+            const result = await this.service.createTemplate(req.body, { companyId: req.user.companyId, id: req.user.id });
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Get all templates
-     * GET /api/job-templates
+     * Get all templates for the company
+     * GET /api/job-templates/
      */
     getTemplates = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const templates = await this.service.getCompanyTemplates(req.user.companyId);
-            return this.sendSuccess(res, templates);
+            const result = await this.service.getTemplates(req.user.companyId);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Get single template
+     * Get a specific template
      * GET /api/job-templates/:id
      */
     getTemplate = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const id = req.params.id as string;
-            const template = await this.service.getTemplate(id, req.user.companyId);
-            return this.sendSuccess(res, template);
+            const result = await this.service.getTemplate(req.params.id as string, req.user.companyId);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Get template job data (for population)
+     * Get only the job data from a template
      * GET /api/job-templates/:id/job-data
      */
     getTemplateJobData = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const id = req.params.id as string;
-            const jobData = await this.service.getTemplateJobData(id, req.user.companyId);
-            return this.sendSuccess(res, jobData);
+            const result = await this.service.getTemplateJobData(req.params.id as string, req.user.companyId);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Update template
+     * Update a template
      * PUT /api/job-templates/:id
      */
     updateTemplate = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const id = req.params.id as string;
-            const data: UpdateJobTemplateRequest = req.body;
-
-            const updatedTemplate = await this.service.updateTemplate(id, data, req.user);
-            return this.sendSuccess(res, updatedTemplate, 'Template updated successfully');
+            const result = await this.service.updateTemplate(req.params.id as string, req.body, req.user.companyId);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
-     * Delete template
+     * Delete a template
      * DELETE /api/job-templates/:id
      */
     deleteTemplate = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const id = req.params.id as string;
-            await this.service.deleteTemplate(id, req.user.companyId);
-            return this.sendSuccess(res, { success: true }, 'Template deleted successfully');
+            await this.service.deleteTemplate(req.params.id as string, req.user.companyId);
+            return this.sendSuccess(res, { success: true });
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 
     /**
      * Record template usage
@@ -140,12 +123,10 @@ export class JobTemplateController extends BaseController {
     recordUsage = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-
-            const id = req.params.id as string;
-            const template = await this.service.recordUsage(id, req.user.companyId);
-            return this.sendSuccess(res, template, 'Template usage recorded');
+            const result = await this.service.recordUsage(req.params.id as string, req.user.companyId);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
-    };
+    }
 }

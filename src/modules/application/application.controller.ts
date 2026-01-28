@@ -354,7 +354,7 @@ export class ApplicationController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'), 401);
       const id = req.params.id as string;
       const roundId = req.params.roundId as string;
-      const progress = await this.applicationService.moveToRound(id, roundId);
+      const progress = await this.applicationService.moveToRound(id, roundId, req.user.id);
       return this.sendSuccess(res, { progress }, 'Application moved to round successfully');
     } catch (error) {
       return this.sendError(res, error);

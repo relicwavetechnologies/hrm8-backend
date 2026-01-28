@@ -2,7 +2,7 @@ import type { Prisma, Job } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class JobRepository extends BaseRepository {
-  
+
   async create(data: Prisma.JobCreateInput): Promise<Job> {
     return this.prisma.job.create({ data });
   }
@@ -112,6 +112,36 @@ export class JobRepository extends BaseRepository {
     return result.count;
   }
 
+  async bulkArchive(jobIds: string[], companyId: string, userId: string): Promise<number> {
+    const result = await this.prisma.job.updateMany({
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
+      data: {
+        archived: true,
+        archived_at: new Date(),
+        archived_by: userId,
+      },
+    });
+    return result.count;
+  }
+
+  async bulkUnarchive(jobIds: string[], companyId: string): Promise<number> {
+    const result = await this.prisma.job.updateMany({
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
+      data: {
+        archived: false,
+        archived_at: null,
+        archived_by: null,
+      },
+    });
+    return result.count;
+  }
+
   async countByCompany(companyId: string): Promise<number> {
     return this.prisma.job.count({
       where: { company_id: companyId },
@@ -154,5 +184,16 @@ export class JobRepository extends BaseRepository {
     ]);
 
     return { jobs, total };
+  }
+
+  async findActivities(jobId: string, limit: number = 20): Promise<any[]> {
+    return this.prisma.auditLog.findMany({
+      where: {
+        entity_type: 'JOB',
+        entity_id: jobId,
+      },
+      orderBy: { performed_at: 'desc' },
+      take: limit,
+    });
   }
 }

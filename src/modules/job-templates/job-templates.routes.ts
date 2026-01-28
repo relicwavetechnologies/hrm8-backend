@@ -1,32 +1,35 @@
 import { Router } from 'express';
-import { JobTemplateController } from './job-templates.controller';
+import { JobTemplatesController } from './job-templates.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 
 const router = Router();
-const controller = new JobTemplateController();
+const controller = new JobTemplatesController();
+
+// All job template routes require authentication
+router.use(authenticate);
 
 // Create template from existing job
-router.post('/from-job/:jobId', authenticate, controller.createFromJob);
+router.post('/from-job/:jobId', controller.createFromJob);
 
-// Create new template
-router.post('/', authenticate, controller.createTemplate);
+// Create new template manually
+router.post('/', controller.createTemplate);
 
-// Get all templates
-router.get('/', authenticate, controller.getTemplates);
+// Get all templates for the company
+router.get('/', controller.getTemplates);
 
-// Get single template
-router.get('/:id', authenticate, controller.getTemplate);
+// Get specific template
+router.get('/:id', controller.getTemplate);
 
-// Get template job data
-router.get('/:id/job-data', authenticate, controller.getTemplateJobData);
+// Get only the job data from a template
+router.get('/:id/job-data', controller.getTemplateJobData);
 
 // Update template
-router.put('/:id', authenticate, controller.updateTemplate);
+router.put('/:id', controller.updateTemplate);
 
 // Delete template
-router.delete('/:id', authenticate, controller.deleteTemplate);
+router.delete('/:id', controller.deleteTemplate);
 
 // Record template usage
-router.post('/:id/use', authenticate, controller.recordUsage);
+router.post('/:id/use', controller.recordUsage);
 
 export default router;

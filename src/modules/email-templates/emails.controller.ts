@@ -34,8 +34,23 @@ export class EmailController extends BaseController {
     getSent = async (req: AuthenticatedRequest, res: Response) => {
         try {
             if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
-            const emails = await this.service.getSentEmails(req.user.id);
+            const emails = await this.service.getSentEmails(req.user.id, req.query as any);
             return this.sendSuccess(res, emails);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    /**
+     * Resend failed email
+     * POST /api/emails/:id/resend
+     */
+    resendEmail = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+            const id = req.params.id as string;
+            const email = await this.service.resendEmail(id, req.user.id);
+            return this.sendSuccess(res, email, 'Email resent successfully');
         } catch (error) {
             return this.sendError(res, error);
         }
