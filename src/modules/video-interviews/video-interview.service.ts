@@ -32,11 +32,9 @@ export class VideoInterviewService extends BaseService {
       throw new HttpException(404, 'Interview not found');
     }
 
-    const creator = await this.videoInterviewRepository.getInterviewCreator(id);
-    const isCreator = creator?.created_by === userId;
     const isAdmin = userRole === 'ADMIN' || userRole === 'HR_MANAGER';
 
-    if (!isCreator && !isAdmin) {
+    if (!isAdmin) {
       throw new HttpException(403, 'You do not have permission to delete this interview');
     }
 

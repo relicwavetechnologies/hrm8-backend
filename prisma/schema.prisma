@@ -2478,6 +2478,7 @@ enum ConsultantStatus {
   ON_LEAVE
   INACTIVE
   SUSPENDED
+  PENDING
 }
 
 enum HRM8UserRole {

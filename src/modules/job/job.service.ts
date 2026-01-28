@@ -4,7 +4,7 @@ import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
-import { JobPaymentService } from './job-payment.service';
+import { JobPaymentService } from '../payment/job-payment.service';
 import { jobAllocationService } from '../hrm8/job-allocation.service';
 import { jobDescriptionGeneratorService } from '../ai/job-description-generator.service';
 
@@ -109,29 +109,50 @@ export class JobService extends BaseService {
   }
 
   async getCompanyJobs(companyId: string, filters: any) {
-    const jobs = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
+    const { jobs, total } = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
 
     // Map database fields to API response format (camelCase)
     const mappedJobs = jobs.map(job => this.mapToResponse(job));
 
     // If ApplicationRepository is available, add application counts to each job
     if (this.applicationRepository) {
-      const jobsWithCounts = await Promise.all(
-        mappedJobs.map(async (job) => {
-          const counts = await this.applicationRepository!.countByJobId(job.id);
-          const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
+      try {
+        const jobsWithCounts = await Promise.all(
+          mappedJobs.map(async (job) => {
+            try {
+              const counts = await this.applicationRepository!.countByJobId(job.id);
+              const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
 
-          return {
-            ...job,
-            totalApplications: counts,
-            unreadApplicants: unreadCounts,
-          };
-        })
-      );
-      return jobsWithCounts;
+              return {
+                ...job,
+                totalApplications: counts,
+                unreadApplicants: unreadCounts,
+              };
+            } catch (error) {
+              // If counting fails for individual job, return job with zero counts
+              console.warn(`[JobService] Failed to count applications for job ${job.id}:`, error);
+              return {
+                ...job,
+                totalApplications: 0,
+                unreadApplicants: 0,
+              };
+            }
+          })
+        );
+        return { jobs: jobsWithCounts, total, page: filters.page || 1, limit: filters.limit || 50 };
+      } catch (error) {
+        // If application counting fails entirely, log warning and return jobs without counts
+        return {
+          jobs: mappedJobs.map(job => ({ ...job, totalApplications: 0, unreadApplicants: 0 })),
+          total,
+          page: filters.page || 1,
+          limit: filters.limit || 50
+        };
+      }
     }
 
-    return mappedJobs;
+    const result = { jobs: mappedJobs, total, page: filters.page || 1, limit: filters.limit || 50 };
+    return result;
   }
 
   private mapToResponse(job: any): any {
@@ -223,8 +244,7 @@ export class JobService extends BaseService {
 
     // Process payment before publishing
     try {
-      const jobPaymentService = new JobPaymentService();
-      await jobPaymentService.processJobPayment(id, companyId, userId);
+      await new JobPaymentService().processJobPayment(id, companyId, userId);
     } catch (paymentError: any) {
       // Handle payment errors with proper error messages
       const errorMessage = paymentError.message || 'Payment processing failed';
@@ -234,7 +254,7 @@ export class JobService extends BaseService {
         await this.notificationService.createNotification({
           recipientType: NotificationRecipientType.USER,
           recipientId: userId,
-          type: UniversalNotificationType.SYSTEM_ALERT,
+          type: UniversalNotificationType.JOB_PUBLISHED,
           title: 'Job Publication Failed',
           message: `Unable to publish job "${job.title}". ${errorMessage}. Please recharge your wallet and try again.`,
           data: { jobId: id, companyId, error: errorMessage },

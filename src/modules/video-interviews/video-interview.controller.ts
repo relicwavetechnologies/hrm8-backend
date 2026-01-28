@@ -17,7 +17,7 @@ export class VideoInterviewController extends BaseController {
 
       const { id } = req.params;
 
-      if (!id) {
+      if (!id || typeof id !== 'string') {
         return this.sendError(res, new HttpException(400, 'Interview ID is required'), 400);
       }
 
@@ -40,7 +40,7 @@ export class VideoInterviewController extends BaseController {
 
       const { jobId } = req.params;
 
-      if (!jobId) {
+      if (!jobId || typeof jobId !== 'string') {
         return this.sendError(res, new HttpException(400, 'Job ID is required'), 400);
       }
 
@@ -67,13 +67,15 @@ export class VideoInterviewController extends BaseController {
 
       const { id } = req.params;
 
-      if (!id) {
+      if (!id || typeof id !== 'string') {
         return this.sendError(res, new HttpException(400, 'Interview ID is required'), 400);
       }
 
-      await this.service.deleteInterview(id, req.user.id, req.user.role);
+      const userRole = Array.isArray(req.user.role) ? req.user.role[0] : req.user.role;
 
-      return this.sendSuccess(res, { id }, 'Interview deleted successfully', 200);
+      await this.service.deleteInterview(id, req.user.id, userRole);
+
+      return this.sendSuccess(res, { id }, 'Interview deleted successfully');
     } catch (error) {
       if (error instanceof HttpException) {
         return this.sendError(res, error, error.status);

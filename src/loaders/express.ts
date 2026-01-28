@@ -56,6 +56,7 @@ const expressLoader = async (app: Application): Promise<void> => {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['X-Total-Count', 'X-Page', 'X-Limit'], // Expose pagination headers to frontend
   };
   app.use(cors(corsOptions));
 

@@ -226,9 +226,15 @@ export class OfferService extends BaseService {
   // --- NEGOTIATIONS ---
 
   async initiateNegotiation(id: string, data: NegotiationRequest, senderId: string, senderType: 'COMPANY' | 'CANDIDATE', senderName: string) {
+    // 1. Update Offer Status to UNDER_NEGOTIATION
+    await this.repository.update(id, {
+      status: 'UNDER_NEGOTIATION' as any // Ensure enum is compatible or cast
+    });
+
+    // 2. Create Negotiation Record
     return this.repository.createNegotiation({
       offer_letter: { connect: { id } },
-      message_type: data.messageType as any, // Cast to Prisma Enum
+      message_type: data.messageType as any,
       message: data.message,
       proposed_changes: data.proposedChanges || undefined,
       sender_id: senderId,
@@ -309,12 +315,31 @@ export class OfferService extends BaseService {
   }
 
   async reviewDocument(id: string, documentId: string, status: DocumentStatus, notes: string | undefined, userId: string) {
-    return this.repository.updateDocument(documentId, {
+    const updatedDoc = await this.repository.updateDocument(documentId, {
       status: status as any,
       review_notes: notes,
       reviewed_by: userId,
       reviewed_date: new Date()
     });
+
+    // Check if all required documents are approved
+    const allApproved = await this.repository.areAllRequiredDocumentsApproved(id);
+
+    if (allApproved) {
+      const offer = await this.getOffer(id);
+      // If offer is ACCEPTED and all docs approved, ensure we are in HIRED round
+      // (AcceptOffer already moves to HIRED, but this ensures it if docs were blocking or parallel)
+      if (offer.status === OfferStatus.ACCEPTED) {
+        // Optionally trigger a "Onboarding Ready" notification or status
+        // For now, let's re-verify round movement to HIRED just in case
+        const hiredRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'HIRED');
+        if (hiredRound) {
+          await this.applicationService.moveToRound(offer.application_id, hiredRound.id, userId);
+        }
+      }
+    }
+
+    return updatedDoc;
   }
 
   // --- CANDIDATE METHODS ---

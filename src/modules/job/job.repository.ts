@@ -27,7 +27,7 @@ export class JobRepository extends BaseRepository {
     });
   }
 
-  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<Job[]> {
+  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<{ jobs: Job[], total: number }> {
     const where: Prisma.JobWhereInput = {
       company_id: companyId,
     };
@@ -66,29 +66,34 @@ export class JobRepository extends BaseRepository {
 
     // Parse pagination
     const page = filters.page ? Number(filters.page) : 1;
-    const limit = filters.limit ? Number(filters.limit) : 1000; // Default high limit for now
+    const limit = filters.limit ? Number(filters.limit) : 50; // Default to 50 items per page
     const skip = (page - 1) * limit;
 
-    return this.prisma.job.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-            website: true,
+    const [jobs, total] = await Promise.all([
+      this.prisma.job.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              website: true,
+            },
+          },
+          _count: {
+            select: {
+              applications: true,
+            },
           },
         },
-        _count: {
-          select: {
-            applications: true,
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.job.count({ where }),
+    ]);
+
+    return { jobs, total };
   }
 
   async delete(id: string): Promise<Job> {

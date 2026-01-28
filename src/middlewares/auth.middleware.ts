@@ -9,7 +9,14 @@ export async function authenticate(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.sessionId;
+    let sessionId = req.cookies?.sessionId;
+
+    if (!sessionId && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        sessionId = authHeader.substring(7);
+      }
+    }
 
     if (!sessionId) {
       res.status(401).json({
@@ -38,7 +45,7 @@ export async function authenticate(
     // SessionRepository doesn't have updateLastActivity exposed? 
     // I should check SessionRepository.
     // I didn't implement updateLastActivity in SessionRepository. I should.
-    
+
     // For now, skip updateLastActivity or add it.
     // I'll add it to repository if I can, but for now just proceed.
 

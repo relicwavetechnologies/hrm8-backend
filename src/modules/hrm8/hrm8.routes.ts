@@ -7,6 +7,8 @@ import { SystemController } from './system.controller';
 import { ConsultantAdminController } from './consultant-admin.controller';
 import { JobAllocationController } from './job-allocation.controller';
 import { AuditLogController } from './audit-log.controller';
+import { SignupRequestController } from './signup-request.controller';
+import { NotificationPreferencesController } from './notification-preferences.controller';
 import { authenticateHrm8 as authenticateHrm8User } from '../../middlewares/hrm8-auth.middleware';
 
 const router = Router();
@@ -18,6 +20,8 @@ const systemController = new SystemController();
 const consultantAdminController = new ConsultantAdminController();
 const jobAllocationController = new JobAllocationController();
 const auditLogController = new AuditLogController();
+const signupRequestController = new SignupRequestController();
+const notificationPreferencesController = new NotificationPreferencesController();
 
 // --- Auth (Public) ---
 router.post('/auth/login', hrm8Controller.login);
@@ -52,6 +56,14 @@ router.delete('/licensees/:id', regionController.deleteLicensee);
 router.get('/consultants', consultantAdminController.getAll);
 router.post('/consultants', consultantAdminController.create);
 router.put('/consultants/:id', consultantAdminController.update);
+router.delete('/consultants/:id', consultantAdminController.delete);
+router.post('/consultants/:id/suspend', consultantAdminController.suspend);
+router.post('/consultants/:id/reactivate', consultantAdminController.reactivate);
+router.post('/consultants/:id/terminate', consultantAdminController.terminate);
+router.post('/consultants/:id/assign-region', consultantAdminController.assignRegion);
+router.post('/consultants/:id/reassign-jobs', consultantAdminController.reassignJobs);
+router.put('/consultants/:id/change-role', consultantAdminController.changeRole);
+router.post('/consultants/generate-email', consultantAdminController.generateEmail);
 
 // --- Jobs Allocation ---
 router.get('/jobs/:jobId/assignment-info', jobAllocationController.getAssignmentInfo);
@@ -101,6 +113,27 @@ router.put('/refund-requests/:id/approve', opsController.approveRefund);
 router.get('/conversion-requests', opsController.getConversionRequests);
 router.put('/conversion-requests/:id/approve', opsController.approveConversion);
 router.put('/conversion-requests/:id/decline', opsController.declineConversion);
+
+// --- Admin Ops: Withdrawals ---
+router.get('/withdrawals', opsController.getWithdrawalRequests);
+router.put('/withdrawals/:id/approve', opsController.approveWithdrawal);
+router.put('/withdrawals/:id/reject', opsController.rejectWithdrawal);
+
+// --- Signup Requests ---
+router.get('/signup-requests', signupRequestController.getAll);
+router.get('/signup-requests/pending', signupRequestController.getPending);
+router.get('/signup-requests/:id', signupRequestController.getById);
+router.put('/signup-requests/:id/approve', signupRequestController.approve);
+router.put('/signup-requests/:id/approve', signupRequestController.approve);
+router.put('/signup-requests/:id/reject', signupRequestController.reject);
+
+// --- Notification Preferences ---
+router.get('/notification-preferences', notificationPreferencesController.getPreferences);
+router.put('/notification-preferences', notificationPreferencesController.updatePreferences);
+router.get('/notification-preferences/alert-rules', notificationPreferencesController.getAlertRules);
+router.post('/notification-preferences/alert-rules', notificationPreferencesController.createAlertRule);
+router.put('/notification-preferences/alert-rules/:id', notificationPreferencesController.updateAlertRule);
+router.delete('/notification-preferences/alert-rules/:id', notificationPreferencesController.deleteAlertRule);
 
 // --- Audit Logs ---
 router.get('/audit-logs/stats', auditLogController.getStats);

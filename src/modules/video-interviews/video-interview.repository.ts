@@ -101,13 +101,6 @@ export class VideoInterviewRepository extends BaseRepository {
     });
     return count > 0;
   }
-
-  async getInterviewCreator(id: string): Promise<{ created_by?: string | null } | null> {
-    return this.prisma.videoInterview.findUnique({
-      where: { id },
-      select: { created_by: true },
-    });
-  }
 }
 
 export const videoInterviewRepository = new VideoInterviewRepository();

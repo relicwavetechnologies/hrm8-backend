@@ -41,8 +41,19 @@ export class AdminOpsController extends BaseController {
     }
 
     approveRefund = async (req: Hrm8AuthenticatedRequest, res: Response) => {
-        // Stub
-        return this.sendSuccess(res, { status: 'Approved' });
+        try {
+            const hrm8User = req.hrm8User;
+            if (!hrm8User) return this.sendError(res, new Error('HRM8 User not found'), 401);
+
+            const result = await this.repo.approveRefund(
+                req.params.id as string,
+                hrm8User.id,
+                req.body.adminNotes
+            );
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
     }
 
     // --- Lead Conversion ---
@@ -89,6 +100,52 @@ export class AdminOpsController extends BaseController {
                 req.body.declineReason
             );
             return this.sendSuccess(res, { request: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    }
+
+    // --- Withdrawals ---
+    getWithdrawalRequests = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const status = req.query.status as string;
+            const result = await this.repo.getWithdrawalRequests(status);
+            return this.sendSuccess(res, { withdrawals: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    }
+
+    approveWithdrawal = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const hrm8User = req.hrm8User;
+            if (!hrm8User) return this.sendError(res, new Error('HRM8 User not found'), 401);
+
+            const result = await this.repo.approveWithdrawal(
+                req.params.id as string,
+                hrm8User.id,
+                req.body.adminNotes,
+                req.body.paymentReference
+            );
+            return this.sendSuccess(res, { withdrawal: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    }
+
+    rejectWithdrawal = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const hrm8User = req.hrm8User;
+            if (!hrm8User) return this.sendError(res, new Error('HRM8 User not found'), 401);
+
+            if (!req.body.reason) return this.sendError(res, new Error('Rejection reason is required'), 400);
+
+            const result = await this.repo.rejectWithdrawal(
+                req.params.id as string,
+                hrm8User.id,
+                req.body.reason
+            );
+            return this.sendSuccess(res, { withdrawal: result });
         } catch (error) {
             return this.sendError(res, error);
         }

@@ -101,4 +101,12 @@ export class FinanceRepository extends BaseRepository {
             data
         });
     }
+
+    async createSettlement(data: Prisma.SettlementCreateInput) {
+        return this.prisma.settlement.create({ data });
+    }
+
+    async findAllRegions() {
+        return this.prisma.region.findMany();
+    }
 }

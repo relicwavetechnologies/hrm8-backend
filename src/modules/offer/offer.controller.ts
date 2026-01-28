@@ -2,6 +2,10 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { OfferService } from './offer.service';
 import { OfferRepository } from './offer.repository';
+import { ApplicationService } from '../application/application.service';
+import { ApplicationRepository } from '../application/application.repository';
+import { EmailService } from '../email/email.service';
+import { JobRoundRepository } from '../job/job-round.repository';
 import { AuthenticatedRequest } from '../../types';
 import {
   CreateOfferRequest,
@@ -20,7 +24,19 @@ export class OfferController extends BaseController {
 
   constructor() {
     super('offer');
-    this.service = new OfferService(new OfferRepository());
+    const offerRepository = new OfferRepository();
+    const applicationRepository = new ApplicationRepository();
+    const applicationService = new ApplicationService(applicationRepository);
+    const emailService = new EmailService();
+    const jobRoundRepository = new JobRoundRepository();
+
+    this.service = new OfferService(
+      offerRepository,
+      applicationService,
+      emailService,
+      jobRoundRepository,
+      applicationRepository
+    );
   }
 
   /**

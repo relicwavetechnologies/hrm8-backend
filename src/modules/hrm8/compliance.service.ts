@@ -20,7 +20,7 @@ export class ComplianceService extends BaseService {
         // Assuming ConsultantStatus has PENDING or similar. If not, we might need to check logic.
         // Casting to any to avoid strict enum mismatch during quick audit fixes if needed, but trying standard first.
         // Consultant model usually has status field.
-        const unverifiedConsultants = await this.consultantRepo.findAll({ status: 'PENDING' } as any);
+        const unverifiedConsultants = await this.consultantRepo.findAll({ status: 'PENDING' });
 
         // 3. Rejected Companies
         const rejectedCompanies = await this.companyRepo.findAll({ verification_status: 'REJECTED' });

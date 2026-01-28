@@ -34,8 +34,9 @@ export class JobController extends BaseController {
   getJobs = async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
-      const jobs = await this.jobService.getCompanyJobs(req.user.companyId, req.query);
-      return this.sendSuccess(res, { jobs });
+      const result = await this.jobService.getCompanyJobs(req.user.companyId, req.query);
+      // Return full pagination object with jobs and total
+      return this.sendSuccess(res, result);
     } catch (error) {
       console.error('[JobController] getJobs error:', error);
       return this.sendError(res, error);

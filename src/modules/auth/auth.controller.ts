@@ -22,15 +22,15 @@ export class AuthController extends BaseController {
     try {
       const { email, password } = req.body;
       const { user, sessionId } = await this.authService.login({ email, password });
-      
+
       res.cookie('sessionId', sessionId, getSessionCookieOptions());
-      
+
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { 
-        user: { 
-          ...userData, 
-          companyId: user.company_id 
-        } 
+      return this.sendSuccess(res, {
+        user: {
+          ...userData,
+          companyId: user.company_id
+        }
       });
     } catch (error) {
       return this.sendError(res, error);
@@ -55,11 +55,17 @@ export class AuthController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
       const { password_hash, ...userData } = user;
+
+      // Get company profile to match old backend behavior
+      const companyService = new CompanyService(new CompanyRepository());
+      const profile = await companyService.getProfile(user.company_id);
+
       return this.sendSuccess(res, {
         user: {
           ...userData,
           companyId: user.company_id
-        }
+        },
+        profile
       });
     } catch (error) {
       return this.sendError(res, error);

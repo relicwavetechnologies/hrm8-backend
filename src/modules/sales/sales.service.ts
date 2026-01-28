@@ -287,21 +287,69 @@ export class SalesService extends BaseService {
   // --- Stripe ---
 
   async stripeOnboard(consultantId: string) {
-    // Mock stripe onboarding link generation
-    await this.salesRepository.updateConsultant(consultantId, { stripe_account_status: 'PENDING' });
-    return { url: 'https://connect.stripe.com/setup/mock' };
+    const consultant = await this.salesRepository.findConsultantById(consultantId);
+    if (!consultant) throw new HttpException(404, 'Consultant not found');
+
+    const stripe = await import('../integration/stripe/StripeFactory').then(m => m.StripeFactory.getClientAsync());
+
+    // Create an account if not exists
+    let accountId = consultant.stripe_account_id;
+    if (!accountId) {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'US', // Should be dynamic based on consultant
+        email: consultant.email,
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+      });
+      accountId = account.id;
+      await this.salesRepository.updateConsultant(consultantId, {
+        stripe_account_id: accountId,
+        stripe_account_status: 'PENDING'
+      });
+    }
+
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${process.env.FRONTEND_URL}/consultant/stripe/refresh`,
+      return_url: `${process.env.FRONTEND_URL}/consultant/stripe/return`,
+      type: 'account_onboarding',
+    });
+
+    return { url: accountLink.url };
   }
 
   async getStripeStatus(consultantId: string) {
     const consultant = await this.salesRepository.findConsultantById(consultantId);
+    if (!consultant?.stripe_account_id) {
+      return { connected: false, status: 'NOT_CREATED' };
+    }
+
+    const stripe = await import('../integration/stripe/StripeFactory').then(m => m.StripeFactory.getClientAsync());
+    const account = await stripe.accounts.retrieve(consultant.stripe_account_id);
+
+    // Update status locally if changed
+    if (account.details_submitted && consultant.stripe_account_status !== 'ACTIVE') {
+      await this.salesRepository.updateConsultant(consultantId, { stripe_account_status: 'ACTIVE' });
+      return { connected: true, status: 'ACTIVE' };
+    }
+
     return {
-      connected: !!consultant?.stripe_account_id,
-      status: consultant?.stripe_account_status
+      connected: !!consultant.stripe_account_id,
+      status: consultant.stripe_account_status
     };
   }
 
   async getStripeLoginLink(consultantId: string) {
-    return { url: 'https://dashboard.stripe.com/mock-login' };
+    const consultant = await this.salesRepository.findConsultantById(consultantId);
+    if (!consultant?.stripe_account_id) throw new HttpException(400, 'Stripe account not connected');
+
+    const stripe = await import('../integration/stripe/StripeFactory').then(m => m.StripeFactory.getClientAsync());
+    const loginLink = await stripe.accounts.createLoginLink(consultant.stripe_account_id);
+
+    return { url: loginLink.url };
   }
 
   // --- Dashboard ---

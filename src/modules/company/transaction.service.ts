@@ -1,7 +1,5 @@
 import { BaseService } from '../../core/service';
 import { TransactionRepository } from './transaction.repository';
-import { HttpException } from '../../core/http-exception';
-import { TransactionResponse } from './transaction.types';
 
 export class TransactionService extends BaseService {
     constructor(private repository: TransactionRepository) {
@@ -29,7 +27,7 @@ export class TransactionService extends BaseService {
             direction: tx.direction,
             description: tx.description,
             status: tx.status,
-            createdAt: tx.created_at,
+            date: tx.created_at,
             referenceType: tx.reference_type,
             referenceId: tx.reference_id,
             metadata: tx.metadata

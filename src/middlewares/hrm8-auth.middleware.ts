@@ -9,7 +9,14 @@ export async function authenticateHrm8(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.hrm8SessionId;
+    let sessionId = req.cookies?.hrm8SessionId;
+
+    if (!sessionId && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        sessionId = authHeader.substring(7);
+      }
+    }
 
     if (!sessionId) {
       res.status(401).json({
@@ -34,8 +41,8 @@ export async function authenticateHrm8(
 
     let assignedRegionIds: string[] = [];
     if (session.user.role === 'REGIONAL_LICENSEE' && session.user.licensee_id) {
-        const regions = await hrm8Repository.getRegionsForLicensee(session.user.licensee_id);
-        assignedRegionIds = regions.map(r => r.id);
+      const regions = await hrm8Repository.getRegionsForLicensee(session.user.licensee_id);
+      assignedRegionIds = regions.map(r => r.id);
     }
 
     req.hrm8User = {
