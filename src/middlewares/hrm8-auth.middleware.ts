@@ -32,10 +32,13 @@ export async function authenticateHrm8(
       return;
     }
 
+    // Update last activity
+    await hrm8Repository.updateSessionBySessionId(sessionId);
+
     let assignedRegionIds: string[] = [];
     if (session.user.role === 'REGIONAL_LICENSEE' && session.user.licensee_id) {
-        const regions = await hrm8Repository.getRegionsForLicensee(session.user.licensee_id);
-        assignedRegionIds = regions.map(r => r.id);
+      const regions = await hrm8Repository.getRegionsForLicensee(session.user.licensee_id);
+      assignedRegionIds = regions.map(r => r.id);
     }
 
     req.hrm8User = {

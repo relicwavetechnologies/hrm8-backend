@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { ApplicationService } from './application.service';
 import { ApplicationRepository } from './application.repository';
-import { AuthenticatedRequest } from '../../types';
+import { UnifiedAuthenticatedRequest } from '../../types';
 import { ApplicationStage } from '@prisma/client';
 
 export class ApplicationController extends BaseController {
@@ -14,9 +14,16 @@ export class ApplicationController extends BaseController {
   }
 
   // Submit a new application
-  submitApplication = async (req: AuthenticatedRequest, res: Response) => {
+  submitApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const application = await this.applicationService.submitApplication(req.body);
+      const data = { ...req.body };
+
+      // Derive candidateId from session if available
+      if (req.candidate) {
+        data.candidateId = req.candidate.id;
+      }
+
+      const application = await this.applicationService.submitApplication(data);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -24,7 +31,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Get application by ID
-  getApplication = async (req: AuthenticatedRequest, res: Response) => {
+  getApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.getApplication(id);
@@ -35,9 +42,14 @@ export class ApplicationController extends BaseController {
   };
 
   // Get candidate's applications
-  getCandidateApplications = async (req: AuthenticatedRequest, res: Response) => {
+  getCandidateApplications = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const { candidateId } = req.query as { candidateId: string };
+      let { candidateId } = req.query as { candidateId: string };
+
+      // Override or populate from session
+      if (req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -51,7 +63,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Get job applications (CRITICAL for /ats/jobs page)
-  getJobApplications = async (req: AuthenticatedRequest, res: Response) => {
+  getJobApplications = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { jobId } = req.params as { jobId: string };
       const filters = req.query;
@@ -64,7 +76,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Update application score
-  updateScore = async (req: AuthenticatedRequest, res: Response) => {
+  updateScore = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const { score } = req.body;
@@ -81,7 +93,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Update application rank
-  updateRank = async (req: AuthenticatedRequest, res: Response) => {
+  updateRank = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const { rank } = req.body;
@@ -98,7 +110,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Update application tags
-  updateTags = async (req: AuthenticatedRequest, res: Response) => {
+  updateTags = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const { tags } = req.body;
@@ -115,7 +127,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Shortlist candidate
-  shortlistCandidate = async (req: AuthenticatedRequest, res: Response) => {
+  shortlistCandidate = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
 
@@ -131,7 +143,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Unshortlist candidate
-  unshortlistCandidate = async (req: AuthenticatedRequest, res: Response) => {
+  unshortlistCandidate = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.unshortlistCandidate(id);
@@ -142,7 +154,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Update application stage
-  updateStage = async (req: AuthenticatedRequest, res: Response) => {
+  updateStage = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const { stage } = req.body;
@@ -159,7 +171,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Update application notes
-  updateNotes = async (req: AuthenticatedRequest, res: Response) => {
+  updateNotes = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const { notes } = req.body;
@@ -176,10 +188,14 @@ export class ApplicationController extends BaseController {
   };
 
   // Withdraw application
-  withdrawApplication = async (req: AuthenticatedRequest, res: Response) => {
+  withdrawApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const { candidateId } = req.body;
+      let { candidateId } = req.body;
+
+      if (req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -193,10 +209,14 @@ export class ApplicationController extends BaseController {
   };
 
   // Delete application
-  deleteApplication = async (req: AuthenticatedRequest, res: Response) => {
+  deleteApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const { candidateId } = req.body;
+      let { candidateId } = req.body;
+
+      if (req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -210,7 +230,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Mark application as read
-  markAsRead = async (req: AuthenticatedRequest, res: Response) => {
+  markAsRead = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.markAsRead(id);
@@ -221,7 +241,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Bulk score candidates
-  bulkScoreCandidates = async (req: AuthenticatedRequest, res: Response) => {
+  bulkScoreCandidates = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { applicationIds, scores } = req.body;
 
@@ -237,7 +257,7 @@ export class ApplicationController extends BaseController {
   };
 
   // Get application count for job
-  getApplicationCountForJob = async (req: AuthenticatedRequest, res: Response) => {
+  getApplicationCountForJob = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { jobId } = req.params as { jobId: string };
       const counts = await this.applicationService.getApplicationCountForJob(jobId);
@@ -248,9 +268,13 @@ export class ApplicationController extends BaseController {
   };
 
   // Check if candidate has applied to job
-  checkApplication = async (req: AuthenticatedRequest, res: Response) => {
+  checkApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const { candidateId, jobId } = req.query as { candidateId: string; jobId: string };
+      let { candidateId, jobId } = req.query as { candidateId: string; jobId: string };
+
+      if (req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId || !jobId) {
         return this.sendError(res, new Error('Candidate ID and Job ID are required'), 400);

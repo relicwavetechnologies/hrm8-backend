@@ -21,6 +21,7 @@ import offerRoutes from '../modules/offer/offer.routes';
 import walletRoutes from '../modules/wallet/wallet.routes';
 import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import paymentRoutes from '../modules/payment/payment.routes';
+import messagingRoutes from '../modules/messaging/messaging.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { env } from '../config/env';
 import { loggingMiddleware } from '../middleware/logging.middleware';
@@ -59,6 +60,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/wallet', walletRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
   app.use('/api/payments', paymentRoutes);
+  app.use('/api/messages', messagingRoutes);
   app.use('/api/candidate', candidateRoutes);
   app.use('/api/consultant', consultantRoutes);
   app.use('/api/sales', salesRoutes);

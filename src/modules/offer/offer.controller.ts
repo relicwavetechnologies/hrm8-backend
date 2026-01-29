@@ -1,11 +1,11 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { OfferService } from './offer.service';
-import { AuthenticatedRequest } from '../../types';
+import { UnifiedAuthenticatedRequest } from '../../types';
 
 export class OfferController extends BaseController {
-  
-  create = async (req: AuthenticatedRequest, res: Response) => {
+
+  create = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const offer = await OfferService.createOffer(req.body, req.user?.id || 'system');
       return this.sendSuccess(res, { offer });
@@ -14,7 +14,7 @@ export class OfferController extends BaseController {
     }
   };
 
-  send = async (req: AuthenticatedRequest, res: Response) => {
+  send = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const offer = await OfferService.sendOffer(id);
@@ -24,7 +24,7 @@ export class OfferController extends BaseController {
     }
   };
 
-  getByApplication = async (req: AuthenticatedRequest, res: Response) => {
+  getByApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const applicationId = req.params.applicationId as string;
       const offers = await OfferService.getByApplication(applicationId);
@@ -34,7 +34,7 @@ export class OfferController extends BaseController {
     }
   };
 
-  getById = async (req: AuthenticatedRequest, res: Response) => {
+  getById = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const offer = await OfferService.getById(id);
@@ -45,7 +45,7 @@ export class OfferController extends BaseController {
     }
   };
 
-  update = async (req: AuthenticatedRequest, res: Response) => {
+  update = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const offer = await OfferService.updateOffer(id, req.body);
@@ -55,12 +55,10 @@ export class OfferController extends BaseController {
     }
   };
 
-  accept = async (req: AuthenticatedRequest, res: Response) => {
+  accept = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
-      // Assuming candidate is authenticated or we verify ID via middleware context
-      // If user is candidate:
-      const candidateId = (req as any).candidate?.id || req.body.candidateId; 
+      const candidateId = req.candidate?.id || req.body.candidateId;
       const offer = await OfferService.acceptOffer(id, candidateId);
       return this.sendSuccess(res, { offer });
     } catch (error) {
@@ -68,11 +66,11 @@ export class OfferController extends BaseController {
     }
   };
 
-  decline = async (req: AuthenticatedRequest, res: Response) => {
+  decline = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const { reason } = req.body;
-      const candidateId = (req as any).candidate?.id || req.body.candidateId;
+      const candidateId = req.candidate?.id || req.body.candidateId;
       const offer = await OfferService.declineOffer(id, candidateId, reason);
       return this.sendSuccess(res, { offer });
     } catch (error) {

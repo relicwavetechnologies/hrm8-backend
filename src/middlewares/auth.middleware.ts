@@ -31,16 +31,8 @@ export async function authenticate(
       return;
     }
 
-    // sessionRepository already handles expiration check in findBySessionId? 
-    // Yes, I implemented it to delete if expired.
-
-    // Update activity - handled in SessionModel? 
-    // SessionRepository doesn't have updateLastActivity exposed? 
-    // I should check SessionRepository.
-    // I didn't implement updateLastActivity in SessionRepository. I should.
-    
-    // For now, skip updateLastActivity or add it.
-    // I'll add it to repository if I can, but for now just proceed.
+    // Update last activity
+    await sessionRepository.updateBySessionId(sessionId);
 
     req.user = {
       id: session.userId,

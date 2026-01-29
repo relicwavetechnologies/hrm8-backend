@@ -32,6 +32,9 @@ export async function authenticateConsultant(
       return;
     }
 
+    // Update last activity
+    await consultantRepository.updateSessionBySessionId(sessionId);
+
     req.consultant = {
       id: session.consultant.id,
       email: session.consultant.email,

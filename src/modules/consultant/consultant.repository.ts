@@ -2,7 +2,7 @@ import type { Prisma, Consultant, ConsultantJobAssignment, Commission } from '@p
 import { BaseRepository } from '../../core/repository';
 
 export class ConsultantRepository extends BaseRepository {
-  
+
   async findByEmail(email: string): Promise<Consultant | null> {
     return this.prisma.consultant.findUnique({
       where: { email },
@@ -83,5 +83,12 @@ export class ConsultantRepository extends BaseRepository {
     return this.prisma.consultantSession.delete({
       where: { session_id: sessionId },
     });
+  }
+
+  async updateSessionBySessionId(sessionId: string) {
+    return this.prisma.consultantSession.update({
+      where: { session_id: sessionId },
+      data: { last_activity: new Date() },
+    }).catch(() => { });
   }
 }

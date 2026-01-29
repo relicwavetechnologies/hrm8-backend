@@ -13,7 +13,7 @@ export class CandidateService extends BaseService {
 
   async login(data: { email: string; password: string }) {
     const candidate = await this.candidateRepository.findByEmail(normalizeEmail(data.email));
-    
+
     if (!candidate) {
       throw new HttpException(401, 'Invalid credentials');
     }
@@ -93,5 +93,227 @@ export class CandidateService extends BaseService {
 
     const passwordHash = await hashPassword(newPass);
     return this.candidateRepository.update(id, { password_hash: passwordHash });
+  }
+
+  // Work History
+  async getWorkHistory(candidateId: string) {
+    return this.candidateRepository.findWorkExperienceByCandidateId(candidateId);
+  }
+
+  async addWorkHistory(candidateId: string, data: any) {
+    return this.candidateRepository.createWorkExperience({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async updateWorkHistory(id: string, data: any) {
+    return this.candidateRepository.updateWorkExperience(id, data);
+  }
+
+  async deleteWorkHistory(id: string) {
+    return this.candidateRepository.deleteWorkExperience(id);
+  }
+
+  // Education
+  async getEducation(candidateId: string) {
+    return this.candidateRepository.findEducationByCandidateId(candidateId);
+  }
+
+  async addEducation(candidateId: string, data: any) {
+    return this.candidateRepository.createEducation({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async updateEducation(id: string, data: any) {
+    return this.candidateRepository.updateEducation(id, data);
+  }
+
+  async deleteEducation(id: string) {
+    return this.candidateRepository.deleteEducation(id);
+  }
+
+  // Skills
+  async getSkills(candidateId: string) {
+    return this.candidateRepository.findSkillsByCandidateId(candidateId);
+  }
+
+  async updateSkills(candidateId: string, skills: any[]) {
+    return this.candidateRepository.updateSkills(candidateId, skills);
+  }
+
+  // Certifications
+  async getCertifications(candidateId: string) {
+    return this.candidateRepository.findCertificationsByCandidateId(candidateId);
+  }
+
+  async addCertification(candidateId: string, data: any) {
+    return this.candidateRepository.createCertification({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async updateCertification(id: string, data: any) {
+    return this.candidateRepository.updateCertification(id, data);
+  }
+
+  async deleteCertification(id: string) {
+    return this.candidateRepository.deleteCertification(id);
+  }
+
+  // Training
+  async getTraining(candidateId: string) {
+    return this.candidateRepository.findTrainingByCandidateId(candidateId);
+  }
+
+  async addTraining(candidateId: string, data: any) {
+    return this.candidateRepository.createTraining({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async updateTraining(id: string, data: any) {
+    return this.candidateRepository.updateTraining(id, data);
+  }
+
+  async deleteTraining(id: string) {
+    return this.candidateRepository.deleteTraining(id);
+  }
+
+  // Resumes
+  async getResumes(candidateId: string) {
+    return this.candidateRepository.findResumesByCandidateId(candidateId);
+  }
+
+  async addResume(candidateId: string, data: any) {
+    return this.candidateRepository.createResume({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async deleteResume(id: string) {
+    return this.candidateRepository.deleteResume(id);
+  }
+
+  // Cover Letters
+  async getCoverLetters(candidateId: string) {
+    return this.candidateRepository.findCoverLettersByCandidateId(candidateId);
+  }
+
+  async addCoverLetter(candidateId: string, data: any) {
+    return this.candidateRepository.createCoverLetter({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async deleteCoverLetter(id: string) {
+    return this.candidateRepository.deleteCoverLetter(id);
+  }
+
+  // Portfolios
+  async getPortfolios(candidateId: string) {
+    return this.candidateRepository.findPortfoliosByCandidateId(candidateId);
+  }
+
+  async addPortfolio(candidateId: string, data: any) {
+    return this.candidateRepository.createPortfolio({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async deletePortfolio(id: string) {
+    return this.candidateRepository.deletePortfolio(id);
+  }
+
+  // Saved Jobs
+  async getSavedJobs(candidateId: string) {
+    return this.candidateRepository.findSavedJobsByCandidateId(candidateId);
+  }
+
+  async saveJob(candidateId: string, jobId: string) {
+    return this.candidateRepository.createSavedJob(candidateId, jobId);
+  }
+
+  async unsaveJob(candidateId: string, jobId: string) {
+    return this.candidateRepository.deleteSavedJob(candidateId, jobId);
+  }
+
+  // Saved Searches
+  async getSavedSearches(candidateId: string) {
+    return this.candidateRepository.findSavedSearchesByCandidateId(candidateId);
+  }
+
+  async saveSearch(candidateId: string, data: { query?: string; filters: any }) {
+    return this.candidateRepository.createSavedSearch(candidateId, data);
+  }
+
+  async deleteSavedSearch(id: string) {
+    return this.candidateRepository.deleteSavedSearch(id);
+  }
+
+  // Job Alerts
+  async getJobAlerts(candidateId: string) {
+    return this.candidateRepository.findJobAlertsByCandidateId(candidateId);
+  }
+
+  async addJobAlert(candidateId: string, data: any) {
+    return this.candidateRepository.createJobAlert({
+      ...data,
+      candidate: { connect: { id: candidateId } },
+    });
+  }
+
+  async deleteJobAlert(id: string) {
+    return this.candidateRepository.deleteJobAlert(id);
+  }
+
+  // Resume Parsing Stub
+  async parseResume(candidateId: string, file: any) {
+    // This is a stub for the AI parsing logic
+    // In a real scenario, this would call an LLM or a parsing service
+    return {
+      workExperience: [
+        {
+          company: 'Sample Tech Corp',
+          role: 'Senior Software Engineer',
+          startDate: new Date('2020-01-01'),
+          current: true,
+          description: 'Extracted sample experience from resume.',
+          location: 'Remote',
+        }
+      ],
+      skills: [
+        { name: 'TypeScript', level: 'expert' },
+        { name: 'React', level: 'expert' },
+        { name: 'Node.js', level: 'advanced' }
+      ],
+      education: [
+        {
+          institution: 'State University',
+          degree: 'Bachelor of Science',
+          field: 'Computer Science',
+          startDate: new Date('2016-09-01'),
+          endDate: new Date('2020-05-01'),
+          current: false,
+        }
+      ],
+      certifications: [],
+      training: [],
+      resumeUrl: 'https://sample-storage.com/resumes/sample.pdf'
+    };
+  }
+
+  // Get recommended jobs
+  async getRecommendedJobs(candidateId: string) {
+    // This is a stub for recommendation logic
+    // In a real scenario, this would query jobs based on candidate skills/experience
+    return [];
   }
 }

@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { NotificationService } from './notification.service';
 import { NotificationRepository } from './notification.repository';
-import { AuthenticatedRequest } from '../../types';
+import { UnifiedAuthenticatedRequest } from '../../types';
 import { NotificationRecipientType } from '@prisma/client';
 
 export class NotificationController extends BaseController {
@@ -14,28 +14,28 @@ export class NotificationController extends BaseController {
   }
 
   // Helper to resolve recipient info from request user
-  private getRecipientInfo(req: AuthenticatedRequest): { type: NotificationRecipientType, id: string } {
-    if (!req.user) throw new Error('Not authenticated');
-    
-    // Determine type based on req.user properties or auth method
-    // Assuming standard User model for now, but could be Candidate/Consultant
-    // We need to know which auth middleware was used or inspect user object
-    
-    // If CandidateAuthMiddleware was used:
-    if ((req as any).candidate) {
-        return { type: 'CANDIDATE', id: (req as any).candidate.id };
-    }
-    
-    // If ConsultantAuthMiddleware was used:
-    if ((req as any).consultant) {
-        return { type: 'CONSULTANT', id: (req as any).consultant.id };
+  // Helper to resolve recipient info from request user
+  private getRecipientInfo(req: UnifiedAuthenticatedRequest): { type: NotificationRecipientType, id: string } {
+    if (!req.user && !req.candidate) throw new Error('Not authenticated');
+
+    // Check for candidate first (from session)
+    if (req.candidate) {
+      return { type: 'CANDIDATE', id: req.candidate.id };
     }
 
-    // Default to USER (Employer/Admin)
-    return { type: 'USER', id: req.user.id };
+    // Check for user/staff
+    if (req.user) {
+      // If it's a candidate populated in req.user (compatibility mode)
+      if (req.user.type === 'CANDIDATE') {
+        return { type: 'CANDIDATE', id: req.user.id };
+      }
+      return { type: 'USER', id: req.user.id };
+    }
+
+    throw new Error('Could not resolve recipient');
   }
 
-  list = async (req: AuthenticatedRequest, res: Response) => {
+  list = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { type, id } = this.getRecipientInfo(req);
       const page = parseInt(req.query.page as string) || 1;
@@ -58,11 +58,11 @@ export class NotificationController extends BaseController {
     }
   };
 
-  markRead = async (req: AuthenticatedRequest, res: Response) => {
+  markRead = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { type, id: userId } = this.getRecipientInfo(req);
       const { id } = req.params as { id: string };
-      
+
       const notification = await this.notificationService.markAsRead(id, type, userId);
       return this.sendSuccess(res, { notification });
     } catch (error) {
@@ -70,7 +70,7 @@ export class NotificationController extends BaseController {
     }
   };
 
-  markAllRead = async (req: AuthenticatedRequest, res: Response) => {
+  markAllRead = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { type, id } = this.getRecipientInfo(req);
       const count = await this.notificationService.markAllAsRead(type, id);

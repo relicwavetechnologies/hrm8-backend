@@ -1,14 +1,14 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { InterviewService } from './interview.service';
-import { AuthenticatedRequest } from '../../types';
+import { UnifiedAuthenticatedRequest } from '../../types';
 
 export class InterviewController extends BaseController {
-  
-  create = async (req: AuthenticatedRequest, res: Response) => {
+
+  create = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
-      
+
       const interview = await InterviewService.createInterview({
         applicationId,
         scheduledDate: new Date(scheduledDate),
@@ -26,7 +26,7 @@ export class InterviewController extends BaseController {
     }
   };
 
-  listByJob = async (req: AuthenticatedRequest, res: Response) => {
+  listByJob = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const jobId = req.params.jobId as string;
       const interviews = await InterviewService.getJobInterviews(jobId);
@@ -36,7 +36,7 @@ export class InterviewController extends BaseController {
     }
   };
 
-  getById = async (req: AuthenticatedRequest, res: Response) => {
+  getById = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const interview = await InterviewService.getInterviewById(id);
@@ -47,7 +47,7 @@ export class InterviewController extends BaseController {
     }
   };
 
-  updateStatus = async (req: AuthenticatedRequest, res: Response) => {
+  updateStatus = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const { status, notes } = req.body;
@@ -58,7 +58,7 @@ export class InterviewController extends BaseController {
     }
   };
 
-  addFeedback = async (req: AuthenticatedRequest, res: Response) => {
+  addFeedback = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;
       const feedback = req.body; // Expects interviewer_id, overall_rating, etc.

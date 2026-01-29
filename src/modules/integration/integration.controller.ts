@@ -16,7 +16,7 @@ export class IntegrationController extends BaseController {
 
   configure = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { type, config, name } = req.body;
       const integration = await this.integrationService.configureIntegration(
         req.user.companyId,
@@ -32,7 +32,7 @@ export class IntegrationController extends BaseController {
 
   list = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const integrations = await this.integrationService.getCompanyIntegrations(req.user.companyId);
       return this.sendSuccess(res, { integrations });
     } catch (error) {
@@ -42,7 +42,7 @@ export class IntegrationController extends BaseController {
 
   remove = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       await this.integrationService.removeIntegration(id, req.user.companyId);
       return this.sendSuccess(res, { message: 'Integration removed' });
@@ -113,7 +113,7 @@ export class IntegrationController extends BaseController {
   private getEntityInfo(user: AuthenticatedRequest['user']): { entityType: EntityType; entityId: string } | null {
     if (!user) return null;
     if (user.role === 'ADMIN' || user.companyId) { // Simplified for now
-      return { entityType: 'COMPANY', entityId: user.companyId };
+      return { entityType: 'COMPANY', entityId: user.companyId as string };
     }
     return { entityType: 'HRM8_USER', entityId: user.id };
   }

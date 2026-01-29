@@ -371,9 +371,18 @@ export interface AuthenticatedRequest extends Request {
     id: string;
     email: string;
     name: string;
-    companyId: string;
-    role: UserRole;
-    type?: 'COMPANY' | 'CONSULTANT' | 'SALES_AGENT';
+    companyId?: string;
+    role?: UserRole;
+    type?: 'COMPANY' | 'CONSULTANT' | 'SALES_AGENT' | 'CANDIDATE';
+  };
+}
+
+export interface UnifiedAuthenticatedRequest extends AuthenticatedRequest {
+  candidate?: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
   };
 }
 

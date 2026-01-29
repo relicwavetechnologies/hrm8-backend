@@ -22,7 +22,7 @@ export class JobController extends BaseController {
 
   createJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const job = await this.jobService.createJob(req.user.companyId, req.user.id, req.body);
       return this.sendSuccess(res, job);
     } catch (error) {
@@ -32,7 +32,7 @@ export class JobController extends BaseController {
 
   getJobs = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const jobs = await this.jobService.getCompanyJobs(req.user.companyId, req.query);
       return this.sendSuccess(res, { jobs });
     } catch (error) {
@@ -43,7 +43,7 @@ export class JobController extends BaseController {
 
   getJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.getJob(id, req.user.companyId);
       return this.sendSuccess(res, job);
@@ -54,7 +54,7 @@ export class JobController extends BaseController {
 
   updateJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.updateJob(id, req.user.companyId, req.body);
       return this.sendSuccess(res, job);
@@ -65,7 +65,7 @@ export class JobController extends BaseController {
 
   deleteJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       await this.jobService.deleteJob(id, req.user.companyId);
       return this.sendSuccess(res, { message: 'Job deleted successfully' });
@@ -76,7 +76,7 @@ export class JobController extends BaseController {
 
   bulkDeleteJobs = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { jobIds } = req.body;
 
       if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
@@ -95,7 +95,7 @@ export class JobController extends BaseController {
 
   publishJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
 
       const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id);
@@ -107,7 +107,7 @@ export class JobController extends BaseController {
 
   saveDraft = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.saveDraft(id, req.user.companyId, req.body);
       return this.sendSuccess(res, job);
@@ -118,7 +118,7 @@ export class JobController extends BaseController {
 
   saveTemplate = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const { id } = req.params as { id: string };
       const job = await this.jobService.saveTemplate(id, req.user.companyId, req.body);
       return this.sendSuccess(res, job);

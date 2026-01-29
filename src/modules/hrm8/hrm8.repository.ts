@@ -2,7 +2,7 @@ import type { Prisma, HRM8User } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class Hrm8Repository extends BaseRepository {
-  
+
   async findByEmail(email: string): Promise<HRM8User | null> {
     return this.prisma.hRM8User.findUnique({
       where: { email },
@@ -52,6 +52,13 @@ export class Hrm8Repository extends BaseRepository {
     return this.prisma.hRM8Session.delete({
       where: { session_id: sessionId },
     });
+  }
+
+  async updateSessionBySessionId(sessionId: string) {
+    return this.prisma.hRM8Session.update({
+      where: { session_id: sessionId },
+      data: { last_activity: new Date() },
+    }).catch(() => { });
   }
 
   // Licensee & Regions
