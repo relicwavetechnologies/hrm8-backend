@@ -26,7 +26,7 @@ export class CompanyController extends BaseController {
   updateCompany = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      
+
       // Ensure user belongs to this company (simple authorization check)
       if (req.user?.companyId !== id) {
         return this.sendError(res, new Error('Unauthorized to update this company'));
@@ -66,11 +66,57 @@ export class CompanyController extends BaseController {
     }
   };
 
-  // Verification (Admin only typically, or self-initiate)
+  // Verification
+  getVerificationStatus = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const status = await this.companyService.getVerificationStatus(id);
+      return this.sendSuccess(res, status);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   verifyByEmail = async (req: AuthenticatedRequest, res: Response) => {
-    // Logic for verifying token would go here, often handled by AuthService or VerificationService
-    // For now, placeholder or specific implementation if needed
-    return this.sendSuccess(res, { message: 'Not implemented in this controller yet' });
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      await this.companyService.sendEmailVerification(id, req.user.email);
+      return this.sendSuccess(res, { message: 'Verification email sent' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  initiateManualVerification = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const result = await this.companyService.initiateManualVerification(id, req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  completeProfile = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const result = await this.companyService.completeProfile(id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
   };
 
   // Settings

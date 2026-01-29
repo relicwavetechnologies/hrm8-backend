@@ -9,7 +9,14 @@ export async function authenticateHrm8(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.hrm8SessionId;
+    let sessionId = req.cookies?.hrm8SessionId;
+
+    if (!sessionId && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        sessionId = authHeader.substring(7);
+      }
+    }
 
     if (!sessionId) {
       res.status(401).json({

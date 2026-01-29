@@ -67,4 +67,21 @@ export class NotificationRepository extends BaseRepository {
     });
     return result.count;
   }
+
+  async countUnread(recipientType: NotificationRecipientType, recipientId: string): Promise<number> {
+    return this.prisma.universalNotification.count({
+      where: {
+        recipient_type: recipientType,
+        recipient_id: recipientId,
+        read: false,
+        expires_at: { gte: new Date() }
+      }
+    });
+  }
+
+  async delete(id: string): Promise<UniversalNotification> {
+    return this.prisma.universalNotification.delete({
+      where: { id }
+    });
+  }
 }

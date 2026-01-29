@@ -57,6 +57,13 @@ export class UserRepository extends BaseRepository {
     });
   }
 
+  async updatePassword(userId: string, passwordHash: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { password_hash: passwordHash },
+    });
+  }
+
   // Notification Preferences
   async getNotificationPreferences(userId: string): Promise<UserNotificationPreferences | null> {
     return this.prisma.userNotificationPreferences.findUnique({

@@ -19,8 +19,9 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
 
         if (cookieHeader) {
             const cookies = parse(cookieHeader);
-            const sessionCookieName = 'sessionId';
-            const signedSessionId = cookies[sessionCookieName];
+            const staffSessionId = cookies['sessionId'];
+            const candidateSessionId = cookies['candidateSessionId'];
+            const signedSessionId = staffSessionId || candidateSessionId;
 
             if (signedSessionId) {
                 sessionId = cookieParser.signedCookie(signedSessionId, env.SESSION_SECRET);

@@ -1,29 +1,39 @@
 import { Router } from 'express';
 import { ApplicationController } from './application.controller';
+import multer from 'multer';
 import { unifiedAuthenticate } from '../../middlewares/unified-auth.middleware';
+import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticateCandidate } from '../../middlewares/candidate-auth.middleware';
 
 const router = Router();
 const applicationController = new ApplicationController();
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Bulk operations - must come before parameterized routes
-router.get('/bulk-score', unifiedAuthenticate, applicationController.bulkScoreCandidates);
+// --- Public Routes ---
+router.post('/anonymous', applicationController.submitAnonymousApplication);
 
-// Check if candidate has applied
+// --- Candidate Routes ---
+router.post('/accept-invitation', authenticateCandidate, applicationController.acceptJobInvitation);
+
+// --- Shared/Unified Routes ---
 router.get('/check', unifiedAuthenticate, applicationController.checkApplication);
-
-// Get job applications (CRITICAL for /ats/jobs page)
+router.get('/check/:jobId/:candidateId', unifiedAuthenticate, applicationController.checkApplication);
 router.get('/job/:jobId', unifiedAuthenticate, applicationController.getJobApplications);
-
-// Get application count for job
 router.get('/count/:jobId', unifiedAuthenticate, applicationController.getApplicationCountForJob);
 
-// Application submission
+// Application submission & retrieval
 router.post('/', unifiedAuthenticate, applicationController.submitApplication);
-
-// Get candidate applications (with candidateId query param)
 router.get('/', unifiedAuthenticate, applicationController.getCandidateApplications);
 
-// Single application operations - must come after specific routes
+// Bulk operations
+router.get('/bulk-score', unifiedAuthenticate, applicationController.bulkScoreCandidates);
+router.post('/bulk-score', unifiedAuthenticate, applicationController.bulkScoreCandidates);
+
+// Uploads
+router.post('/upload', unifiedAuthenticate, upload.single('file'), applicationController.uploadFile);
+router.delete('/upload/:publicId', unifiedAuthenticate, applicationController.deleteFile);
+
+// Single application operations
 router.get('/:id', unifiedAuthenticate, applicationController.getApplication);
 router.put('/:id/score', unifiedAuthenticate, applicationController.updateScore);
 router.put('/:id/rank', unifiedAuthenticate, applicationController.updateRank);
@@ -35,5 +45,13 @@ router.put('/:id/notes', unifiedAuthenticate, applicationController.updateNotes)
 router.post('/:id/withdraw', unifiedAuthenticate, applicationController.withdrawApplication);
 router.delete('/:id', unifiedAuthenticate, applicationController.deleteApplication);
 router.put('/:id/read', unifiedAuthenticate, applicationController.markAsRead);
+
+// --- Admin/Recruiter Only Routes ---
+router.get('/admin/:id', authenticate, applicationController.getApplicationForAdmin);
+router.get('/:id/resume', authenticate, applicationController.getApplicationResume);
+router.post('/manual', authenticate, applicationController.createManualApplication);
+router.post('/from-talent-pool', authenticate, applicationController.addFromTalentPool);
+router.put('/:id/round/:roundId', authenticate, applicationController.moveToRound);
+router.put('/:id/manual-screening', authenticate, applicationController.updateManualScreening);
 
 export default router;

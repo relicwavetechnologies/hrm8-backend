@@ -29,6 +29,12 @@ import {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
+  TemplateCategory,
 } from '@prisma/client';
 
 export {
@@ -55,6 +61,12 @@ export {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
+  TemplateCategory,
 };
 
 // ============================================================================
@@ -367,6 +379,7 @@ export interface RejectSignupRequest {
 // ============================================================================
 
 export interface AuthenticatedRequest extends Request {
+  params: Record<string, string>;
   user?: {
     id: string;
     email: string;

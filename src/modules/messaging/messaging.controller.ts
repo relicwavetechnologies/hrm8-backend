@@ -23,7 +23,7 @@ export class MessagingController extends BaseController {
             }
 
             const conversations = await this.messagingService.getConversations(participantId, participantType);
-            return this.sendSuccess(res, conversations);
+            return this.sendSuccess(res, { conversations });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -40,14 +40,17 @@ export class MessagingController extends BaseController {
 
             // Basic authorization: check if user is a participant
             const isParticipant = conversation.participants.some(
-                p => p.participant_id === (req.candidate?.id || req.user?.id)
+                p => (p as any).participantId === (req.candidate?.id || req.user?.id)
             );
 
             if (!isParticipant) {
                 return this.sendError(res, new Error('Forbidden'), 403);
             }
 
-            return this.sendSuccess(res, conversation);
+            return this.sendSuccess(res, {
+                conversation,
+                messages: conversation.messages
+            });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -75,7 +78,16 @@ export class MessagingController extends BaseController {
                 attachments,
             });
 
-            return this.sendSuccess(res, message);
+            return this.sendSuccess(res, {
+                id: message.id,
+                conversationId: message.conversation_id,
+                senderType: message.sender_type,
+                senderId: message.sender_id,
+                senderEmail: message.sender_email,
+                content: message.content,
+                createdAt: message.created_at,
+                attachments: message.attachments,
+            });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -118,7 +130,7 @@ export class MessagingController extends BaseController {
                 employerUserId: req.user?.id || (otherParticipantType === ParticipantType.EMPLOYER ? otherParticipantId : undefined),
             });
 
-            return this.sendSuccess(res, conversation);
+            return this.sendSuccess(res, { conversation });
         } catch (error) {
             return this.sendError(res, error);
         }

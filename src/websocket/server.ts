@@ -15,8 +15,7 @@ const buildConnectionKey = (userType: 'USER' | 'CANDIDATE' | 'CONSULTANT' | 'HRM
 export const wss = new WebSocketServer({ noServer: true });
 
 // --- Broadcast Logic ---
-
-const broadcast = (
+export const broadcast = (
   message: any,
   options: {
     type: 'room' | 'global' | 'users';
@@ -36,7 +35,9 @@ const broadcast = (
       targetKeys = targetConnectionKeys || [];
       break;
     case 'room':
-      // Implement room logic when chat is migrated
+      targetKeys = Array.from(connections.entries())
+        .filter(([_, conn]) => conn.conversationId === options.conversationId)
+        .map(([key, _]) => key);
       break;
   }
 
@@ -69,7 +70,7 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   }
 
   const connectionKey = buildConnectionKey(auth.userType, auth.userId);
-  
+
   const connection: ClientConnection = {
     ws,
     userEmail: auth.email,
@@ -85,9 +86,9 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   // Send success message
   ws.send(JSON.stringify({
     type: 'connection_established',
-    payload: { 
-      message: 'Connected', 
-      user: { id: auth.userId, name: auth.name, type: auth.userType } 
+    payload: {
+      message: 'Connected',
+      user: { id: auth.userId, name: auth.name, type: auth.userType }
     }
   }));
 
@@ -103,6 +104,15 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
   ws.on('message', (data: Buffer) => {
     try {
       const msg: WSMessage = JSON.parse(data.toString());
+
+      if (msg.type === 'join_conversation') {
+        const conversationId = msg.payload?.conversationId;
+        if (conversationId) {
+          connection.conversationId = conversationId;
+          console.log(`User ${auth.email} joined conversation: ${conversationId}`);
+        }
+      }
+
       // Handle client messages (e.g. 'mark_read', 'join_chat') here
       console.log(`Received message from ${auth.email}:`, msg.type);
     } catch (err) {

@@ -8,7 +8,7 @@ export class MessagingRepository {
     }
 
     async findConversationsByParticipant(participantId: string, participantType: ParticipantType) {
-        return this.prisma.conversation.findMany({
+        const conversations = await this.prisma.conversation.findMany({
             where: {
                 participants: {
                     some: {
@@ -23,13 +23,42 @@ export class MessagingRepository {
                     take: 1,
                     orderBy: { created_at: 'desc' },
                 },
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                    }
+                }
             },
             orderBy: { updated_at: 'desc' },
         });
+
+        // Map participants and other fields to CamelCase for frontend
+        return conversations.map(conv => ({
+            ...conv,
+            participants: conv.participants.map(p => ({
+                id: p.id,
+                conversationId: p.conversation_id,
+                participantType: p.participant_type,
+                participantId: p.participant_id,
+                participantEmail: p.participant_email,
+                displayName: p.display_name,
+                createdAt: p.created_at,
+            })),
+            lastMessage: conv.messages[0] ? {
+                id: conv.messages[0].id,
+                conversationId: conv.messages[0].conversation_id,
+                senderType: conv.messages[0].sender_type,
+                senderId: conv.messages[0].sender_id,
+                senderEmail: conv.messages[0].sender_email,
+                content: conv.messages[0].content,
+                createdAt: conv.messages[0].created_at,
+            } : null
+        }));
     }
 
     async findConversationById(id: string) {
-        return this.prisma.conversation.findUnique({
+        const conversation = await this.prisma.conversation.findUnique({
             where: { id },
             include: {
                 participants: true,
@@ -37,8 +66,39 @@ export class MessagingRepository {
                     orderBy: { created_at: 'asc' },
                     include: { attachments: true },
                 },
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                    }
+                }
             },
         });
+
+        if (!conversation) return null;
+
+        return {
+            ...conversation,
+            participants: conversation.participants.map(p => ({
+                id: p.id,
+                conversationId: p.conversation_id,
+                participantType: p.participant_type,
+                participantId: p.participant_id,
+                participantEmail: p.participant_email,
+                displayName: p.display_name,
+                createdAt: p.created_at,
+            })),
+            messages: conversation.messages.map(m => ({
+                id: m.id,
+                conversationId: m.conversation_id,
+                senderType: m.sender_type,
+                senderId: m.sender_id,
+                senderEmail: m.sender_email,
+                content: m.content,
+                createdAt: m.created_at,
+                attachments: m.attachments,
+            }))
+        };
     }
 
     async createConversation(data: {

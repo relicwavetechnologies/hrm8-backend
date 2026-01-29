@@ -10,8 +10,10 @@ export async function authenticateCandidate(
 ): Promise<void> {
   try {
     const sessionId = req.cookies?.candidateSessionId;
+    console.log(`[authenticateCandidate] Checking session: ${sessionId ? 'PRESENT' : 'MISSING'}`);
 
     if (!sessionId) {
+      console.log('[authenticateCandidate] No sessionId cookie found');
       res.status(401).json({
         success: false,
         error: 'Not authenticated. Please login.',
@@ -23,6 +25,7 @@ export async function authenticateCandidate(
     const session = await candidateRepository.findSessionBySessionId(sessionId);
 
     if (!session || session.expires_at < new Date()) {
+      console.log(`[authenticateCandidate] Session NOT FOUND or EXPIRED: ${sessionId}`);
       res.clearCookie('candidateSessionId', getSessionCookieOptions());
 
       res.status(401).json({
@@ -35,6 +38,7 @@ export async function authenticateCandidate(
     // Update last activity
     await candidateRepository.updateSessionBySessionId(sessionId);
 
+    console.log(`[authenticateCandidate] Authenticated candidate: ${session.candidate.id}`);
     req.candidate = {
       id: session.candidate.id,
       email: session.candidate.email,

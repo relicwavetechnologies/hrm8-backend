@@ -2,7 +2,7 @@ import type { Prisma, Assessment, AssessmentQuestion, AssessmentResponse } from 
 import { BaseRepository } from '../../core/repository';
 
 export class AssessmentRepository extends BaseRepository {
-  
+
   async create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
     return this.prisma.assessment.create({ data });
   }
@@ -20,8 +20,44 @@ export class AssessmentRepository extends BaseRepository {
       include: {
         assessment_question: {
           orderBy: { order: 'asc' }
+        },
+        assessment_response: true,
+        assessment_comment: {
+          orderBy: { created_at: 'desc' }
         }
       }
+    });
+  }
+
+  async getAssessmentWithDetails(id: string): Promise<Assessment | null> {
+    return this.prisma.assessment.findUnique({
+      where: { id },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+            job: true
+          }
+        },
+        assessment_question: {
+          orderBy: { order: 'asc' }
+        },
+        assessment_response: true,
+        assessment_comment: {
+          orderBy: { created_at: 'desc' }
+        }
+      }
+    });
+  }
+
+  async createComment(data: any) {
+    return this.prisma.assessmentComment.create({ data });
+  }
+
+  async updateResponse(id: string, data: any) {
+    return this.prisma.assessmentResponse.update({
+      where: { id },
+      data
     });
   }
 
@@ -52,6 +88,37 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  // Configurations
+  async findConfiguration(jobRoundId: string) {
+    return this.prisma.assessmentConfiguration.findUnique({
+      where: { job_round_id: jobRoundId },
+    });
+  }
+
+  async upsertConfiguration(jobRoundId: string, data: any) {
+    return this.prisma.assessmentConfiguration.upsert({
+      where: { job_round_id: jobRoundId },
+      create: {
+        ...data,
+        job_round: { connect: { id: jobRoundId } },
+      },
+      update: data,
+    });
+  }
+
+  async findByRound(jobRoundId: string): Promise<Assessment[]> {
+    return this.prisma.assessment.findMany({
+      where: { job_round_id: jobRoundId },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+          },
+        },
+      },
+    });
+  }
+
   // Responses
   async createResponse(data: Prisma.AssessmentResponseCreateInput): Promise<AssessmentResponse> {
     return this.prisma.assessmentResponse.create({ data });
@@ -60,6 +127,17 @@ export class AssessmentRepository extends BaseRepository {
   async getResponses(assessmentId: string): Promise<AssessmentResponse[]> {
     return this.prisma.assessmentResponse.findMany({
       where: { assessment_id: assessmentId },
+    });
+  }
+
+  async findByCandidate(candidateId: string): Promise<Assessment[]> {
+    // Using 'any' cast if relations are tricky, but trying standard include first
+    return this.prisma.assessment.findMany({
+      where: { candidate_id: candidateId },
+      include: {
+        application: { include: { job: { select: { title: true } } } }
+      },
+      orderBy: { created_at: 'desc' }
     });
   }
 }

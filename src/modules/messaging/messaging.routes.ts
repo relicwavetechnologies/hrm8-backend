@@ -10,5 +10,6 @@ router.post('/conversations', unifiedAuthenticate, messagingController.createCon
 router.get('/conversations/:id', unifiedAuthenticate, messagingController.getConversation);
 router.post('/conversations/:id/messages', unifiedAuthenticate, messagingController.sendMessage);
 router.patch('/conversations/:id/read', unifiedAuthenticate, messagingController.markAsRead);
+router.put('/conversations/:id/read', unifiedAuthenticate, messagingController.markAsRead);
 
 export default router;

@@ -2,7 +2,7 @@ import type { Prisma, Job } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class JobRepository extends BaseRepository {
-  
+
   async create(data: Prisma.JobCreateInput): Promise<Job> {
     return this.prisma.job.create({ data });
   }
@@ -27,7 +27,7 @@ export class JobRepository extends BaseRepository {
     });
   }
 
-  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<Job[]> {
+  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<{ jobs: Job[], total: number }> {
     const where: Prisma.JobWhereInput = {
       company_id: companyId,
     };
@@ -66,29 +66,34 @@ export class JobRepository extends BaseRepository {
 
     // Parse pagination
     const page = filters.page ? Number(filters.page) : 1;
-    const limit = filters.limit ? Number(filters.limit) : 1000; // Default high limit for now
+    const limit = filters.limit ? Number(filters.limit) : 50; // Default to 50 items per page
     const skip = (page - 1) * limit;
 
-    return this.prisma.job.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-            website: true,
+    const [jobs, total] = await Promise.all([
+      this.prisma.job.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              website: true,
+            },
+          },
+          _count: {
+            select: {
+              applications: true,
+            },
           },
         },
-        _count: {
-          select: {
-            applications: true,
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.job.count({ where }),
+    ]);
+
+    return { jobs, total };
   }
 
   async delete(id: string): Promise<Job> {
@@ -109,6 +114,36 @@ export class JobRepository extends BaseRepository {
       data: { status: 'CLOSED' },
     });
 
+    return result.count;
+  }
+
+  async bulkArchive(jobIds: string[], companyId: string, userId: string): Promise<number> {
+    const result = await this.prisma.job.updateMany({
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
+      data: {
+        archived: true,
+        archived_at: new Date(),
+        archived_by: userId,
+      },
+    });
+    return result.count;
+  }
+
+  async bulkUnarchive(jobIds: string[], companyId: string): Promise<number> {
+    const result = await this.prisma.job.updateMany({
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
+      data: {
+        archived: false,
+        archived_at: null,
+        archived_by: null,
+      },
+    });
     return result.count;
   }
 
@@ -154,5 +189,58 @@ export class JobRepository extends BaseRepository {
     ]);
 
     return { jobs, total };
+  }
+
+  async findActivities(jobId: string, limit: number = 20): Promise<any[]> {
+    return this.prisma.auditLog.findMany({
+      where: {
+        entity_type: 'JOB',
+        entity_id: jobId,
+      },
+      orderBy: { performed_at: 'desc' },
+      take: limit,
+    });
+  }
+
+  async getJobStats(companyId: string): Promise<{ total: number; active: number; filled: number; applicants: number }> {
+    const [total, active, filled, applicantsResult] = await Promise.all([
+      // Total jobs
+      this.prisma.job.count({
+        where: { company_id: companyId }
+      }),
+      // Active jobs (OPEN)
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'OPEN'
+        }
+      }),
+      // Filled jobs
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'FILLED'
+        }
+      }),
+      // Total applicants across all jobs
+      // We need to sum the application counts. 
+      // Since we might not have a direct Application aggregation here easily depending on prisma version/schema,
+      // let's try to do it via Application model if possible, or sum from jobs.
+      // Assuming Application is related to Job, we can count all applications where job.companyId is companyId.
+      this.prisma.application.count({
+        where: {
+          job: {
+            company_id: companyId
+          }
+        }
+      })
+    ]);
+
+    return {
+      total,
+      active,
+      filled,
+      applicants: applicantsResult
+    };
   }
 }

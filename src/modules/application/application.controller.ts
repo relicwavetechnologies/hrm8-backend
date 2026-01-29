@@ -1,9 +1,11 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { ApplicationService } from './application.service';
 import { ApplicationRepository } from './application.repository';
 import { UnifiedAuthenticatedRequest } from '../../types';
-import { ApplicationStage } from '@prisma/client';
+import { ApplicationStage, ManualScreeningStatus } from '@prisma/client';
+import { CloudinaryService } from '../storage/cloudinary.service';
+
 
 export class ApplicationController extends BaseController {
   private applicationService: ApplicationService;
@@ -20,7 +22,7 @@ export class ApplicationController extends BaseController {
 
       // Derive candidateId from session if available
       if (req.candidate) {
-        data.candidateId = req.candidate.id;
+        data.candidateId = req.candidate!.id;
       }
 
       const application = await this.applicationService.submitApplication(data);
@@ -44,12 +46,8 @@ export class ApplicationController extends BaseController {
   // Get candidate's applications
   getCandidateApplications = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      let { candidateId } = req.query as { candidateId: string };
+      const candidateId = (req.candidate?.id || req.query.candidateId) as string;
 
-      // Override or populate from session
-      if (req.candidate) {
-        candidateId = req.candidate.id;
-      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -191,11 +189,8 @@ export class ApplicationController extends BaseController {
   withdrawApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      let { candidateId } = req.body;
+      const candidateId = (req.candidate?.id || req.body.candidateId) as string;
 
-      if (req.candidate) {
-        candidateId = req.candidate.id;
-      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -215,7 +210,7 @@ export class ApplicationController extends BaseController {
       let { candidateId } = req.body;
 
       if (req.candidate) {
-        candidateId = req.candidate.id;
+        candidateId = req.candidate!.id;
       }
 
       if (!candidateId) {
@@ -270,11 +265,9 @@ export class ApplicationController extends BaseController {
   // Check if candidate has applied to job
   checkApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      let { candidateId, jobId } = req.query as { candidateId: string; jobId: string };
+      const candidateId = (req.candidate?.id || req.params.candidateId || req.query.candidateId) as string;
+      const jobId = (req.params.jobId || req.query.jobId) as string;
 
-      if (req.candidate) {
-        candidateId = req.candidate.id;
-      }
 
       if (!candidateId || !jobId) {
         return this.sendError(res, new Error('Candidate ID and Job ID are required'), 400);
@@ -282,6 +275,160 @@ export class ApplicationController extends BaseController {
 
       const hasApplied = await this.applicationService.checkApplication(candidateId, jobId);
       return this.sendSuccess(res, { hasApplied });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Submit anonymous application
+  submitAnonymousApplication = async (req: Request, res: Response) => {
+    try {
+      const application = await this.applicationService.submitAnonymousApplication(req.body);
+      return this.sendSuccess(res, { application }, 'Application submitted successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Accept job invitation
+  acceptJobInvitation = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Candidate not authenticated'), 401);
+      const { token, applicationData } = req.body;
+      const application = await this.applicationService.acceptJobInvitation(
+        req.candidate!.id,
+        token,
+        applicationData
+      );
+      return this.sendSuccess(res, { application }, 'Invitation accepted successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Get application for admin view
+  getApplicationForAdmin = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const application = await this.applicationService.getApplicationForAdmin(id);
+      return this.sendSuccess(res, { application });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Get application resume
+  getApplicationResume = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const resume = await this.applicationService.getApplicationResume(id);
+      return this.sendSuccess(res, resume);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Create manual application by recruiter
+  createManualApplication = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { jobId, candidateId, ...data } = req.body;
+      const application = await this.applicationService.createManualApplication(
+        req.user.companyId as string,
+        jobId,
+        candidateId,
+        req.user.id,
+        data
+      );
+      return this.sendSuccess(res, { application }, 'Manual application created successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Add application from talent pool
+  addFromTalentPool = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { jobId, candidateId } = req.body;
+      const application = await this.applicationService.addFromTalentPool(
+        jobId,
+        candidateId,
+        req.user.id,
+        req.user.companyId as string
+      );
+      return this.sendSuccess(res, { application }, 'Candidate added from talent pool');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Move application to round
+  moveToRound = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'), 401);
+      const id = req.params.id as string;
+      const roundId = req.params.roundId as string;
+      const progress = await this.applicationService.moveToRound(id, roundId, req.user!.id);
+      return this.sendSuccess(res, { progress }, 'Application moved to round successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Update manual screening
+  updateManualScreening = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'), 401);
+      const id = req.params.id as string;
+      const application = await this.applicationService.updateManualScreening(id, req.body);
+      return this.sendSuccess(res, { application }, 'Manual screening updated successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  /**
+   * Upload an application file
+   * POST /api/applications/upload
+   */
+  uploadFile = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.file) {
+        return this.sendError(res, new Error('No file provided'), 400);
+      }
+
+      const result = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/applications' });
+
+      const fileData = {
+        url: result.secureUrl,
+        publicId: result.publicId,
+        filename: req.file.originalname,
+        format: result.format,
+        size: result.bytes,
+      };
+
+      return this.sendSuccess(res, fileData, 'File uploaded successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  /**
+   * Delete an application file
+   * DELETE /api/applications/upload/:publicId
+   */
+  deleteFile = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const publicId = req.params.publicId as string;
+
+      if (!publicId) {
+        return this.sendError(res, new Error('Public ID is required'), 400);
+      }
+
+      await CloudinaryService.deleteFile(publicId);
+
+      return this.sendSuccess(res, { success: true }, 'File deleted successfully');
     } catch (error) {
       return this.sendError(res, error);
     }

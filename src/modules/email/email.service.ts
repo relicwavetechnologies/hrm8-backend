@@ -59,6 +59,18 @@ export class EmailService extends BaseService {
     await this.sendEmail(data.to, 'Verify your email', html);
   }
 
+  async sendCompanyVerificationEmail(data: { to: string; companyName: string; verificationUrl: string }) {
+    const html = `
+      <p>Hi,</p>
+      <p>Thank you for registering <strong>${data.companyName}</strong>.</p>
+      <p>Please verify your email address by clicking the link below:</p>
+      <p><a href="${data.verificationUrl}">Verify Email Address</a></p>
+      <p>This link will expire in 24 hours.</p>
+      <p>If you didn't register this company, please ignore this email.</p>
+    `;
+    await this.sendEmail(data.to, 'Verify Your Company Registration', html);
+  }
+
   // Interview Emails
   async sendInterviewInvitation(data: {
     to: string;
@@ -127,6 +139,67 @@ export class EmailService extends BaseService {
       <p>Welcome to the team!</p>
     `;
     await this.sendEmail(data.to, `Offer Accepted: ${data.jobTitle}`, html);
+  }
+
+  // Assessment Emails
+  async sendAssessmentInvitationEmail(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    companyName: string;
+    assessmentUrl: string;
+    expiryDate?: Date;
+    deadlineDays?: number;
+  }) {
+    const html = `
+      <p>Hi ${data.candidateName},</p>
+      <p>You have been invited to complete an assessment for the <strong>${data.jobTitle}</strong> position at <strong>${data.companyName}</strong>.</p>
+      <p>Please click the link below to start your assessment:</p>
+      <p><a href="${data.assessmentUrl}">${data.assessmentUrl}</a></p>
+      ${data.deadlineDays ? `<p>You have ${data.deadlineDays} days to complete this assessment.</p>` : ''}
+      ${data.expiryDate ? `<p>This link expires on ${data.expiryDate.toLocaleDateString()}.</p>` : ''}
+      <p>Best of luck!</p>
+    `;
+    await this.sendEmail(data.to, `Assessment Invitation: ${data.jobTitle}`, html);
+  }
+
+  async sendAssessmentCompletionEmail(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    companyName: string;
+    completedAt: Date;
+  }) {
+    const html = `
+      <p>Hi ${data.candidateName},</p>
+      <p>Thank you for completing the assessment for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+      <p>We will review your responses and get back to you soon.</p>
+      <p>Completed on: ${data.completedAt.toLocaleString()}</p>
+    `;
+    await this.sendEmail(data.to, `Assessment Completed: ${data.jobTitle}`, html);
+  }
+
+  async sendAssessmentResultsNotification(data: {
+    to: string;
+    recruiterName: string;
+    candidateName: string;
+    jobTitle: string;
+    companyName: string;
+    assessmentScore: number;
+    passThreshold?: number;
+    passed?: boolean;
+    assessmentUrl: string;
+    candidateProfileUrl: string;
+  }) {
+    const html = `
+      <p>Hi ${data.recruiterName},</p>
+      <p><strong>${data.candidateName}</strong> has completed the assessment for <strong>${data.jobTitle}</strong>.</p>
+      <p><strong>Score:</strong> ${data.assessmentScore}% ${data.passThreshold ? `(Pass Threshold: ${data.passThreshold}%)` : ''}</p>
+      ${data.passed !== undefined ? `<p><strong>Result:</strong> ${data.passed ? 'PASSED' : 'FAILED'}</p>` : ''}
+      <p>View Results: <a href="${data.assessmentUrl}">${data.assessmentUrl}</a></p>
+      <p>Candidate Profile: <a href="${data.candidateProfileUrl}">${data.candidateProfileUrl}</a></p>
+    `;
+    await this.sendEmail(data.to, `Assessment Completed: ${data.candidateName} - ${data.jobTitle}`, html);
   }
 }
 

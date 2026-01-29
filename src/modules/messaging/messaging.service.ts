@@ -24,7 +24,7 @@ export class MessagingService {
         content: string;
         attachments?: any[];
     }) {
-        return this.messagingRepository.createMessage({
+        const message = await this.messagingRepository.createMessage({
             conversation_id: data.conversationId,
             sender_id: data.senderId,
             sender_type: data.senderType,
@@ -32,6 +32,31 @@ export class MessagingService {
             content: data.content,
             attachments: data.attachments,
         });
+
+        // Real-time broadcast
+        try {
+            const { broadcast } = await import('../../websocket/server');
+            broadcast({
+                type: 'new_message',
+                payload: {
+                    id: message.id,
+                    conversationId: message.conversation_id,
+                    content: message.content,
+                    senderId: message.sender_id,
+                    senderType: message.sender_type,
+                    senderEmail: message.sender_email,
+                    createdAt: message.created_at,
+                    attachments: message.attachments,
+                }
+            }, {
+                type: 'room',
+                conversationId: message.conversation_id
+            });
+        } catch (err) {
+            console.error('Failed to broadcast new message:', err);
+        }
+
+        return message;
     }
 
     async createConversation(data: {

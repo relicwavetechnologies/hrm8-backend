@@ -1,8 +1,8 @@
-import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity } from '@prisma/client';
+import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity, CommissionWithdrawal, Consultant } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class SalesRepository extends BaseRepository {
-  
+
   // --- Leads ---
   async createLead(data: Prisma.LeadCreateInput): Promise<Lead> {
     return this.prisma.lead.create({ data });
@@ -17,11 +17,17 @@ export class SalesRepository extends BaseRepository {
   }
 
   async findLeads(filters: any): Promise<Lead[]> {
-    // Implement filters as needed
     return this.prisma.lead.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      include: {
+        company: { select: { id: true, name: true } }
+      }
     });
+  }
+
+  async deleteLead(id: string): Promise<Lead> {
+    return this.prisma.lead.delete({ where: { id } });
   }
 
   // --- Conversion Requests ---
@@ -36,12 +42,22 @@ export class SalesRepository extends BaseRepository {
   async findConversionRequests(filters: any): Promise<LeadConversionRequest[]> {
     return this.prisma.leadConversionRequest.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      include: {
+        lead: { select: { id: true, company_name: true } },
+        company: { select: { id: true, name: true } }
+      }
     });
   }
 
   async findConversionRequestById(id: string): Promise<LeadConversionRequest | null> {
-    return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+    return this.prisma.leadConversionRequest.findUnique({
+      where: { id },
+      include: {
+        lead: true,
+        company: true
+      }
+    });
   }
 
   // --- Opportunities ---
@@ -58,7 +74,7 @@ export class SalesRepository extends BaseRepository {
       where: { id },
       include: {
         company: {
-            select: { id: true, name: true, domain: true }
+          select: { id: true, name: true, domain: true }
         }
       }
     });
@@ -69,7 +85,7 @@ export class SalesRepository extends BaseRepository {
       where: filters,
       include: {
         company: {
-            select: { id: true, name: true, domain: true }
+          select: { id: true, name: true, domain: true }
         }
       },
       orderBy: { updated_at: 'desc' }
@@ -99,6 +115,52 @@ export class SalesRepository extends BaseRepository {
         opportunity: { select: { id: true, name: true } },
         company: { select: { id: true, name: true } }
       }
+    });
+  }
+
+  // --- Withdrawals ---
+  async createWithdrawal(data: Prisma.CommissionWithdrawalCreateInput): Promise<CommissionWithdrawal> {
+    return this.prisma.commissionWithdrawal.create({ data });
+  }
+
+  async updateWithdrawal(id: string, data: Prisma.CommissionWithdrawalUpdateInput): Promise<CommissionWithdrawal> {
+    return this.prisma.commissionWithdrawal.update({ where: { id }, data });
+  }
+
+  async findWithdrawalById(id: string): Promise<CommissionWithdrawal | null> {
+    return this.prisma.commissionWithdrawal.findUnique({ where: { id } });
+  }
+
+  async findWithdrawals(filters: any): Promise<CommissionWithdrawal[]> {
+    return this.prisma.commissionWithdrawal.findMany({
+      where: filters,
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  // --- Consultant (Wallet/Stripe) ---
+  async updateConsultant(id: string, data: Prisma.ConsultantUpdateInput): Promise<Consultant> {
+    return this.prisma.consultant.update({ where: { id }, data });
+  }
+
+  async findConsultantById(id: string): Promise<Consultant | null> {
+    return this.prisma.consultant.findUnique({ where: { id } });
+  }
+
+  async findCommissions(filters: any) {
+    return this.prisma.commission.findMany({
+      where: filters,
+      orderBy: { created_at: 'desc' },
+      include: {
+        job: { select: { title: true, company: { select: { name: true } } } }
+      }
+    });
+  }
+
+  async findCompanies(filters: any) {
+    return this.prisma.company.findMany({
+      where: filters,
+      select: { id: true, name: true, domain: true, created_at: true, verification_status: true }
     });
   }
 }

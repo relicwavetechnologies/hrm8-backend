@@ -23,6 +23,9 @@ export class CandidateRepository extends BaseRepository {
         skills: true,
         certifications: true,
         training: true,
+        resumes: true,
+        cover_letters: true,
+        portfolio_items: true,
       },
     });
   }
@@ -58,6 +61,19 @@ export class CandidateRepository extends BaseRepository {
       where: { session_id: sessionId },
       include: { candidate: true },
     });
+  }
+
+  async deleteSession(sessionId: string) {
+    return this.prisma.candidateSession.delete({
+      where: { session_id: sessionId },
+    });
+  }
+
+  async updateSessionBySessionId(sessionId: string) {
+    return this.prisma.candidateSession.update({
+      where: { session_id: sessionId },
+      data: { last_activity: new Date() },
+    }).catch(() => { });
   }
 
   // Work Experience
@@ -118,7 +134,6 @@ export class CandidateRepository extends BaseRepository {
   }
 
   async updateSkills(candidateId: string, skills: { name: string; level?: string }[]) {
-    // Delete existing skills and replace with new ones (standard approach for simple skill lists)
     return this.prisma.$transaction([
       this.prisma.candidateSkill.deleteMany({ where: { candidate_id: candidateId } }),
       this.prisma.candidateSkill.createMany({
@@ -136,6 +151,21 @@ export class CandidateRepository extends BaseRepository {
     return this.prisma.candidateCertification.findMany({
       where: { candidate_id: candidateId },
       orderBy: { issue_date: 'desc' },
+    });
+  }
+
+  async findExpiringCertifications(candidateId: string, days: number = 30) {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + days);
+
+    return this.prisma.candidateCertification.findMany({
+      where: {
+        candidate_id: candidateId,
+        expiry_date: {
+          gt: new Date(),
+          lt: futureDate
+        }
+      }
     });
   }
 
@@ -181,19 +211,6 @@ export class CandidateRepository extends BaseRepository {
     });
   }
 
-  async deleteSession(sessionId: string) {
-    return this.prisma.candidateSession.delete({
-      where: { session_id: sessionId },
-    });
-  }
-
-  async updateSessionBySessionId(sessionId: string) {
-    return this.prisma.candidateSession.update({
-      where: { session_id: sessionId },
-      data: { last_activity: new Date() },
-    }).catch(() => { });
-  }
-
   // Resumes
   async findResumesByCandidateId(candidateId: string) {
     return this.prisma.candidateResume.findMany({
@@ -206,8 +223,22 @@ export class CandidateRepository extends BaseRepository {
     return this.prisma.candidateResume.create({ data });
   }
 
+  async updateResume(id: string, data: Prisma.CandidateResumeUpdateInput) {
+    return this.prisma.candidateResume.update({
+      where: { id },
+      data,
+    });
+  }
+
   async deleteResume(id: string) {
     return this.prisma.candidateResume.delete({ where: { id } });
+  }
+
+  async resetDefaultResumes(candidateId: string) {
+    return this.prisma.candidateResume.updateMany({
+      where: { candidate_id: candidateId, is_default: true },
+      data: { is_default: false },
+    });
   }
 
   // Cover Letters
@@ -222,6 +253,13 @@ export class CandidateRepository extends BaseRepository {
     return this.prisma.candidateCoverLetter.create({ data });
   }
 
+  async updateCoverLetter(id: string, data: Prisma.CandidateCoverLetterUpdateInput) {
+    return this.prisma.candidateCoverLetter.update({
+      where: { id },
+      data,
+    });
+  }
+
   async deleteCoverLetter(id: string) {
     return this.prisma.candidateCoverLetter.delete({ where: { id } });
   }
@@ -234,12 +272,77 @@ export class CandidateRepository extends BaseRepository {
     });
   }
 
+  async findPortfolioById(id: string) {
+    return this.prisma.candidatePortfolio.findUnique({
+      where: { id },
+    });
+  }
+
   async createPortfolio(data: Prisma.CandidatePortfolioCreateInput) {
     return this.prisma.candidatePortfolio.create({ data });
   }
 
+  async updatePortfolio(id: string, data: Prisma.CandidatePortfolioUpdateInput) {
+    return this.prisma.candidatePortfolio.update({
+      where: { id },
+      data,
+    });
+  }
+
   async deletePortfolio(id: string) {
     return this.prisma.candidatePortfolio.delete({ where: { id } });
+  }
+
+  // Verification 
+  async createVerificationToken(data: {
+    candidateId: string;
+    email: string;
+    token: string;
+    expiresAt: Date;
+  }) {
+    return this.prisma.candidateVerificationToken.create({
+      data: {
+        candidate_id: data.candidateId,
+        email: data.email,
+        token: data.token,
+        expires_at: data.expiresAt,
+      },
+    });
+  }
+
+  async findVerificationToken(token: string) {
+    return this.prisma.candidateVerificationToken.findUnique({
+      where: { token },
+    });
+  }
+
+  async markTokenAsUsed(id: string) {
+    return this.prisma.candidateVerificationToken.update({
+      where: { id },
+      data: { used_at: new Date() },
+    });
+  }
+
+  // Export 
+  async findFullProfile(candidateId: string) {
+    return this.prisma.candidate.findUnique({
+      where: { id: candidateId },
+      include: {
+        work_experience: true,
+        education: true,
+        certifications: true,
+        skills: true,
+        training: true,
+        portfolio_items: true,
+        saved_jobs: true,
+        job_alerts: true,
+        saved_searches: true,
+        job_invitation: true,
+        resumes: true,
+        cover_letters: true,
+        notification_preferences: true,
+      },
+    });
   }
 
   // Saved Jobs
@@ -294,6 +397,32 @@ export class CandidateRepository extends BaseRepository {
     return this.prisma.savedSearch.delete({ where: { id } });
   }
 
+  // Job Invitations 
+  async findJobInvitationsByCandidateId(candidateId: string) {
+    return this.prisma.jobInvitation.findMany({
+      where: { candidate_id: candidateId },
+      include: { job: { include: { company: true } } },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  async findJobInvitationByToken(token: string) {
+    return this.prisma.jobInvitation.findUnique({
+      where: { token },
+      include: { job: true },
+    });
+  }
+
+  async updateInvitationStatus(id: string, status: any) {
+    return this.prisma.jobInvitation.update({
+      where: { id },
+      data: {
+        status,
+        accepted_at: status === 'ACCEPTED' ? new Date() : null,
+      },
+    });
+  }
+
   // Job Alerts
   async findJobAlertsByCandidateId(candidateId: string) {
     return this.prisma.jobAlert.findMany({
@@ -306,7 +435,54 @@ export class CandidateRepository extends BaseRepository {
     return this.prisma.jobAlert.create({ data });
   }
 
+  async updateJobAlert(id: string, data: Prisma.JobAlertUpdateInput) {
+    return this.prisma.jobAlert.update({
+      where: { id },
+      data,
+    });
+  }
+
   async deleteJobAlert(id: string) {
     return this.prisma.jobAlert.delete({ where: { id } });
+  }
+
+  // Notification Preferences 
+  async findNotificationPreferences(candidateId: string) {
+    return this.prisma.notificationPreferences.findUnique({
+      where: { candidate_id: candidateId },
+    });
+  }
+
+  async upsertNotificationPreferences(candidateId: string, data: any) {
+    return this.prisma.notificationPreferences.upsert({
+      where: { candidate_id: candidateId },
+      create: {
+        candidate_id: candidateId,
+        ...data,
+      },
+      update: data,
+    });
+  }
+
+  // Candidate Preferences & Photo 
+  async updatePreferences(id: string, data: any) {
+    return this.prisma.candidate.update({
+      where: { id },
+      data: {
+        job_type_preference: data.job_type_preference,
+        salary_preference: data.salary_preference,
+        relocation_willing: data.relocation_willing,
+        remote_preference: data.remote_preference,
+        visa_status: data.visa_status,
+        work_eligibility: data.work_eligibility,
+      },
+    });
+  }
+
+  async updatePhoto(id: string, photoUrl: string) {
+    return this.prisma.candidate.update({
+      where: { id },
+      data: { photo: photoUrl },
+    });
   }
 }

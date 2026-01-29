@@ -108,6 +108,14 @@ export class MockStripeClient implements IStripeClient {
       }
       return account;
     },
+
+    /**
+     * Create a mock login link for Express dashboard
+     */
+    createLoginLink: async (accountId: string): Promise<{ url: string }> => {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      return { url: `${frontendUrl}/dev/stripe-mock-dashboard?account_id=${accountId}` };
+    },
   };
 
   accountLinks = {
