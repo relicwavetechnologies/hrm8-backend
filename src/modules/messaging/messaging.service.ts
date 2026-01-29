@@ -45,7 +45,9 @@ export class MessagingService {
                     senderId: message.sender_id,
                     senderType: message.sender_type,
                     senderEmail: message.sender_email,
+                    contentType: message.content_type,
                     createdAt: message.created_at,
+                    updatedAt: message.updated_at,
                     attachments: message.attachments,
                 }
             }, {

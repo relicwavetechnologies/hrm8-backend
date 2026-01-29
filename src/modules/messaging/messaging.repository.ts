@@ -35,7 +35,17 @@ export class MessagingRepository {
 
         // Map participants and other fields to CamelCase for frontend
         return conversations.map(conv => ({
-            ...conv,
+            id: conv.id,
+            subject: conv.subject,
+            jobId: conv.job_id,
+            candidateId: conv.candidate_id,
+            status: conv.status,
+            channelType: conv.channel_type,
+            lastMessageId: conv.last_message_id,
+            lastMessageAt: conv.last_message_at,
+            createdAt: conv.created_at,
+            updatedAt: conv.updated_at,
+            job: conv.job,
             participants: conv.participants.map(p => ({
                 id: p.id,
                 conversationId: p.conversation_id,
@@ -52,7 +62,12 @@ export class MessagingRepository {
                 senderId: conv.messages[0].sender_id,
                 senderEmail: conv.messages[0].sender_email,
                 content: conv.messages[0].content,
+                contentType: conv.messages[0].content_type,
+                readBy: conv.messages[0].read_by,
+                deliveredAt: conv.messages[0].delivered_at,
+                readAt: conv.messages[0].read_at,
                 createdAt: conv.messages[0].created_at,
+                updatedAt: conv.messages[0].updated_at,
             } : null
         }));
     }
@@ -78,7 +93,17 @@ export class MessagingRepository {
         if (!conversation) return null;
 
         return {
-            ...conversation,
+            id: conversation.id,
+            subject: conversation.subject,
+            jobId: conversation.job_id,
+            candidateId: conversation.candidate_id,
+            status: conversation.status,
+            channelType: conversation.channel_type,
+            lastMessageId: conversation.last_message_id,
+            lastMessageAt: conversation.last_message_at,
+            createdAt: conversation.created_at,
+            updatedAt: conversation.updated_at,
+            job: conversation.job,
             participants: conversation.participants.map(p => ({
                 id: p.id,
                 conversationId: p.conversation_id,
@@ -95,7 +120,12 @@ export class MessagingRepository {
                 senderId: m.sender_id,
                 senderEmail: m.sender_email,
                 content: m.content,
+                contentType: m.content_type,
+                readBy: m.read_by,
+                deliveredAt: m.delivered_at,
+                readAt: m.read_at,
                 createdAt: m.created_at,
+                updatedAt: m.updated_at,
                 attachments: m.attachments,
             }))
         };

@@ -90,7 +90,8 @@ export class PublicController extends BaseController {
     try {
       const filters = await this.publicService.getJobFilters();
       return this.sendSuccess(res, filters);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error fetching job filters:', error);
       return this.sendError(res, error);
     }
   };

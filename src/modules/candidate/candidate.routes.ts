@@ -110,4 +110,8 @@ router.post('/resume/parse', upload.single('resume'), controller.parseResume);
 // --- Messaging (Shared Routes) ---
 router.use('/messages', messagingRoutes);
 
+// --- Assessments ---
+import assessmentRoutes from '../assessment/assessment.routes';
+router.use('/assessments', assessmentRoutes);
+
 export default router;

@@ -332,6 +332,21 @@ export class CandidateService extends BaseService {
       id: s.id,
       jobId: s.job_id,
       createdAt: s.created_at,
+      job: s.job ? {
+        id: s.job.id,
+        title: s.job.title,
+        location: s.job.location,
+        workArrangement: s.job.work_arrangement,
+        employmentType: s.job.employment_type,
+        postingDate: s.job.posting_date,
+        salaryMin: s.job.salary_min,
+        salaryMax: s.job.salary_max,
+        salaryCurrency: s.job.salary_currency,
+        company: s.job.company ? {
+          id: s.job.company.id,
+          name: s.job.company.name,
+        } : null,
+      } : null,
     }));
   }
 
@@ -364,6 +379,7 @@ export class CandidateService extends BaseService {
       name: ja.name,
       criteria: ja.criteria,
       frequency: ja.frequency,
+      channels: ja.channels,
       isActive: ja.is_active,
       createdAt: ja.created_at,
     }));

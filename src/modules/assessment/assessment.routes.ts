@@ -1,17 +1,19 @@
 import { Router } from 'express';
 import { AssessmentController } from './assessment.controller';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { unifiedAuthenticate } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
 const assessmentController = new AssessmentController();
 
-// Public routes (Candidate portal)
+// Public routes (Candidate portal - Unauthenticated or Token-based)
 router.get('/:token', assessmentController.getAssessmentByToken);
 router.post('/:token/start', assessmentController.startAssessment);
 router.post('/:token/submit', assessmentController.submitAssessment);
 
-// Recruiter routes (Protected)
-router.use(authenticate);
+// Authenticated routes (Staff or Candidate)
+router.use(unifiedAuthenticate);
+
+router.get('/', assessmentController.getCandidateAssessments);
 
 router.get('/:id/results', assessmentController.getAssessmentResults);
 router.get('/:id/grading', assessmentController.getAssessmentForGrading);

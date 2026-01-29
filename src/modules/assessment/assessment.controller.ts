@@ -3,6 +3,7 @@ import { BaseController } from '../../core/controller';
 import { AssessmentService } from './assessment.service';
 import { AssessmentRepository } from './assessment.repository';
 import { AuthenticatedRequest } from '../../types';
+import { HttpException } from '../../core/http-exception';
 
 export class AssessmentController extends BaseController {
   private assessmentService: AssessmentService;
@@ -133,6 +134,18 @@ export class AssessmentController extends BaseController {
       const { totalScore, passed, feedback } = req.body;
       const result = await this.assessmentService.scoreAssessment(id, { totalScore, passed, feedback });
       return this.sendSuccess(res, { assessment: result }, 'Assessment scored successfully');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getCandidateAssessments = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const candidateId = req.user?.id;
+      if (!candidateId) throw new HttpException(401, 'Candidate not authenticated');
+
+      const assessments = await this.assessmentService.getCandidateAssessments(candidateId);
+      return this.sendSuccess(res, { assessments });
     } catch (error) {
       return this.sendError(res, error);
     }
