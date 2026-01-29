@@ -139,19 +139,34 @@ export class JobService extends BaseService {
             }
           })
         );
-        return { jobs: jobsWithCounts, total, page: filters.page || 1, limit: filters.limit || 50 };
+        return {
+          jobs: jobsWithCounts,
+          total,
+          page: filters.page || 1,
+          limit: filters.limit || 50,
+          stats: await this.jobRepository.getJobStats(companyId)
+        };
       } catch (error) {
         // If application counting fails entirely, log warning and return jobs without counts
+        const stats = await this.jobRepository.getJobStats(companyId);
         return {
           jobs: mappedJobs.map(job => ({ ...job, totalApplications: 0, unreadApplicants: 0 })),
           total,
           page: filters.page || 1,
-          limit: filters.limit || 50
+          limit: filters.limit || 50,
+          stats
         };
       }
     }
 
-    const result = { jobs: mappedJobs, total, page: filters.page || 1, limit: filters.limit || 50 };
+    const stats = await this.jobRepository.getJobStats(companyId);
+    const result = {
+      jobs: mappedJobs,
+      total,
+      page: filters.page || 1,
+      limit: filters.limit || 50,
+      stats
+    };
     return result;
   }
 

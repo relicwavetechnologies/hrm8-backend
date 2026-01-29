@@ -201,4 +201,46 @@ export class JobRepository extends BaseRepository {
       take: limit,
     });
   }
+
+  async getJobStats(companyId: string): Promise<{ total: number; active: number; filled: number; applicants: number }> {
+    const [total, active, filled, applicantsResult] = await Promise.all([
+      // Total jobs
+      this.prisma.job.count({
+        where: { company_id: companyId }
+      }),
+      // Active jobs (OPEN)
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'OPEN'
+        }
+      }),
+      // Filled jobs
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'FILLED'
+        }
+      }),
+      // Total applicants across all jobs
+      // We need to sum the application counts. 
+      // Since we might not have a direct Application aggregation here easily depending on prisma version/schema,
+      // let's try to do it via Application model if possible, or sum from jobs.
+      // Assuming Application is related to Job, we can count all applications where job.companyId is companyId.
+      this.prisma.application.count({
+        where: {
+          job: {
+            company_id: companyId
+          }
+        }
+      })
+    ]);
+
+    return {
+      total,
+      active,
+      filled,
+      applicants: applicantsResult
+    };
+  }
 }
