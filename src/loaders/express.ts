@@ -20,6 +20,7 @@ import interviewRoutes from '../modules/interview/interview.routes';
 import offerRoutes from '../modules/offer/offer.routes';
 import walletRoutes from '../modules/wallet/wallet.routes';
 import subscriptionRoutes from '../modules/subscription/subscription.routes';
+import resumeRoutes from '../modules/resume/resume.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -44,6 +45,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/auth', authRoutes);
   app.use('/api/companies', companyRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/employees', userRoutes); // Alias for frontend compatibility
   app.use('/api/jobs', jobRoutes);
   app.use('/api/applications', applicationRoutes);
   app.use('/api/assessment', assessmentRoutes);
@@ -53,6 +55,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/integrations/stripe', stripeRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/interviews', interviewRoutes);
+  app.use('/api/video-interviews', interviewRoutes); // Alias for legacy frontend support
   app.use('/api/offers', offerRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
@@ -60,6 +63,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/consultant', consultantRoutes);
   app.use('/api/sales', salesRoutes);
   app.use('/api/hrm8', hrm8Routes);
+  app.use('/api/resumes', resumeRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

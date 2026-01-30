@@ -33,6 +33,13 @@ export class ApplicationRepository extends BaseRepository {
             country: true,
             email_verified: true,
             status: true,
+            education: true,
+            skills: true,
+            work_experience: true,
+            resumes: {
+              where: { is_default: true },
+              take: 1
+            }
           },
         },
         job: {
@@ -47,6 +54,22 @@ export class ApplicationRepository extends BaseRepository {
             },
           },
         },
+        application_round_progress: {
+          include: {
+            job_round: true
+          },
+          orderBy: {
+            updated_at: 'desc'
+          }
+        },
+        assessment: {
+          include: {
+            assessment_response: true
+          }
+        },
+        questionnaire_response: true,
+        video_interview: true,
+        screening_result: true
       },
     });
   }
@@ -104,6 +127,9 @@ export class ApplicationRepository extends BaseRepository {
             country: true,
             email_verified: true,
             status: true,
+            skills: true,
+            work_experience: true,
+            education: true,
           },
         },
         job: {
@@ -112,6 +138,16 @@ export class ApplicationRepository extends BaseRepository {
             title: true,
           },
         },
+        application_round_progress: {
+          include: {
+            job_round: true
+          },
+          orderBy: {
+            updated_at: 'desc'
+          },
+          take: 1
+        },
+        screening_result: true,
       },
       orderBy: [
         { shortlisted: 'desc' },
@@ -119,16 +155,6 @@ export class ApplicationRepository extends BaseRepository {
         { created_at: 'desc' },
       ],
     });
-  }
-
-  async checkExistingApplication(candidateId: string, jobId: string): Promise<boolean> {
-    const count = await this.prisma.application.count({
-      where: {
-        candidate_id: candidateId,
-        job_id: jobId,
-      },
-    });
-    return count > 0;
   }
 
   async delete(id: string): Promise<Application> {
@@ -219,6 +245,52 @@ export class ApplicationRepository extends BaseRepository {
     });
   }
 
+  async checkExistingApplication(candidateId: string, jobId: string): Promise<boolean> {
+    const count = await this.prisma.application.count({
+      where: {
+        candidate_id: candidateId,
+        job_id: jobId,
+      },
+    });
+    return count > 0;
+  }
+
+  async upsertRoundProgress(applicationId: string, jobRoundId: string): Promise<void> {
+    await this.prisma.applicationRoundProgress.upsert({
+      where: {
+        application_id_job_round_id: {
+          application_id: applicationId,
+          job_round_id: jobRoundId,
+        },
+      },
+      create: {
+        application_id: applicationId,
+        job_round_id: jobRoundId,
+        completed: false,
+        updated_at: new Date(),
+      },
+      update: {
+        completed: false,
+        completed_at: null,
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  // Helper to find round (should be in JobRoundRepository ideally but adding here for safe access)
+  async findJobRound(id: string) {
+    return this.prisma.jobRound.findUnique({ where: { id } });
+  }
+
+  async findJobRoundByFixedKey(jobId: string, fixedKey: string) {
+    return this.prisma.jobRound.findFirst({
+      where: {
+        job_id: jobId,
+        fixed_key: fixedKey,
+      },
+    });
+  }
+
   async bulkUpdateScore(applicationIds: string[], scores: Record<string, number>): Promise<number> {
     // Update scores in a transaction
     const updatePromises = applicationIds.map((id) =>
@@ -230,5 +302,38 @@ export class ApplicationRepository extends BaseRepository {
 
     const results = await this.prisma.$transaction(updatePromises);
     return results.length;
+  }
+
+  async saveScreeningResult(data: {
+    applicationId: string;
+    screeningType: 'AUTOMATED' | 'MANUAL';
+    status: 'PENDING' | 'PASSED' | 'FAILED' | 'REVIEW_REQUIRED';
+    score?: number;
+    criteriaMatched?: any;
+    reviewedBy?: string;
+  }): Promise<void> {
+    await this.prisma.screeningResult.create({
+      data: {
+        application_id: data.applicationId,
+        screening_type: data.screeningType,
+        status: data.status,
+        score: data.score,
+        criteria_matched: data.criteriaMatched,
+        reviewed_by: data.reviewedBy,
+      },
+    });
+  }
+
+  async findResumeByUrl(url: string) {
+    return this.prisma.candidateResume.findFirst({
+      where: { file_url: url },
+    });
+  }
+
+  async updateResumeContent(id: string, content: string) {
+    return this.prisma.candidateResume.update({
+      where: { id },
+      data: { content }
+    });
   }
 }

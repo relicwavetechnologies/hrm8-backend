@@ -4,13 +4,14 @@ import { ApplicationService } from './application.service';
 import { ApplicationRepository } from './application.repository';
 import { AuthenticatedRequest } from '../../types';
 import { ApplicationStage } from '@prisma/client';
+import { CandidateRepository } from '../candidate/candidate.repository';
 
 export class ApplicationController extends BaseController {
   private applicationService: ApplicationService;
 
   constructor() {
     super();
-    this.applicationService = new ApplicationService(new ApplicationRepository());
+    this.applicationService = new ApplicationService(new ApplicationRepository(), new CandidateRepository());
   }
 
   // Submit a new application
@@ -28,7 +29,44 @@ export class ApplicationController extends BaseController {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.getApplication(id);
+
+      // Security Check (Recruiter/Company only)
+      if (req.user) {
+        if (application.job?.company?.id && application.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      }
+
       return this.sendSuccess(res, { application });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getResume = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      // Pre-fetch app to check permissions (inefficient but safe). 
+      // Optimized way: service.getResume checks? Service doesn't check req.user.
+      // We'll trust getApplication to do the check logic, but getResume calls service.getResume.
+      // So we must check here.
+      // ApplicationService.getResume returns object. It doesn't fetch Job relations by default?
+      // getResume DOES fetch app. 
+      // I should update ApplicationService.getResume to return Job ID/Company ID for check?
+      // Or just fetch Application here first.
+      const application = await this.applicationService.applicationRepository.findById(id);
+      if (!application) throw new Error('Application not found');
+
+      if (req.user) {
+        // Company user
+        const appAny = application as any;
+        if (appAny.job?.company?.id && appAny.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      }
+
+      const resume = await this.applicationService.getResume(id);
+      return this.sendSuccess(res, resume);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -56,8 +94,8 @@ export class ApplicationController extends BaseController {
       const { jobId } = req.params as { jobId: string };
       const filters = req.query;
 
-      const applications = await this.applicationService.getJobApplications(jobId, filters);
-      return this.sendSuccess(res, { applications });
+      const result = await this.applicationService.getJobApplications(jobId, filters);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -220,6 +258,17 @@ export class ApplicationController extends BaseController {
     }
   };
 
+  moveToRound = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id, roundId } = req.params as { id: string; roundId: string };
+      const result = await this.applicationService.moveToRound(id, roundId, req.user.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Bulk score candidates
   bulkScoreCandidates = async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -250,7 +299,8 @@ export class ApplicationController extends BaseController {
   // Check if candidate has applied to job
   checkApplication = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { candidateId, jobId } = req.query as { candidateId: string; jobId: string };
+      const candidateId = req.query.candidateId as string;
+      const jobId = req.query.jobId as string;
 
       if (!candidateId || !jobId) {
         return this.sendError(res, new Error('Candidate ID and Job ID are required'), 400);
@@ -258,6 +308,37 @@ export class ApplicationController extends BaseController {
 
       const hasApplied = await this.applicationService.checkApplication(candidateId, jobId);
       return this.sendSuccess(res, { hasApplied });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  submitManualApplication = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const result = await this.applicationService.createManualApplication(req.body, req.user.id);
+      return this.sendSuccess(res, { application: result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateManualScreening = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await this.applicationService.updateManualScreening(id, req.body);
+      return this.sendSuccess(res, { application: result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addFromTalentPool = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { candidateId, jobId } = req.body;
+      const result = await this.applicationService.createFromTalentPool(candidateId, jobId, req.user.id);
+      return this.sendSuccess(res, { application: result });
     } catch (error) {
       return this.sendError(res, error);
     }

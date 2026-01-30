@@ -8,7 +8,7 @@ import { NotificationRecipientType, UniversalNotificationType } from '@prisma/cl
 const notificationService = new NotificationService(new NotificationRepository());
 
 export class InterviewService {
-  
+
   static async autoScheduleInterview(params: {
     applicationId: string;
     jobRoundId: string;
@@ -56,70 +56,70 @@ export class InterviewService {
     // 5. Generate Link
     let meetingLink: string | null = null;
     if (config.interview_format === 'LIVE_VIDEO') {
-        const end = new Date(startDate.getTime() + (config.default_duration * 60000));
-        const evt = await GoogleCalendarService.createVideoInterviewEvent({
-            summary: `Interview: ${application.job.title}`,
-            start: startDate,
-            end: end,
-            attendees: [{ email: application.candidate.email }]
-        });
-        meetingLink = evt.meetingLink || null;
+      const end = new Date(startDate.getTime() + (config.default_duration * 60000));
+      const evt = await GoogleCalendarService.createVideoInterviewEvent({
+        summary: `Interview: ${application.job.title}`,
+        start: startDate,
+        end: end,
+        attendees: [{ email: application.candidate.email }]
+      });
+      meetingLink = evt.meetingLink || null;
     }
 
     // 6. Create Interview
     const interview = await prisma.videoInterview.create({
-        data: {
-            application_id: params.applicationId,
-            candidate_id: application.candidate_id,
-            job_id: application.job_id,
-            job_round_id: params.jobRoundId,
-            scheduled_date: startDate,
-            duration: config.default_duration,
-            meeting_link: meetingLink,
-            status: 'SCHEDULED',
-            type: 'VIDEO', // Default
-            interviewer_ids: config.assigned_interviewer_ids || [],
-            is_auto_scheduled: true
-        }
+      data: {
+        application_id: params.applicationId,
+        candidate_id: application.candidate_id,
+        job_id: application.job_id,
+        job_round_id: params.jobRoundId,
+        scheduled_date: startDate,
+        duration: config.default_duration,
+        meeting_link: meetingLink,
+        status: 'SCHEDULED',
+        type: 'VIDEO', // Default
+        interviewer_ids: config.assigned_interviewer_ids || [],
+        is_auto_scheduled: true
+      }
     });
 
     // 7. Update Progress
     await prisma.applicationRoundProgress.upsert({
-        where: {
-            application_id_job_round_id: {
-                application_id: params.applicationId,
-                job_round_id: params.jobRoundId
-            }
-        },
-        create: {
-            application_id: params.applicationId,
-            job_round_id: params.jobRoundId,
-            video_interview_id: interview.id,
-            completed: false
-        },
-        update: {
-            video_interview_id: interview.id
+      where: {
+        application_id_job_round_id: {
+          application_id: params.applicationId,
+          job_round_id: params.jobRoundId
         }
+      },
+      create: {
+        application_id: params.applicationId,
+        job_round_id: params.jobRoundId,
+        video_interview_id: interview.id,
+        completed: false
+      },
+      update: {
+        video_interview_id: interview.id
+      }
     });
 
     // 8. Notifications
     await emailService.sendInterviewInvitation({
-        to: application.candidate.email,
-        candidateName: application.candidate.first_name,
-        jobTitle: application.job.title,
-        companyName: 'Company', // Fetch company name if needed
-        scheduledDate: startDate,
-        meetingLink: meetingLink || undefined,
-        interviewType: 'Video'
+      to: application.candidate.email,
+      candidateName: application.candidate.first_name,
+      jobTitle: application.job.title,
+      companyName: 'Company', // Fetch company name if needed
+      scheduledDate: startDate,
+      meetingLink: meetingLink || undefined,
+      interviewType: 'Video'
     });
 
     await notificationService.createNotification({
-        recipientType: NotificationRecipientType.CANDIDATE,
-        recipientId: application.candidate_id,
-        type: UniversalNotificationType.INTERVIEW_SCHEDULED,
-        title: 'Interview Scheduled',
-        message: `Interview for ${application.job.title} scheduled.`,
-        actionUrl: `/candidate/interviews/${interview.id}`
+      recipientType: NotificationRecipientType.CANDIDATE,
+      recipientId: application.candidate_id,
+      type: UniversalNotificationType.INTERVIEW_SCHEDULED,
+      title: 'Interview Scheduled',
+      message: `Interview for ${application.job.title} scheduled.`,
+      actionUrl: `/candidate/interviews/${interview.id}`
     });
 
     return interview;
@@ -137,76 +137,197 @@ export class InterviewService {
     notes?: string;
   }) {
     const application = await prisma.application.findUnique({
-        where: { id: params.applicationId },
-        include: { candidate: true, job: true }
+      where: { id: params.applicationId },
+      include: { candidate: true, job: true }
     });
     if (!application) throw new Error('Application not found');
 
     // Create
     const interview = await prisma.videoInterview.create({
-        data: {
-            application_id: params.applicationId,
-            candidate_id: application.candidate_id,
-            job_id: application.job_id,
-            job_round_id: params.jobRoundId,
-            scheduled_date: params.scheduledDate,
-            duration: params.duration,
-            meeting_link: params.meetingLink,
-            status: 'SCHEDULED',
-            type: params.type as any,
-            interviewer_ids: params.interviewerIds || [],
-            notes: params.notes,
-            is_auto_scheduled: false
-        }
+      data: {
+        application_id: params.applicationId,
+        candidate_id: application.candidate_id,
+        job_id: application.job_id,
+        job_round_id: params.jobRoundId,
+        scheduled_date: params.scheduledDate,
+        duration: params.duration,
+        meeting_link: params.meetingLink,
+        status: 'SCHEDULED',
+        type: params.type as any,
+        interviewer_ids: params.interviewerIds || [],
+        notes: params.notes,
+        is_auto_scheduled: false
+      }
     });
 
     // Notify
     if (application.candidate) {
-        await emailService.sendInterviewInvitation({
-            to: application.candidate.email,
-            candidateName: application.candidate.first_name,
-            jobTitle: application.job.title,
-            companyName: 'Company',
-            scheduledDate: params.scheduledDate,
-            meetingLink: params.meetingLink,
-            interviewType: params.type
-        });
+      await emailService.sendInterviewInvitation({
+        to: application.candidate.email,
+        candidateName: application.candidate.first_name,
+        jobTitle: application.job.title,
+        companyName: 'Company',
+        scheduledDate: params.scheduledDate,
+        meetingLink: params.meetingLink,
+        interviewType: params.type
+      });
     }
 
     return interview;
   }
 
-  static async getJobInterviews(jobId: string) {
-    return prisma.videoInterview.findMany({
-        where: { job_id: jobId },
-        include: { application: { include: { candidate: true } } },
-        orderBy: { scheduled_date: 'asc' }
+  static async getInterviews(filters: {
+    jobId?: string;
+    jobRoundId?: string;
+    status?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }) {
+    const where: any = {};
+
+    if (filters.jobId) where.job_id = filters.jobId;
+    if (filters.jobRoundId) where.job_round_id = filters.jobRoundId;
+    if (filters.status) where.status = filters.status;
+
+    if (filters.startDate || filters.endDate) {
+      where.scheduled_date = {};
+      if (filters.startDate) where.scheduled_date.gte = filters.startDate;
+      if (filters.endDate) where.scheduled_date.lte = filters.endDate;
+    }
+
+    const interviews = await prisma.videoInterview.findMany({
+      where,
+      include: {
+        application: {
+          include: {
+            candidate: true
+          }
+        },
+        job_round: true
+      },
+      orderBy: { scheduled_date: 'asc' }
     });
+
+    return interviews.map(i => this.mapToDTO(i));
   }
 
   static async getInterviewById(id: string) {
-    return prisma.videoInterview.findUnique({
-        where: { id },
-        include: { application: { include: { candidate: true } }, job_round: true }
+    const interview = await prisma.videoInterview.findUnique({
+      where: { id },
+      include: { application: { include: { candidate: true } }, job_round: true }
     });
+    if (!interview) return null;
+    return this.mapToDTO(interview);
   }
 
   static async updateStatus(id: string, status: any, notes?: string) {
     return prisma.videoInterview.update({
-        where: { id },
-        data: { status, notes }
+      where: { id },
+      data: { status, notes }
     });
   }
 
   static async addFeedback(interviewId: string, feedback: any) {
     // Save feedback logic here (simplified)
     await prisma.interviewFeedback.create({
-        data: {
-            video_interview_id: interviewId,
-            ...feedback
-        }
+      data: {
+        video_interview_id: interviewId,
+        ...feedback
+      }
     });
-    // Recalculate score logic omitted for brevity, but can be added
-    return prisma.videoInterview.findUnique({ where: { id: interviewId } });
+    // Recalculate score
+    const allFeedbacks = await prisma.interviewFeedback.findMany({
+      where: { video_interview_id: interviewId }
+    });
+
+    const totalScore = allFeedbacks.reduce((sum, fb) => sum + (fb.overall_rating || 0), 0);
+    const averageScore = allFeedbacks.length > 0 ? totalScore / allFeedbacks.length : 0;
+
+    await prisma.videoInterview.update({
+      where: { id: interviewId },
+      data: { overall_score: averageScore }
+    });
+
+    const updated = await prisma.videoInterview.findUnique({ where: { id: interviewId } });
+    if (!updated) throw new Error('Interview not found');
+    return this.mapToDTO(updated);
+  }
+
+  static async getProgressionStatus(interviewId: string) {
+    const interview = await prisma.videoInterview.findUnique({ where: { id: interviewId } });
+    if (!interview) throw new Error('Interview not found');
+
+    const result = {
+      canProgress: true,
+      missingInterviewers: [] as string[],
+      submittedCount: 0,
+      totalCount: 0,
+      requiresAllInterviewers: false,
+    };
+
+    if (!interview.job_round_id) return result;
+
+    const config = await prisma.interviewConfiguration.findUnique({
+      where: { job_round_id: interview.job_round_id }
+    });
+
+    if (!config || !config.require_all_interviewers) return result;
+
+    result.requiresAllInterviewers = true;
+    const assignedIds = (interview.interviewer_ids as unknown as string[]) || [];
+    result.totalCount = assignedIds.length;
+
+    if (result.totalCount === 0) return result;
+
+    const feedbacks = await prisma.interviewFeedback.findMany({
+      where: { video_interview_id: interviewId },
+      select: { interviewer_id: true }
+    });
+
+    const submittedIds = feedbacks.map(f => f.interviewer_id).filter((id): id is string => !!id);
+    result.submittedCount = submittedIds.length;
+
+    result.missingInterviewers = assignedIds.filter(id => !submittedIds.includes(id));
+    if (result.missingInterviewers.length > 0) {
+      result.canProgress = false;
+    }
+
+    return result;
+  }
+
+  private static mapToDTO(interview: any) {
+    return {
+      id: interview.id,
+      applicationId: interview.application_id,
+      candidateId: interview.candidate_id,
+      candidate: interview.application?.candidate ? {
+        id: interview.application.candidate.id,
+        firstName: interview.application.candidate.first_name,
+        lastName: interview.application.candidate.last_name,
+        email: interview.application.candidate.email,
+        phone: interview.application.candidate.phone,
+        photo: interview.application.candidate.photo,
+        city: interview.application.candidate.city,
+        state: interview.application.candidate.state,
+        country: interview.application.candidate.country,
+      } : undefined,
+      jobId: interview.job_id,
+      jobRoundId: interview.job_round_id,
+      jobRound: interview.job_round ? {
+        id: interview.job_round.id,
+        name: interview.job_round.name,
+      } : undefined,
+      scheduledDate: interview.scheduled_date,
+      duration: interview.duration,
+      meetingLink: interview.meeting_link,
+      status: interview.status,
+      type: interview.type,
+      interviewerIds: interview.interviewer_ids,
+      isAutoScheduled: interview.is_auto_scheduled,
+      cancellationReason: interview.cancellation_reason,
+      noShowReason: interview.no_show_reason,
+      createdAt: interview.created_at,
+      updatedAt: interview.updated_at
+    };
   }
 }

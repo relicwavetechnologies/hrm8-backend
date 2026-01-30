@@ -2,7 +2,7 @@ import type { Prisma, Assessment, AssessmentQuestion, AssessmentResponse } from 
 import { BaseRepository } from '../../core/repository';
 
 export class AssessmentRepository extends BaseRepository {
-  
+
   async create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
     return this.prisma.assessment.create({ data });
   }
@@ -40,6 +40,38 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async findJobRound(id: string) {
+    return this.prisma.jobRound.findUnique({
+      where: { id },
+      select: { order: true }
+    });
+  }
+
+  async findByRoundIdWithDetails(roundId: string) {
+    return this.prisma.assessment.findMany({
+      where: { job_round_id: roundId },
+      include: {
+        assessment_question: true,
+        assessment_response: {
+          include: {
+            assessment_grade: true
+          }
+        },
+        application: {
+          include: {
+            candidate: true,
+            application_round_progress: {
+              include: {
+                job_round: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
   // Questions
   async createQuestion(data: Prisma.AssessmentQuestionCreateInput): Promise<AssessmentQuestion> {
     return this.prisma.assessmentQuestion.create({ data });
@@ -60,6 +92,32 @@ export class AssessmentRepository extends BaseRepository {
   async getResponses(assessmentId: string): Promise<AssessmentResponse[]> {
     return this.prisma.assessmentResponse.findMany({
       where: { assessment_id: assessmentId },
+    });
+  }
+
+  // Configuration and Helpers
+  async findConfigByJobRoundId(jobRoundId: string) {
+    return this.prisma.assessmentConfiguration.findUnique({
+      where: { job_round_id: jobRoundId }
+    });
+  }
+
+  async findApplicationForAssignment(applicationId: string) {
+    return this.prisma.application.findUnique({
+      where: { id: applicationId },
+      select: { candidate_id: true, job_id: true }
+    });
+  }
+
+  async linkToRoundProgress(applicationId: string, jobRoundId: string, assessmentId: string) {
+    return this.prisma.applicationRoundProgress.updateMany({
+      where: {
+        application_id: applicationId,
+        job_round_id: jobRoundId
+      },
+      data: {
+        assessment_id: assessmentId
+      }
     });
   }
 }

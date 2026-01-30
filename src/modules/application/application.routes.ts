@@ -23,8 +23,15 @@ router.post('/', authenticate, applicationController.submitApplication);
 // Get candidate applications (with candidateId query param)
 router.get('/', authenticate, applicationController.getCandidateApplications);
 
+// Bulk operations - must come before parameterized routes
+router.post('/manual', authenticate, applicationController.submitManualApplication);
+router.post('/from-talent-pool', authenticate, applicationController.addFromTalentPool);
+router.put('/:id/manual-screening', authenticate, applicationController.updateManualScreening);
+
 // Single application operations - must come after specific routes
+router.get('/:id/resume', authenticate, applicationController.getResume);
 router.get('/:id', authenticate, applicationController.getApplication);
+router.put('/:id/round/:roundId', authenticate, applicationController.moveToRound);
 router.put('/:id/score', authenticate, applicationController.updateScore);
 router.put('/:id/rank', authenticate, applicationController.updateRank);
 router.put('/:id/tags', authenticate, applicationController.updateTags);
