@@ -141,6 +141,78 @@ export class EmailService extends BaseService {
     await this.sendEmail(data.to, `Offer Accepted: ${data.jobTitle}`, html);
   }
 
+  // Application Emails
+  async sendApplicationSubmissionEmail(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    companyName: string;
+    applicationUrl: string;
+  }) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #2563eb;">Application Received! 🎉</h2>
+        <p>Hi ${data.candidateName},</p>
+        <p>Thank you for applying for the <strong>${data.jobTitle}</strong> position at <strong>${data.companyName}</strong>. We've successfully received your application.</p>
+        <p>Our team will review your profile and get back to you if there's a match. You can track your application status anytime via your dashboard:</p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.applicationUrl}" style="background-color: #2563eb; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Application Status</a>
+        </div>
+        <p>Best of luck!</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="color: #6b7280; font-size: 0.875rem;">This is an automated message from the HRM8 Recruitment Platform.</p>
+      </div>
+    `;
+    await this.sendEmail(data.to, `Application Submitted: ${data.jobTitle}`, html);
+  }
+
+  // Messaging Emails
+  async sendNewMessageNotificationEmail(data: {
+    to: string;
+    recipientName: string;
+    senderName: string;
+    messageContent: string;
+    conversationUrl: string;
+  }) {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #2563eb;">New Message Received</h2>
+        <p>Hi ${data.recipientName},</p>
+        <p>You have received a new message from <strong>${data.senderName}</strong>:</p>
+        <div style="background-color: #f9fafb; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0; font-style: italic;">
+          "${data.messageContent}"
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.conversationUrl}" style="background-color: #2563eb; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Reply to Message</a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="color: #6b7280; font-size: 0.875rem;">This is an automated message from HRM8. You can manage your notification settings in your profile.</p>
+      </div>
+    `;
+    await this.sendEmail(data.to, `New Message from ${data.senderName}`, html);
+  }
+
+  // Generic Notification Email
+  async sendNotificationEmail(to: string, title: string, message: string, actionUrl?: string) {
+    const baseUrl = env.FRONTEND_URL || 'http://localhost:3000';
+    const fullUrl = actionUrl ? (actionUrl.startsWith('http') ? actionUrl : `${baseUrl}${actionUrl}`) : baseUrl;
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+        <h2 style="color: #2563eb;">${title}</h2>
+        <p>${message}</p>
+        ${actionUrl ? `
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${fullUrl}" style="background-color: #2563eb; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Details</a>
+        </div>
+        ` : ''}
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+        <p style="color: #6b7280; font-size: 0.875rem;">The HRM8 Team</p>
+      </div>
+    `;
+    await this.sendEmail(to, title, html);
+  }
+
   // Assessment Emails
   async sendAssessmentInvitationEmail(data: {
     to: string;
@@ -200,6 +272,38 @@ export class EmailService extends BaseService {
       <p>Candidate Profile: <a href="${data.candidateProfileUrl}">${data.candidateProfileUrl}</a></p>
     `;
     await this.sendEmail(data.to, `Assessment Completed: ${data.candidateName} - ${data.jobTitle}`, html);
+  }
+  async sendJobAlertEmail(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    companyName: string;
+    location: string;
+    employmentType: string;
+    workArrangement: string;
+    salaryMin?: number;
+    salaryMax?: number;
+    salaryCurrency: string;
+    jobUrl: string;
+  }) {
+    const salaryText = data.salaryMin && data.salaryMax
+      ? `<p><strong>Salary:</strong> ${data.salaryCurrency} ${data.salaryMin} - ${data.salaryMax}</p>`
+      : '';
+
+    const html = `
+      <p>Hi ${data.candidateName},</p>
+      <p>We found a new job that matches your criteria!</p>
+      <div style="padding: 15px; border: 1px solid #eee; border-radius: 8px; margin: 20px 0;">
+        <h3 style="margin-top: 0;">${data.jobTitle}</h3>
+        <p><strong>Company:</strong> ${data.companyName}</p>
+        <p><strong>Location:</strong> ${data.location} (${data.workArrangement})</p>
+        <p><strong>Type:</strong> ${data.employmentType}</p>
+        ${salaryText}
+        <p style="margin-bottom: 0;"><a href="${data.jobUrl}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">View Job Details</a></p>
+      </div>
+      <p>Best regards,<br/>The HRM8 Team</p>
+    `;
+    await this.sendEmail(data.to, `Job Alert: ${data.jobTitle} at ${data.companyName}`, html);
   }
 }
 

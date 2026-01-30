@@ -1,6 +1,7 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
+import { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters, AnonymousApplicationRequest } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
@@ -11,9 +12,14 @@ import { AssessmentRepository } from '../assessment/assessment.repository';
 
 export class ApplicationService extends BaseService {
   private assessmentService: AssessmentService;
+  private notificationService: NotificationService;
 
-  constructor(private applicationRepository: ApplicationRepository) {
+  constructor(
+    private applicationRepository: ApplicationRepository,
+    notificationService?: NotificationService
+  ) {
     super();
+    this.notificationService = notificationService || new NotificationService(new (require('../notification/notification.repository').NotificationRepository)());
     this.assessmentService = new AssessmentService(new AssessmentRepository());
   }
 
@@ -48,6 +54,49 @@ export class ApplicationService extends BaseService {
       shortlisted: false,
       manually_added: false,
     });
+
+    // Notify Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(application.id) as any;
+      if (appWithDetails && appWithDetails.job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: appWithDetails.job.created_by,
+          type: UniversalNotificationType.NEW_APPLICATION,
+          title: `New Application: ${appWithDetails.job.title}`,
+          message: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has applied for ${appWithDetails.job.title}.`,
+          actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${application.id}`,
+          data: { applicationId: application.id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+        });
+      }
+
+      // Notify Candidate
+      if (appWithDetails && appWithDetails.candidate) {
+        // 1. In-App Notification
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate.id,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED, // Or a more specific type if added to enum
+          title: 'Application Received!',
+          message: `Your application for ${appWithDetails.job.title} at ${appWithDetails.job.company?.name || 'the company'} has been successfully submitted.`,
+          actionUrl: '/candidate/applications',
+          skipEmail: true,
+          data: { applicationId: application.id, jobId: appWithDetails.job_id }
+        });
+
+        // 2. Email Notification
+        const { emailService } = await import('../email/email.service');
+        await emailService.sendApplicationSubmissionEmail({
+          to: appWithDetails.candidate.email,
+          candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}`,
+          jobTitle: appWithDetails.job.title,
+          companyName: appWithDetails.job.company?.name || 'the company',
+          applicationUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidate/applications`
+        });
+      }
+    } catch (error) {
+      console.error('[ApplicationService] Failed to notify of new application:', error);
+    }
 
     return this.mapToResponse(application);
   }
@@ -103,6 +152,25 @@ export class ApplicationService extends BaseService {
       throw new HttpException(404, 'Application not found');
     }
     const updated = await this.applicationRepository.shortlist(id, userId);
+
+    // Notify Candidate (In-App)
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.candidate_id) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate_id,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: "You've Been Shortlisted!",
+          message: `Your application for ${appWithDetails.job?.title || 'the position'} has been shortlisted.`,
+          actionUrl: '/candidate/applications',
+          data: { applicationId: id, jobId: appWithDetails.job_id }
+        });
+      }
+    } catch (error) {
+      console.error('[ApplicationService] Failed to send shortlist notification:', error);
+    }
+
     return this.mapToResponse(updated);
   }
 
@@ -121,6 +189,45 @@ export class ApplicationService extends BaseService {
       throw new HttpException(404, 'Application not found');
     }
     const updated = await this.applicationRepository.updateStage(id, stage);
+
+    // Notify Candidate and Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.candidate_id) {
+        // Notify Candidate
+        const isRejected = stage === 'REJECTED';
+        const title = isRejected ? 'Application Update' : 'Application Progress Update';
+        const message = isRejected
+          ? `We regret to inform you that your application for ${appWithDetails.job?.title} at ${appWithDetails.job?.company?.name || 'the company'} was not successful at this time.`
+          : `Your application for ${appWithDetails.job?.title} has moved to the "${stage.replace(/_/g, ' ')}" stage.`;
+
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate_id,
+          type: isRejected ? UniversalNotificationType.APPLICATION_REJECTED : UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title,
+          message,
+          actionUrl: '/candidate/applications',
+          data: { applicationId: id, jobId: appWithDetails.job_id, stage }
+        });
+
+        // Notify Recruiter (Job Owner)
+        if (appWithDetails.job?.created_by) {
+          await this.notificationService.createNotification({
+            recipientType: NotificationRecipientType.USER,
+            recipientId: appWithDetails.job.created_by,
+            type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+            title: 'Application Stage Updated',
+            message: `Application for ${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has moved to "${stage.replace(/_/g, ' ')}".`,
+            actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${id}`,
+            data: { applicationId: id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('[ApplicationService] Failed to send stage change notifications:', error);
+    }
+
     return this.mapToResponse(updated);
   }
 
@@ -147,6 +254,25 @@ export class ApplicationService extends BaseService {
     const updated = await this.applicationRepository.update(id, {
       status: 'WITHDRAWN',
     });
+
+    // Notify Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: appWithDetails.job.created_by,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: 'Application Withdrawn',
+          message: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has withdrawn their application for ${appWithDetails.job.title}.`,
+          actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${id}`,
+          data: { applicationId: id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+        });
+      }
+    } catch (error: any) {
+      console.error('[ApplicationService] Failed to send withdrawal notification to recruiter:', error);
+    }
+
     return this.mapToResponse(updated);
   }
 

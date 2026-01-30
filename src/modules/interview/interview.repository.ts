@@ -25,7 +25,7 @@ export class InterviewRepository extends BaseRepository {
         return this.prisma.videoInterview.findUnique({
             where: { id },
             include: {
-                application: { include: { candidate: true, job: true } },
+                application: { include: { candidate: true, job: { include: { company: true } } } },
             },
         });
     }
@@ -57,7 +57,7 @@ export class InterviewRepository extends BaseRepository {
         return this.prisma.videoInterview.findMany({
             where,
             include: {
-                application: { include: { candidate: true, job: true } },
+                application: { include: { candidate: true, job: { include: { company: true } } } },
             },
             orderBy: { scheduled_date: 'asc' },
         });
@@ -79,7 +79,7 @@ export class InterviewRepository extends BaseRepository {
     async findApplicationById(id: string) {
         return this.prisma.application.findUnique({
             where: { id },
-            include: { candidate: true, job: true }
+            include: { candidate: true, job: { include: { company: true } } }
         });
     }
 

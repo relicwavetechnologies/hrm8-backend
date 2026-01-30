@@ -298,6 +298,17 @@ export class JobService extends BaseService {
       });
     }
 
+    // Process job alerts for candidates who might be interested in this job
+    try {
+      const { CandidateRepository } = await import('../candidate/candidate.repository');
+      const { CandidateService } = await import('../candidate/candidate.service');
+      const candidateService = new CandidateService(new CandidateRepository());
+      await candidateService.notifyMatchingCandidates(updatedJob);
+    } catch (alertError: any) {
+      // Log alert processing errors but don't fail the publish operation
+      console.error(`[JobService] Failed to process job alerts for published job ${id}:`, alertError);
+    }
+
     // Auto-assignment
     await jobAllocationService.autoAssignJob(id);
 

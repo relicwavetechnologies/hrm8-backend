@@ -485,4 +485,46 @@ export class CandidateRepository extends BaseRepository {
       data: { photo: photoUrl },
     });
   }
+
+  // Get public jobs for recommendations
+  async findPublicJobs() {
+    return this.prisma.job.findMany({
+      where: {
+        status: 'OPEN',
+        visibility: 'public',
+        stealth: false
+      },
+      include: {
+        company: true
+      },
+      orderBy: {
+        created_at: 'desc'
+      },
+      take: 100 // Limit to 100 recent jobs for better recommendation pool
+    });
+  }
+
+  // Get job by ID with company
+  async findJobById(jobId: string) {
+    return this.prisma.job.findUnique({
+      where: { id: jobId },
+      include: { company: true }
+    });
+  }
+
+  // Get active job alerts with candidates
+  async findActiveJobAlertsWithCandidates() {
+    return this.prisma.jobAlert.findMany({
+      where: { is_active: true },
+      include: {
+        candidate: {
+          include: {
+            skills: true,
+            work_experience: true,
+            education: true
+          }
+        }
+      }
+    });
+  }
 }

@@ -18,6 +18,7 @@ export class NotificationService extends BaseService {
     data?: any;
     actionUrl?: string;
     expiresAt?: Date;
+    skipEmail?: boolean;
   }): Promise<UniversalNotification> {
     const expiresAt = data.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default 30 days
 
@@ -35,11 +36,40 @@ export class NotificationService extends BaseService {
     // Broadcast in real-time
     NotificationBroadcastService.broadcastNotification(notification);
 
+    // 2. Email Integration
+    if (!data.skipEmail) {
+      try {
+        const { emailService } = await import('../email/email.service');
+
+        // Simple logic: if CANDIDATE or USER, try to find their email and send
+        // In production, this should check UserNotificationPreferences
+        if (data.recipientType === 'CANDIDATE') {
+          const candidate = await this.prisma.candidate.findUnique({
+            where: { id: data.recipientId },
+            select: { email: true }
+          });
+          if (candidate?.email) {
+            await emailService.sendNotificationEmail(candidate.email, data.title, data.message, data.actionUrl);
+          }
+        } else if (data.recipientType === 'USER') {
+          const user = await this.prisma.user.findUnique({
+            where: { id: data.recipientId },
+            select: { email: true }
+          });
+          if (user?.email) {
+            await emailService.sendNotificationEmail(user.email, data.title, data.message, data.actionUrl);
+          }
+        }
+      } catch (error) {
+        console.error('[NotificationService] Failed to send notification email:', error);
+      }
+    }
+
     return notification;
   }
 
   async getUserNotifications(
-    recipientType: NotificationRecipientType, 
+    recipientType: NotificationRecipientType,
     recipientId: string,
     limit: number = 20,
     offset: number = 0
@@ -50,7 +80,7 @@ export class NotificationService extends BaseService {
   async markAsRead(id: string, recipientType: NotificationRecipientType, recipientId: string) {
     const notification = await this.notificationRepository.findById(id);
     if (!notification) throw new HttpException(404, 'Notification not found');
-    
+
     if (notification.recipient_type !== recipientType || notification.recipient_id !== recipientId) {
       throw new HttpException(403, 'Unauthorized access to notification');
     }
@@ -158,6 +188,7 @@ export class NotificationService extends BaseService {
     actionUrl?: string;
     regionId?: string;
     companyId?: string;
+    skipEmail?: boolean;
   }): Promise<UniversalNotification[]> {
     const notifications = await Promise.all(
       data.recipients.map(recipient =>
@@ -168,6 +199,7 @@ export class NotificationService extends BaseService {
           title: data.title,
           message: data.message,
           actionUrl: data.actionUrl,
+          skipEmail: data.skipEmail,
           data: {
             regionId: data.regionId,
             companyId: data.companyId,

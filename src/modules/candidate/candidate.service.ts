@@ -396,6 +396,225 @@ export class CandidateService extends BaseService {
     return this.candidateRepository.deleteJobAlert(id);
   }
 
+  // Enhanced job alert matching algorithm
+  async findMatchingCandidatesForJob(jobId: string) {
+    const job = await this.candidateRepository.findJobById(jobId);
+
+    if (!job) {
+      throw new HttpException(404, 'Job not found');
+    }
+
+    // Get all active job alerts
+    const activeJobAlerts = await this.candidateRepository.findActiveJobAlertsWithCandidates();
+
+    // Find candidates whose alerts match the job
+    const matchingCandidates = [];
+
+    for (const jobAlert of activeJobAlerts) {
+      const candidate = jobAlert.candidate;
+      const matchScore = this.calculateJobAlertMatchScore(job, candidate, jobAlert.criteria);
+
+      if (matchScore >= 70) { // Minimum match score threshold
+        matchingCandidates.push({
+          candidateId: candidate.id,
+          candidateEmail: candidate.email,
+          candidateName: `${candidate.first_name} ${candidate.last_name}`,
+          jobAlertId: jobAlert.id,
+          jobAlertName: jobAlert.name,
+          matchScore,
+          channels: jobAlert.channels || ['EMAIL']
+        });
+      }
+    }
+
+    return matchingCandidates;
+  }
+
+  // Notify candidates about matching job
+  async notifyMatchingCandidates(job: any) {
+    const matchingCandidates = await this.findMatchingCandidatesForJob(job.id);
+
+    // Dynamically import services to avoid circular dependencies if any
+    const { emailService } = await import('../email/email.service');
+    const { NotificationRepository } = await import('../notification/notification.repository');
+    const { NotificationService } = await import('../notification/notification.service');
+
+    const notificationService = new NotificationService(new NotificationRepository());
+
+    for (const match of matchingCandidates) {
+      // 1. Send Email if requested
+      if (match.channels.includes('EMAIL')) {
+        try {
+          // We need to add this method to emailService later
+          if (typeof (emailService as any).sendJobAlertEmail === 'function') {
+            await (emailService as any).sendJobAlertEmail({
+              to: match.candidateEmail,
+              candidateName: match.candidateName,
+              jobTitle: job.title,
+              companyName: job.company?.name || 'Company',
+              location: job.location,
+              employmentType: job.employment_type,
+              workArrangement: job.work_arrangement,
+              salaryMin: job.salary_min,
+              salaryMax: job.salary_max,
+              salaryCurrency: job.salary_currency || 'USD',
+              jobUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/jobs/${job.id}`
+            });
+          }
+        } catch (error) {
+          console.error(`Failed to send job alert email to ${match.candidateEmail}:`, error);
+        }
+      }
+
+      // 2. Send In-App Notification if requested
+      if (match.channels.includes('IN_APP') || match.channels.includes('PUSH')) {
+        try {
+          await notificationService.createNotification({
+            recipientType: 'CANDIDATE',
+            recipientId: match.candidateId,
+            type: 'JOB_PUBLISHED' as any, // Default to JOB_PUBLISHED or JOB_ALERT
+            title: 'New Job Match!',
+            message: `A new job "${job.title}" at ${job.company?.name || 'a top company'} matches your criteria.`,
+            data: {
+              jobId: job.id,
+              matchScore: match.matchScore,
+              jobAlertId: match.jobAlertId
+            },
+            actionUrl: `/candidate/jobs/${job.id}`
+          });
+        } catch (error) {
+          console.error(`Failed to create in-app notification for candidate ${match.candidateId}:`, error);
+        }
+      }
+    }
+  }
+
+  // Calculate job alert match score
+  private calculateJobAlertMatchScore(job: any, candidate: any, alertCriteria: any): number {
+    let score = 0;
+
+    // Alert criteria matching (basic filters)
+    if (alertCriteria) {
+      // Keyword matching
+      if (alertCriteria.search) {
+        const searchKeywords = alertCriteria.search.toLowerCase().split(/\s+/);
+        const jobText = (job.title + ' ' + job.description + ' ' + (job.requirements || '') + ' ' + (job.responsibilities || '')).toLowerCase();
+
+        const matchingKeywords = searchKeywords.filter((keyword: string) =>
+          jobText.includes(keyword.trim())
+        );
+
+        score += matchingKeywords.length * 15; // 15 points per matching keyword
+      }
+
+      // Location matching (supports radius search if coordinates available)
+      if (alertCriteria.location) {
+        const jobLocation = job.location.toLowerCase();
+        const alertLocation = alertCriteria.location.toLowerCase();
+
+        if (jobLocation.includes(alertLocation) || alertLocation.includes(jobLocation)) {
+          score += 15;
+        } else if (alertCriteria.locationRadius) {
+          // If we have coordinates, calculate distance
+          score += 5; // Partial match for nearby locations
+        }
+      }
+
+      // Employment type matching
+      if (alertCriteria.employmentType && job.employment_type === alertCriteria.employmentType) {
+        score += 10;
+      }
+
+      // Work arrangement matching
+      if (alertCriteria.workArrangement && job.work_arrangement === alertCriteria.workArrangement) {
+        score += 10;
+      }
+
+      // Category/department matching
+      if (alertCriteria.category && job.category) {
+        const jobCategory = job.category.toLowerCase();
+        const alertCategory = alertCriteria.category.toLowerCase();
+
+        if (jobCategory.includes(alertCategory) || alertCategory.includes(jobCategory)) {
+          score += 10;
+        }
+      }
+
+      // Salary range matching
+      if (alertCriteria.salaryMin && job.salary_max && job.salary_max < alertCriteria.salaryMin) {
+        return 0; // Below minimum salary - no match
+      }
+
+      if (alertCriteria.salaryMax && job.salary_min && job.salary_min > alertCriteria.salaryMax) {
+        return 0; // Above maximum salary - no match
+      }
+
+      if (alertCriteria.salaryMin && alertCriteria.salaryMax) {
+        score += 10;
+      }
+    }
+
+    // Candidate profile matching (enhanced)
+    if (candidate.skills.length > 0) {
+      const candidateSkills = candidate.skills.map((skill: any) => skill.name.toLowerCase());
+      const jobText = (job.title + ' ' + job.description + ' ' + (job.requirements || '') + ' ' + (job.responsibilities || '')).toLowerCase();
+
+      const matchingSkills = candidateSkills.filter((skill: string) =>
+        jobText.includes(skill)
+      );
+
+      score += matchingSkills.length * 10; // 10 points per matching skill
+    }
+
+    // Experience level matching
+    if (candidate.work_experience.length > 0) {
+      const totalExperience = candidate.work_experience.reduce((sum: number, exp: any) => {
+        const start = new Date(exp.start_date);
+        const end = exp.end_date ? new Date(exp.end_date) : new Date();
+        return sum + (end.getFullYear() - start.getFullYear());
+      }, 0);
+
+      // Match experience level with job requirements
+      if (job.description && totalExperience > 0) {
+        if (job.description.toLowerCase().includes('senior') && totalExperience >= 5) {
+          score += 10;
+        } else if (job.description.toLowerCase().includes('junior') && totalExperience < 3) {
+          score += 10;
+        } else if (totalExperience >= 2) {
+          score += 5;
+        }
+      }
+    }
+
+    // Education level matching
+    if (candidate.education.length > 0) {
+      const highestDegree = candidate.education.reduce((highest: any, edu: any) => {
+        const degreeLevels: any = { 'high school': 1, 'bachelor': 2, 'master': 3, 'phd': 4 };
+        const currentLevel = degreeLevels[edu.degree.toLowerCase()] || 0;
+        const highestLevel = highest ? (degreeLevels[highest.degree.toLowerCase()] || 0) : 0;
+        return currentLevel > highestLevel ? edu : highest;
+      }, null);
+
+      if (highestDegree) {
+        score += 5; // Base points for having education
+        if (job.description && job.description.toLowerCase().includes('degree')) {
+          score += 5; // Bonus for job requiring degree
+        }
+      }
+    }
+
+    // Remote preference matching
+    if (candidate.remote_preference && job.work_arrangement) {
+      if (candidate.remote_preference === 'REMOTE' && job.work_arrangement === 'REMOTE') {
+        score += 10;
+      } else if (candidate.remote_preference === 'HYBRID' && (job.work_arrangement === 'HYBRID' || job.work_arrangement === 'REMOTE')) {
+        score += 5;
+      }
+    }
+
+    return Math.min(score, 100); // Cap score at 100
+  }
+
   // Resume Parsing Stub
   async parseResume(candidateId: string, file: any) {
     if (!file) throw new HttpException(400, 'Resume file is required');
@@ -455,9 +674,141 @@ export class CandidateService extends BaseService {
 
   // Get recommended jobs
   async getRecommendedJobs(candidateId: string) {
-    // This is a stub for recommendation logic
-    // In a real scenario, this would query jobs based on candidate skills/experience
-    return [];
+    // Get candidate profile with all relevant information
+    const candidate = await this.candidateRepository.findById(candidateId);
+    if (!candidate) {
+      throw new HttpException(404, 'Candidate not found');
+    }
+
+    // Extract candidate skills for matching
+    const candidateSkills = (candidate.skills || []).map((skill: any) => skill.name.toLowerCase());
+
+    // Extract job preferences
+    const jobTypePreference = Array.isArray(candidate.job_type_preference)
+      ? candidate.job_type_preference
+      : (candidate.job_type_preference ? [candidate.job_type_preference] : []);
+    const remotePreference = candidate.remote_preference;
+    const salaryPreference = candidate.salary_preference;
+
+    // Get all active public jobs (recently created first)
+    // We already have findPublicJobs in repository, we might want to ensure it sorts by creation date
+    const jobs = await this.candidateRepository.findPublicJobs();
+
+    // Calculate job scores based on matching criteria
+    const scoredJobs = jobs.map((job: any) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // 1. Skill matching
+      if (candidateSkills.length > 0) {
+        const jobText = (job.title + ' ' + job.description + ' ' + (job.requirements || '') + ' ' + (job.responsibilities || '')).toLowerCase();
+        const matchingSkills = candidateSkills.filter((skill: string) => jobText.includes(skill));
+        if (matchingSkills.length > 0) {
+          score += matchingSkills.length * 20; // 20 points per matching skill
+          reasons.push(`${matchingSkills.length} matching skills`);
+        }
+      }
+
+      // 2. Job type preference matching
+      if (jobTypePreference.length > 0 && jobTypePreference.includes(job.employment_type)) {
+        score += 15;
+        reasons.push('Matches employment type preference');
+      }
+
+      // 3. Remote preference matching
+      if (remotePreference) {
+        if (remotePreference === 'REMOTE' && job.work_arrangement === 'REMOTE') {
+          score += 20;
+          reasons.push('Matches remote preference');
+        } else if (remotePreference === 'HYBRID' && (job.work_arrangement === 'HYBRID' || job.work_arrangement === 'REMOTE')) {
+          score += 15;
+          reasons.push('Matches hybrid/remote preference');
+        } else if (remotePreference === 'ON_SITE' && job.work_arrangement === 'ON_SITE') {
+          score += 15;
+          reasons.push('Matches on-site preference');
+        }
+      }
+
+      // 4. Salary range matching
+      if (salaryPreference && job.salary_min && job.salary_max) {
+        const prefValue = typeof salaryPreference === 'number' ? salaryPreference : (salaryPreference as any).min;
+        if (prefValue) {
+          const jobAverageSalary = (job.salary_min + job.salary_max) / 2;
+          const salaryDifference = Math.abs(jobAverageSalary - prefValue);
+          const salaryRange = job.salary_max - job.salary_min || 1000;
+
+          // Give points based on how close salary is to preference
+          if (salaryDifference <= salaryRange * 0.25) {
+            score += 10;
+            reasons.push('Within preferred salary range');
+          } else if (salaryDifference <= salaryRange * 0.5) {
+            score += 5;
+          }
+        }
+      }
+
+      // 5. Title Matching (Restored Logic)
+      if (candidate.work_experience && candidate.work_experience.length > 0) {
+        const pastTitles = candidate.work_experience.map((exp: any) => (exp.role || exp.title || '').toLowerCase());
+        const jobTitle = job.title.toLowerCase();
+
+        const hasTitleMatch = pastTitles.some((title: string) => {
+          const words = title.split(/\s+/).filter((w: string) => w.length > 3);
+          return words.some((word: string) => jobTitle.includes(word));
+        });
+
+        if (hasTitleMatch) {
+          score += 20;
+          reasons.push('Matches your previous experience');
+        }
+      }
+
+      // 6. Location preference matching
+      if (candidate.city && job.location) {
+        const candidateCity = candidate.city.toLowerCase();
+        const jobLocation = job.location.toLowerCase();
+
+        if (jobLocation.includes(candidateCity) || candidateCity.includes(jobLocation)) {
+          score += 10;
+          reasons.push('Located in your preferred city');
+        }
+      }
+
+      return {
+        ...job,
+        score,
+        reasons
+      };
+    });
+
+    // Filter jobs with minimum score and sort by score descending
+    const recommendedJobs = scoredJobs
+      .filter((job: any) => job.score >= 20) // Minimum score threshold
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, 10); // Return top 10 recommendations
+
+    // Map to response format
+    return recommendedJobs.map((job: any) => ({
+      id: job.id,
+      title: job.title,
+      company: {
+        id: job.company?.id,
+        name: job.company?.name,
+        logo: null
+      },
+      location: job.location,
+      employmentType: job.employment_type,
+      workArrangement: job.work_arrangement,
+      category: job.category,
+      department: job.department,
+      salaryMin: job.salary_min,
+      salaryMax: job.salary_max,
+      salaryCurrency: job.salary_currency,
+      postingDate: job.created_at,
+      description: job.description,
+      score: job.score,
+      reasons: job.reasons
+    }));
   }
 
   async deleteAccount(id: string) {

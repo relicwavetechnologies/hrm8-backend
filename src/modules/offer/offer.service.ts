@@ -13,7 +13,8 @@ import {
   NegotiationMessageType
 } from './offer.types';
 import { OfferStatus } from '../../types'; // Ensure types available or import from Prisma/local
-import { OfferNegotiation, OfferDocument, Prisma } from '@prisma/client';
+import { OfferNegotiation, OfferDocument, Prisma, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 import { env } from '../../config/env';
 
 import { ApplicationService } from '../application/application.service';
@@ -22,14 +23,20 @@ import { JobRoundRepository } from '../job/job-round.repository';
 import { ApplicationRepository } from '../application/application.repository';
 
 export class OfferService extends BaseService {
+  private notificationService: NotificationService;
+
   constructor(
     private repository: OfferRepository,
     private applicationService: ApplicationService,
     private emailService: EmailService,
     private jobRoundRepository: JobRoundRepository,
-    private applicationRepository: ApplicationRepository
+    private applicationRepository: ApplicationRepository,
+    notificationService?: NotificationService
   ) {
     super();
+    const { NotificationRepository } = require('../notification/notification.repository');
+    const { NotificationService } = require('../notification/notification.service');
+    this.notificationService = notificationService || new NotificationService(new NotificationRepository());
   }
 
   /**
@@ -158,6 +165,22 @@ export class OfferService extends BaseService {
       }
     }
 
+    // 5. In-App Notification
+    try {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.CANDIDATE,
+        recipientId: offer.candidate_id,
+        type: UniversalNotificationType.OFFER_EXTENDED,
+        title: '🎉 Offer Extended!',
+        message: `Congratulations! An offer has been extended for ${(offer as any).job?.title || 'the position'} at ${(offer as any).job?.company?.name || 'the company'}. Please review the offer details in your dashboard.`,
+        actionUrl: `/candidate/offers/${id}`,
+        skipEmail: true,
+        data: { offerId: id, applicationId: offer.application_id, jobTitle: (offer as any).job?.title }
+      });
+    } catch (error) {
+      console.error('[OfferService] Failed to send offer in-app notification:', error);
+    }
+
     return updatedOffer;
   }
 
@@ -191,6 +214,23 @@ export class OfferService extends BaseService {
 
     // Update Stage
     await this.applicationRepository.updateStage(offer.application_id, 'OFFER_ACCEPTED' as any);
+
+    // Notify Recruiter
+    try {
+      if ((offer as any).job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: (offer as any).job.created_by,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: 'Offer Accepted',
+          message: `${(offer as any).candidate?.first_name} ${(offer as any).candidate?.last_name} has accepted the offer for ${(offer as any).job.title}.`,
+          actionUrl: `/ats/jobs/${offer.job_id}/applications/${offer.application_id}`,
+          data: { offerId: id, candidateName: `${(offer as any).candidate?.first_name} ${(offer as any).candidate?.last_name}` }
+        });
+      }
+    } catch (error) {
+      console.error('[OfferService] Failed to send offer acceptance notification to recruiter:', error);
+    }
 
     return updatedOffer;
   }

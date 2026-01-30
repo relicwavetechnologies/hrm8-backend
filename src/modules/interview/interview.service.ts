@@ -3,10 +3,17 @@ import { InterviewRepository } from './interview.repository';
 import { HttpException } from '../../core/http-exception';
 import { InterviewStatus, VideoInterviewType } from '../../types';
 import { emailService } from '../email/email.service';
+import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 export class InterviewService extends BaseService {
-  constructor(private readonly repository: InterviewRepository) {
+  private notificationService: NotificationService;
+
+  constructor(private readonly repository: InterviewRepository, notificationService?: NotificationService) {
     super();
+    const { NotificationRepository } = require('../notification/notification.repository');
+    const { NotificationService } = require('../notification/notification.service');
+    this.notificationService = notificationService || new NotificationService(new NotificationRepository());
   }
 
   async createInterview(params: {
@@ -40,15 +47,47 @@ export class InterviewService extends BaseService {
 
     // Notify
     if (application.candidate) {
+      // Email
       await emailService.sendInterviewInvitation({
         to: application.candidate.email,
         candidateName: application.candidate.first_name,
         jobTitle: application.job.title,
-        companyName: 'Company',
+        companyName: application.job.company?.name || 'Company',
         scheduledDate: params.scheduledDate,
         meetingLink: params.meetingLink || undefined,
         interviewType: params.type
       });
+
+      // In-App
+      try {
+        const formattedDate = new Date(params.scheduledDate).toLocaleString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: application.candidate_id,
+          type: UniversalNotificationType.INTERVIEW_SCHEDULED,
+          title: 'Interview Scheduled',
+          message: `An interview has been scheduled for your application to ${application.job.title} at ${application.job.company?.name || 'the company'} on ${formattedDate}.`,
+          actionUrl: '/candidate/interviews',
+          skipEmail: true,
+          data: {
+            interviewId: interview.id,
+            applicationId: params.applicationId,
+            jobTitle: application.job.title,
+            interviewDate: params.scheduledDate,
+            formattedDate
+          }
+        });
+      } catch (error) {
+        console.error('[InterviewService] Failed to send in-app notification:', error);
+      }
     }
 
     return interview;
@@ -88,6 +127,7 @@ export class InterviewService extends BaseService {
 
     // Notify candidate
     if (interview.application?.candidate) {
+      // Email
       await emailService.sendInterviewRescheduledEmail({
         to: interview.application.candidate.email,
         candidateName: interview.application.candidate.first_name,
@@ -95,6 +135,36 @@ export class InterviewService extends BaseService {
         newDate: newDate,
         reason: reason
       });
+
+      // In-App
+      try {
+        const formattedDate = new Date(newDate).toLocaleString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: interview.application.candidate_id,
+          type: UniversalNotificationType.INTERVIEW_SCHEDULED,
+          title: 'Interview Rescheduled',
+          message: `Your interview for ${interview.application.job.title} has been rescheduled to ${formattedDate}. Reason: ${reason}`,
+          actionUrl: '/candidate/interviews',
+          skipEmail: true,
+          data: {
+            interviewId: id,
+            newDate,
+            formattedDate,
+            reason
+          }
+        });
+      } catch (error) {
+        console.error('[InterviewService] Failed to send reschedule in-app notification:', error);
+      }
     }
 
     return updated;
@@ -111,12 +181,29 @@ export class InterviewService extends BaseService {
 
     // Notify candidate
     if (interview.application?.candidate) {
+      // Email
       await emailService.sendInterviewCancelledEmail({
         to: interview.application.candidate.email,
         candidateName: interview.application.candidate.first_name,
         jobTitle: interview.application.job.title,
         reason: reason
       });
+
+      // In-App
+      try {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: interview.application.candidate_id,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: 'Interview Cancelled',
+          message: `Your interview for ${interview.application.job.title} has been cancelled. Reason: ${reason}`,
+          actionUrl: '/candidate/applications',
+          skipEmail: true,
+          data: { interviewId: id, reason }
+        });
+      } catch (error) {
+        console.error('[InterviewService] Failed to send cancellation in-app notification:', error);
+      }
     }
 
     return result;

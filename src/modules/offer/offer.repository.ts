@@ -35,7 +35,13 @@ export class OfferRepository extends BaseRepository {
                     select: { id: true, first_name: true, last_name: true, email: true }
                 },
                 job: {
-                    select: { id: true, title: true }
+                    select: {
+                        id: true,
+                        title: true,
+                        company: {
+                            select: { id: true, name: true }
+                        }
+                    }
                 },
                 user: {
                     select: { id: true, name: true, email: true }
