@@ -74,7 +74,9 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/integrations', integrationRoutes);
   app.use('/api/integrations/stripe', stripeRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/candidate/notifications', notificationRoutes); // Candidate alias for notifications
   app.use('/api/interviews', interviewRoutes);
+  app.use('/api/candidate/interviews', interviewRoutes); // Candidate alias for interviews
   app.use('/api/video-interviews', videoInterviewRoutes);
   app.use('/api/talent-pool', talentPoolRoutes);
   app.use('/api/departments', departmentsRoutes);
@@ -83,6 +85,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/subscriptions', subscriptionRoutes);
   app.use('/api/payments', paymentRoutes);
   app.use('/api/messages', messagingRoutes);
+  app.use('/api/candidate/messages', messagingRoutes); // Candidate alias for messaging
   app.use('/api/candidate', candidateRoutes);
   app.use('/api/consultant', consultantRoutes);
   app.use('/api/sales', salesRoutes);

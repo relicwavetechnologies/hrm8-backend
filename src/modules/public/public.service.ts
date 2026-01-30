@@ -88,29 +88,70 @@ export class PublicService extends BaseService {
     return companies;
   }
 
-  // Get company careers page details
-  async getCompanyCareersPage(companyId: string) {
+  // Get company careers page details with jobs and filters
+  async getCompanyCareersPage(companyId: string, filters?: { search?: string; department?: string; location?: string }) {
+    // First, get the company
     const company = await this.prisma.company.findFirst({
       where: {
         id: companyId,
       },
-      include: {
-        jobs: {
-          where: {
-            status: 'OPEN',
-          },
-          select: {
-            id: true,
-            title: true,
-            location: true,
-            employment_type: true,
-            created_at: true,
-          },
-        },
-      },
     });
 
-    return company;
+    if (!company) {
+      return null;
+    }
+
+    // Build job where clause
+    const jobWhere: any = {
+      company_id: companyId,
+      status: 'OPEN',
+    };
+
+    // Apply filters
+    if (filters?.search) {
+      jobWhere.OR = [
+        { title: { contains: filters.search, mode: 'insensitive' } },
+        { description: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters?.department && filters.department !== 'All Departments') {
+      jobWhere.category = filters.department;
+    }
+
+    if (filters?.location && filters.location !== 'All Locations') {
+      jobWhere.location = filters.location;
+    }
+
+    // Get filtered jobs
+    const jobs = await this.prisma.job.findMany({
+      where: jobWhere,
+      orderBy: { created_at: 'desc' },
+    });
+
+    // Get all available departments for this company
+    const allDepartments = await this.prisma.job.findMany({
+      where: { company_id: companyId, status: 'OPEN' },
+      select: { category: true },
+      distinct: ['category'],
+    });
+
+    // Get all available locations for this company
+    const allLocations = await this.prisma.job.findMany({
+      where: { company_id: companyId, status: 'OPEN' },
+      select: { location: true },
+      distinct: ['location'],
+    });
+
+    return {
+      company,
+      jobs: jobs.map(job => this.mapJobToResponse(job)),
+      totalJobs: jobs.length,
+      filters: {
+        departments: allDepartments.map(d => d.category).filter(Boolean) as string[],
+        locations: allLocations.map(l => l.location).filter(Boolean) as string[],
+      },
+    };
   }
 
   // Get available filter options

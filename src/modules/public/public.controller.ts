@@ -73,13 +73,33 @@ export class PublicController extends BaseController {
   getCompanyCareersPage = async (req: Request, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const company = await this.publicService.getCompanyCareersPage(id);
+      const { search, department, location } = req.query as { search?: string; department?: string; location?: string };
 
-      if (!company) {
+      const result = await this.publicService.getCompanyCareersPage(id, { search, department, location });
+
+      if (!result) {
         return this.sendError(res, new Error('Company careers page not found'));
       }
 
-      return this.sendSuccess(res, { company });
+      // Map company to expected format
+      const companyResponse = {
+        id: result.company.id,
+        name: result.company.name,
+        website: result.company.website,
+        domain: result.company.domain,
+        logoUrl: result.company.careers_page_logo,
+        bannerUrl: result.company.careers_page_banner,
+        about: result.company.careers_page_about,
+        social: result.company.careers_page_social as any,
+        images: result.company.careers_page_images as string[] | null,
+      };
+
+      return this.sendSuccess(res, {
+        company: companyResponse,
+        jobs: result.jobs,
+        totalJobs: result.totalJobs,
+        filters: result.filters,
+      });
     } catch (error) {
       return this.sendError(res, error);
     }
