@@ -149,4 +149,94 @@ export class OfferService {
         }
     });
   }
+
+  static async initiateNegotiation(offerId: string, candidateId: string, data: any) {
+    const offer = await prisma.offerLetter.findUnique({
+      where: { id: offerId },
+      include: { candidate: true, job: { include: { company: true } } }
+    });
+    if (!offer) throw new Error('Offer not found');
+    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+
+    const negotiation = await prisma.offerNegotiation.create({
+      data: {
+        offer_id: offerId,
+        message_type: data.messageType || 'COUNTER_OFFER',
+        message: data.message,
+        proposed_changes: data.proposedChanges || null,
+        sender_id: candidateId,
+        sender_type: 'CANDIDATE',
+        sender_name: data.senderName || 'Candidate',
+        sender_email: data.senderEmail || null,
+        responded: false,
+      },
+    });
+
+    return negotiation;
+  }
+
+  static async respondToNegotiation(negotiationId: string, candidateId: string, response: string) {
+    const negotiation = await prisma.offerNegotiation.findUnique({
+      where: { id: negotiationId },
+      include: { offer_letter: true },
+    });
+
+    if (!negotiation) throw new Error('Negotiation not found');
+    if (negotiation.offer_letter.candidate_id !== candidateId) throw new Error('Unauthorized');
+
+    return prisma.offerNegotiation.update({
+      where: { id: negotiationId },
+      data: {
+        responded: true,
+        response: response,
+        response_date: new Date(),
+      },
+    });
+  }
+
+  static async uploadDocument(offerId: string, candidateId: string, data: any) {
+    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
+    if (!offer) throw new Error('Offer not found');
+    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+
+    const document = await prisma.offerDocument.create({
+      data: {
+        offer_id: offerId,
+        application_id: offer.application_id,
+        name: data.name,
+        description: data.description || null,
+        category: data.category || 'OTHER',
+        status: 'PENDING',
+        file_url: data.fileUrl,
+        file_name: data.fileName,
+        uploaded_date: new Date(),
+        uploaded_by: candidateId,
+        is_required: data.isRequired ?? true,
+      },
+    });
+
+    return document;
+  }
+
+  static async getOfferDocuments(offerId: string, candidateId: string) {
+    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
+    if (!offer) throw new Error('Offer not found');
+    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+
+    return prisma.offerDocument.findMany({
+      where: { offer_id: offerId },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  static async getNegotiations(offerId: string, candidateId: string) {
+    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
+    if (!offer) throw new Error('Offer not found');
+    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+
+    return prisma.offerNegotiation.findMany({
+      where: { offer_id: offerId },
+      orderBy: { created_at: 'desc' },
+    });
+  }
 }

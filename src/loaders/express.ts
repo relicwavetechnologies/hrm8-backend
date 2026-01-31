@@ -21,6 +21,8 @@ import offerRoutes from '../modules/offer/offer.routes';
 import walletRoutes from '../modules/wallet/wallet.routes';
 import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import resumeRoutes from '../modules/resume/resume.routes';
+import consultant360Routes from '../modules/consultant360/consultant360.routes';
+import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -64,6 +66,8 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/sales', salesRoutes);
   app.use('/api/hrm8', hrm8Routes);
   app.use('/api/resumes', resumeRoutes);
+  app.use('/api/consultant360', consultant360Routes);
+  app.use('/api/admin/billing', adminBillingRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

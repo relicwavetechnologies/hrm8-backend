@@ -2953,3 +2953,4 @@ model UserAlertRule {
   @@index([event_type])
   @@map("user_alert_rules")
 }
+
