@@ -35,12 +35,18 @@ const expressLoader = async (app: Application): Promise<void> => {
 
   // CORS setup
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
+  const allowedOrigins = frontendUrl.includes(',')
+    ? frontendUrl.split(',').map(u => u.trim())
+    : [frontendUrl]; // Ensure it's always an array for cors middleware
+
   const corsOptions = {
-    origin: frontendUrl.includes(',') ? frontendUrl.split(',').map(u => u.trim()) : frontendUrl,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
+
+  console.log('[Express] CORS enabled for origins:', allowedOrigins);
   app.use(cors(corsOptions));
 
   // Register module routers

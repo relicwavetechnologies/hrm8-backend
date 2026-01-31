@@ -6,7 +6,9 @@ const router = Router();
 const consultantController = new ConsultantController();
 
 // Auth
+router.post('/auth/login', consultantController.login);
 router.post('/auth/logout', authenticateConsultant, consultantController.logout);
+router.get('/auth/me', authenticateConsultant, consultantController.getCurrentUser);
 
 // Profile
 router.get('/profile', authenticateConsultant, consultantController.getProfile);

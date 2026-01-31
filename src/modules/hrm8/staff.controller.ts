@@ -22,7 +22,7 @@ export class StaffController extends BaseController {
                 role: role as ConsultantRole,
                 status: status as ConsultantStatus,
             });
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultants: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -32,7 +32,7 @@ export class StaffController extends BaseController {
         try {
             const { id } = req.params;
             const result = await this.staffService.getById(id as string);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -41,7 +41,7 @@ export class StaffController extends BaseController {
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.staffService.create(req.body);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -51,7 +51,7 @@ export class StaffController extends BaseController {
         try {
             const { id } = req.params;
             const result = await this.staffService.update(id as string, req.body);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -62,7 +62,7 @@ export class StaffController extends BaseController {
             const { id } = req.params;
             const { regionId } = req.body;
             const result = await this.staffService.assignRegion(id as string, regionId as string);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
         }

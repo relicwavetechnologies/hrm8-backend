@@ -1,5 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma, AssignmentSource, PipelineStage } from '@prisma/client';
+import { notifyConsultant } from '../notification/notification-service-singleton';
 
 export class JobAllocationRepository {
     async assignToConsultant(data: {
@@ -9,7 +10,10 @@ export class JobAllocationRepository {
         source?: AssignmentSource;
         regionId: string;
     }) {
-        return prisma.$transaction(async (tx) => {
+        const assignment = await prisma.$transaction(async (tx) => {
+            // Fetch job details for notification
+            const job = await tx.job.findUnique({ where: { id: data.jobId } });
+
             // 1. Deactivate existing assignments for this job
             await tx.consultantJobAssignment.updateMany({
                 where: { job_id: data.jobId, status: 'ACTIVE' },
@@ -46,8 +50,20 @@ export class JobAllocationRepository {
                 data: { current_jobs: { increment: 1 } },
             });
 
-            return assignment;
+            return { assignment, job };
         });
+
+        // 5. Notify consultant about job assignment
+        if (assignment.job) {
+            await notifyConsultant(data.consultantId, {
+                title: 'New Job Assigned',
+                message: `You have been assigned to the job: "${assignment.job.title}"`,
+                type: 'JOB_ASSIGNED',
+                actionUrl: `/consultant/jobs/${data.jobId}`
+            });
+        }
+
+        return assignment.assignment;
     }
 
     async unassign(jobId: string) {

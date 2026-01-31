@@ -277,8 +277,9 @@ export class WalletService {
     const withdrawal = await prisma.virtualTransaction.create({
       data: {
         virtual_account_id: account.id,
-        type: 'WITHDRAWAL',
+        type: 'COMMISSION_WITHDRAWAL',
         amount: data.amount,
+        balance_after: account.balance - data.amount,
         direction: 'DEBIT',
         status: 'PENDING',
         description: `Withdrawal request - ${data.paymentMethod}`,
@@ -309,7 +310,7 @@ export class WalletService {
     const withdrawals = await prisma.virtualTransaction.findMany({
       where: {
         virtual_account_id: account.id,
-        type: 'WITHDRAWAL'
+        type: 'COMMISSION_WITHDRAWAL'
       },
       orderBy: { created_at: 'desc' }
     });
@@ -461,7 +462,7 @@ export class WalletService {
     return {
       id: subscription.id,
       name: subscription.name,
-      amount: subscription.amount,
+      amount: subscription.base_price,
       billingCycle: subscription.billing_cycle,
       status: subscription.status
     };
@@ -479,21 +480,21 @@ export class WalletService {
       throw new HttpException(404, 'Subscription not found');
     }
 
-    const nextBillingDate = new Date();
-    nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+    const nextRenewalDate = new Date();
+    nextRenewalDate.setMonth(nextRenewalDate.getMonth() + 1);
 
     const updated = await prisma.subscription.update({
       where: { id: subscriptionId },
       data: {
         status: 'ACTIVE',
-        next_billing_date: nextBillingDate
+        renewal_date: nextRenewalDate
       }
     });
 
     return {
       id: updated.id,
       status: updated.status,
-      nextBillingDate: updated.next_billing_date,
+      renewalDate: updated.renewal_date,
       message: 'Subscription renewed successfully'
     };
   }
@@ -544,8 +545,9 @@ export class WalletService {
     const transaction = await prisma.virtualTransaction.create({
       data: {
         virtual_account_id: account.id,
-        type: 'ADDON_SERVICE',
+        type: 'ADDON_SERVICE_CHARGE',
         amount: data.amount,
+        balance_after: account.balance - data.amount,
         direction: 'DEBIT',
         status: 'COMPLETED',
         description: `${data.addonName} addon service${data.quantity ? ` (qty: ${data.quantity})` : ''}`,
@@ -604,11 +606,8 @@ export class WalletService {
   static async getPendingWithdrawals() {
     const withdrawals = await prisma.virtualTransaction.findMany({
       where: {
-        type: 'WITHDRAWAL',
+        type: 'COMMISSION_WITHDRAWAL',
         status: 'PENDING'
-      },
-      include: {
-        virtual_account: true
       },
       orderBy: { created_at: 'asc' }
     });
@@ -617,8 +616,8 @@ export class WalletService {
       withdrawals: withdrawals.map(w => ({
         id: w.id,
         amount: w.amount,
-        ownerType: w.virtual_account.owner_type,
-        ownerId: w.virtual_account.owner_id,
+        ownerType: w.counterparty_type,
+        ownerId: w.counterparty_id,
         requestedAt: w.created_at
       })),
       total: withdrawals.length
@@ -630,8 +629,7 @@ export class WalletService {
    */
   static async approveWithdrawal(withdrawalId: string) {
     const withdrawal = await prisma.virtualTransaction.findUnique({
-      where: { id: withdrawalId },
-      include: { virtual_account: true }
+      where: { id: withdrawalId }
     });
 
     if (!withdrawal) {
@@ -644,13 +642,13 @@ export class WalletService {
 
     const updated = await prisma.virtualTransaction.update({
       where: { id: withdrawalId },
-      data: { status: 'APPROVED' }
+      data: { status: 'COMPLETED' }
     });
 
     return {
       id: updated.id,
       status: updated.status,
-      approvedAt: updated.updated_at
+      approvedAt: new Date().toISOString()
     };
   }
 
@@ -659,8 +657,7 @@ export class WalletService {
    */
   static async rejectWithdrawal(withdrawalId: string, reason?: string) {
     const withdrawal = await prisma.virtualTransaction.findUnique({
-      where: { id: withdrawalId },
-      include: { virtual_account: true }
+      where: { id: withdrawalId }
     });
 
     if (!withdrawal) {
@@ -683,8 +680,8 @@ export class WalletService {
     const updated = await prisma.virtualTransaction.update({
       where: { id: withdrawalId },
       data: {
-        status: 'REJECTED',
-        description: `Rejected: ${reason || 'No reason provided'}`
+        status: 'FAILED',
+        failed_reason: reason || 'Rejected: No reason provided'
       }
     });
 
@@ -724,33 +721,23 @@ export class WalletService {
   static async getPendingRefunds() {
     const refunds = await prisma.virtualTransaction.findMany({
       where: {
-        type: 'REFUND_REQUEST',
+        type: { in: ['SUBSCRIPTION_REFUND', 'JOB_REFUND', 'ADDON_SERVICE_REFUND'] },
         status: 'PENDING'
-      },
-      include: {
-        account: {
-          select: {
-            id: true,
-            owner_type: true,
-            owner_id: true,
-            balance: true
-          }
-        }
       },
       orderBy: { created_at: 'desc' }
     });
 
     return refunds.map(refund => ({
       id: refund.id,
-      accountId: refund.account_id,
-      ownerType: refund.account.owner_type,
-      ownerId: refund.account.owner_id,
+      accountId: refund.virtual_account_id,
+      ownerType: refund.counterparty_type,
+      ownerId: refund.counterparty_id,
       amount: refund.amount,
-      currency: refund.currency || 'USD',
+      currency: 'USD',
       reason: refund.description,
       status: refund.status,
       createdAt: refund.created_at,
-      updatedAt: refund.updated_at
+      referenceId: refund.reference_id
     }));
   }
 
@@ -759,8 +746,7 @@ export class WalletService {
    */
   static async approveRefund(refundId: string) {
     const refund = await prisma.virtualTransaction.findUnique({
-      where: { id: refundId },
-      include: { account: true }
+      where: { id: refundId }
     });
 
     if (!refund) {
@@ -775,12 +761,12 @@ export class WalletService {
       // Update refund transaction status
       const updatedRefund = await tx.virtualTransaction.update({
         where: { id: refundId },
-        data: { status: 'APPROVED' }
+        data: { status: 'COMPLETED' }
       });
 
       // Credit the account with the refund amount
       const updatedAccount = await tx.virtualAccount.update({
-        where: { id: refund.account_id },
+        where: { id: refund.virtual_account_id },
         data: {
           balance: { increment: refund.amount },
           total_credits: { increment: refund.amount }
@@ -792,9 +778,9 @@ export class WalletService {
 
     return {
       id: updated.refund.id,
-      accountId: updated.refund.account_id,
+      accountId: updated.refund.virtual_account_id,
       amount: updated.refund.amount,
-      currency: updated.refund.currency || 'USD',
+      currency: 'USD',
       status: updated.refund.status,
       newBalance: updated.account.balance
     };
@@ -819,16 +805,16 @@ export class WalletService {
     const updated = await prisma.virtualTransaction.update({
       where: { id: refundId },
       data: {
-        status: 'REJECTED',
-        description: reason || refund.description
+        status: 'FAILED',
+        failed_reason: reason || refund.failed_reason
       }
     });
 
     return {
       id: updated.id,
-      accountId: updated.account_id,
+      accountId: updated.virtual_account_id,
       amount: updated.amount,
-      currency: updated.currency || 'USD',
+      currency: 'USD',
       status: updated.status,
       rejectionReason: reason
     };

@@ -109,22 +109,22 @@ export class Consultant360Repository extends BaseRepository {
 
   // --- Withdrawals ---
   async findWithdrawals(filters: any) {
-    return this.prisma.withdrawal.findMany({
+    return this.prisma.commissionWithdrawal.findMany({
       where: filters,
       orderBy: { created_at: 'desc' }
     });
   }
 
   async createWithdrawal(data: any) {
-    return this.prisma.withdrawal.create({ data });
+    return this.prisma.commissionWithdrawal.create({ data });
   }
 
   async findWithdrawalById(id: string) {
-    return this.prisma.withdrawal.findUnique({ where: { id } });
+    return this.prisma.commissionWithdrawal.findUnique({ where: { id } });
   }
 
   async updateWithdrawal(id: string, data: any) {
-    return this.prisma.withdrawal.update({
+    return this.prisma.commissionWithdrawal.update({
       where: { id },
       data
     });

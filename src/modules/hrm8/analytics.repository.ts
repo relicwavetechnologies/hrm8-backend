@@ -3,6 +3,8 @@ import { JobStatus, ConsultantStatus, CommissionType } from '@prisma/client';
 
 export class AnalyticsRepository {
     async getOperationalStats(regionId: string) {
+        const regionFilter = (regionId && regionId !== 'all') ? { region_id: regionId } : {};
+
         const [
             openJobsCount,
             activeConsultantsCount,
@@ -12,35 +14,35 @@ export class AnalyticsRepository {
             inactiveEmployerCount
         ] = await Promise.all([
             prisma.job.count({
-                where: { region_id: regionId, status: 'OPEN' }
+                where: { ...regionFilter, status: 'OPEN' }
             }),
             prisma.consultant.count({
-                where: { region_id: regionId, status: 'ACTIVE' }
+                where: { ...regionFilter, status: 'ACTIVE' }
             }),
             prisma.commission.count({
                 where: {
-                    region_id: regionId,
+                    ...regionFilter,
                     type: 'PLACEMENT',
                     created_at: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
                 }
             }),
             prisma.company.count({
                 where: {
-                    region_id: regionId,
+                    ...regionFilter,
                     jobs: { some: { status: 'OPEN' } }
                 }
             }),
             // New Employers: Joined this month
             prisma.company.count({
                 where: {
-                    region_id: regionId,
+                    ...regionFilter,
                     created_at: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) }
                 }
             }),
             // Inactive Employers: No open jobs
             prisma.company.count({
                 where: {
-                    region_id: regionId,
+                    ...regionFilter,
                     jobs: { none: { status: 'OPEN' } }
                 }
             })
@@ -64,10 +66,12 @@ export class AnalyticsRepository {
             const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
             const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
+            const regionFilter = (regionId && regionId !== 'all') ? { region_id: regionId } : {};
+
             const [jobs, consultants, placements] = await Promise.all([
-                prisma.job.count({ where: { region_id: regionId, created_at: { gte: monthStart, lte: monthEnd } } }),
-                prisma.consultant.count({ where: { region_id: regionId, created_at: { gte: monthStart, lte: monthEnd } } }),
-                prisma.commission.count({ where: { region_id: regionId, type: 'PLACEMENT', created_at: { gte: monthStart, lte: monthEnd } } })
+                prisma.job.count({ where: { ...regionFilter, status: 'OPEN', created_at: { gte: monthStart, lte: monthEnd } } }),
+                prisma.consultant.count({ where: { ...regionFilter, status: 'ACTIVE', created_at: { gte: monthStart, lte: monthEnd } } }),
+                prisma.commission.count({ where: { ...regionFilter, type: 'PLACEMENT', created_at: { gte: monthStart, lte: monthEnd } } })
             ]);
 
             trends.push({

@@ -14,40 +14,81 @@ export class Consultant360Service extends BaseService {
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
     const dashboardData = await this.repository.getDashboardStats(consultantId);
+    const commissions = dashboardData.commissions;
 
-    // Calculate stats
-    const leadStats = {
-      total: dashboardData.leads.length,
-      new: dashboardData.leads.filter(l => l.status === 'NEW').length,
-      contacted: dashboardData.leads.filter(l => l.status === 'CONTACTED').length,
-      converted: dashboardData.leads.filter(l => l.status === 'CONVERTED').length
+    // Helper: Sum commissions by type
+    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+    // Filter commissions by type (using fixed enums)
+    const recruiterCommissions = commissions.filter(c => !c.type || c.type === 'PLACEMENT' || c.type === 'RECRUITMENT_SERVICE');
+    const salesCommissions = commissions.filter(c => c.type === 'SUBSCRIPTION_SALE' || c.type === 'CUSTOM');
+
+    // Calculate total earned (Confirmed + Paid status usually counts as 'earned' for dashboards)
+    const earnedFilter = (c: any) => c.status === 'CONFIRMED' || c.status === 'PAID';
+
+    // Calculate stats matching frontend interface
+    const stats = {
+      totalEarnings: sumAmount(commissions.filter(earnedFilter)),
+      activeJobs: 5, // Mock data or fetch from job assignments
+      activeLeads: dashboardData.leads.filter(l => l.status !== 'CONVERTED' && l.status !== 'LOST').length,
+      totalSubscriptionSales: salesCommissions.length,
+      salesEarnings: sumAmount(salesCommissions.filter(earnedFilter)),
+      recruiterEarnings: sumAmount(recruiterCommissions.filter(earnedFilter)),
+      pendingBalance: sumAmount(commissions.filter(c => c.status === 'PENDING')),
+      availableBalance: 0, // Should fetch from wallet or sum confirmed unwithdrawn
+      totalPlacements: recruiterCommissions.length,
+      conversionRate: dashboardData.leads.length > 0 ? Math.round((dashboardData.leads.filter(l => l.status === 'CONVERTED').length / dashboardData.leads.length) * 100) : 0
     };
 
-    const opportunityStats = {
-      total: dashboardData.opportunities.length,
-      totalValue: dashboardData.opportunities.reduce((sum, opp) => sum + (opp.amount || 0), 0),
-      weightedValue: dashboardData.opportunities.reduce((sum, opp) => sum + ((opp.amount || 0) * (opp.probability || 0) / 100), 0)
-    };
+    // Calculate Wallet Balance (Mock or fetch real)
+    try {
+      const wallet = await this.repository.getAccountBalance(consultantId);
+      stats.availableBalance = wallet?.balance || 0;
+    } catch (e) {
+      // Ignore
+    }
 
-    const commissionStats = {
-      pending: dashboardData.commissions.filter(c => c.status === 'PENDING').length,
-      confirmed: dashboardData.commissions.filter(c => c.status === 'CONFIRMED').length,
-      totalEarned: dashboardData.commissions.reduce((sum, c) => sum + (c.amount || 0), 0),
-      availableForWithdrawal: dashboardData.commissions
-        .filter(c => c.status === 'CONFIRMED')
-        .reduce((sum, c) => sum + (c.amount || 0), 0)
-    };
+    // Mock Active Jobs (Need repository method for proper count)
+    // const activeJobs = await this.repository.countActiveJobs(consultantId); 
+    // stats.activeJobs = activeJobs;
+
+    // Calculate Monthly Trend (Last 12 months)
+    const monthlyTrend = [];
+    const today = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const monthName = date.toLocaleString('default', { month: 'short' });
+      const year = date.getFullYear();
+
+      // Filter commissions for this month
+      const monthCommissions = commissions.filter(c => {
+        const cDate = new Date(c.created_at);
+        return cDate.getMonth() === date.getMonth() && cDate.getFullYear() === year;
+      });
+
+      const mRecruiter = monthCommissions.filter(c => !c.type || c.type === 'PLACEMENT' || c.type === 'RECRUITMENT_SERVICE');
+      const mSales = monthCommissions.filter(c => c.type === 'SUBSCRIPTION_SALE' || c.type === 'CUSTOM');
+
+      monthlyTrend.push({
+        month: monthName,
+        year: year,
+        recruiterEarnings: sumAmount(mRecruiter.filter(earnedFilter)),
+        salesEarnings: sumAmount(mSales.filter(earnedFilter)),
+        total: sumAmount(monthCommissions.filter(earnedFilter))
+      });
+    }
 
     return {
-      consultant: {
-        id: consultant.id,
-        name: consultant.name,
-        email: consultant.email
-      },
-      leadStats,
-      opportunityStats,
-      commissionStats,
-      recentActivity: dashboardData.activities
+      stats,
+      monthlyTrend,
+      activeJobs: [], // Populate if needed
+      activeLeads: dashboardData.leads.slice(0, 5).map(l => ({
+        id: l.id,
+        companyName: l.company_name,
+        contactEmail: l.email,
+        status: l.status,
+        createdAt: l.created_at
+      }))
     };
   }
 
@@ -125,7 +166,77 @@ export class Consultant360Service extends BaseService {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    return this.repository.getEarnings(consultantId);
+    // Fetch all commissions
+    console.log(`[Consultant360Service.getEarnings] Fetching earnings for consultantId: ${consultantId}`);
+    const allCommissions = await this.repository.findCommissions({ consultant_id: consultantId });
+    console.log(`[Consultant360Service.getEarnings] Found ${allCommissions.length} commissions`);
+
+    // Helper to calculate totals
+    const calculateStats = (commissions: any[]) => {
+      return {
+        totalRevenue: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock revenue as total amount for now
+        totalPlacements: commissions.length,
+        totalSubscriptionSales: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock sales
+        totalServiceFees: 0,
+        pendingCommissions: commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + (c.amount || 0), 0),
+        confirmedCommissions: commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.amount || 0), 0),
+        paidCommissions: commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (c.amount || 0), 0),
+        commissions: commissions.map(c => ({
+          id: c.id,
+          amount: c.amount,
+          status: c.status,
+          description: c.description || 'Commission',
+          createdAt: c.created_at,
+          type: c.type || 'PLACEMENT' // Assuming type field exists or defaulting
+        }))
+      };
+    };
+
+    // Split by type
+    const recruiterCommissions = allCommissions.filter(c =>
+      !c.type ||
+      c.type === 'PLACEMENT' ||
+      c.type === 'RECRUITMENT_SERVICE'
+    );
+    const salesCommissions = allCommissions.filter(c =>
+      c.type === 'SUBSCRIPTION_SALE' ||
+      c.type === 'CUSTOM'
+    );
+
+    const recruiterEarnings = calculateStats(recruiterCommissions);
+    const salesEarnings = calculateStats(salesCommissions);
+
+    // Combined Stats
+    const totalEarned = recruiterEarnings.confirmedCommissions + salesEarnings.confirmedCommissions +
+      recruiterEarnings.paidCommissions + salesEarnings.paidCommissions; // Earned usually means confirmed + paid
+
+    // Wallet Balance (Get actual wallet balance)
+    let availableBalance = 0;
+    try {
+      const wallet = await this.repository.getAccountBalance(consultantId);
+      availableBalance = wallet?.balance || 0;
+    } catch (e) {
+      // Ignore if no wallet
+    }
+
+    const combined = {
+      availableBalance,
+      pendingBalance: recruiterEarnings.pendingCommissions + salesEarnings.pendingCommissions,
+      totalEarned,
+      totalWithdrawn: 0, // TODO: Fetch withdrawals to calc this
+      availableCommissions: allCommissions.filter(c => c.status === 'CONFIRMED').map(c => ({
+        id: c.id,
+        amount: c.amount,
+        description: c.description || 'Commission',
+        date: c.created_at
+      }))
+    };
+
+    return {
+      combined,
+      recruiterEarnings,
+      salesEarnings
+    };
   }
 
   // --- Commissions ---
@@ -228,7 +339,7 @@ export class Consultant360Service extends BaseService {
     }
 
     return prisma.$transaction(async (tx) => {
-      const updated = await tx.withdrawal.update({
+      const updated = await tx.commissionWithdrawal.update({
         where: { id: withdrawalId },
         data: {
           status: 'PROCESSING',

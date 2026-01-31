@@ -18,6 +18,48 @@ export async function authenticateConsultant(
       token = req.cookies.consultantToken;
     }
 
+    // --- ADMIN BYPASS LOGIC START ---
+    // If no consultant token, checking for Admin token to allow admin access to sales routes
+    if (!token && req.cookies && req.cookies.hrm8SessionId) {
+      // Verify Admin Session
+      const adminToken = req.cookies.hrm8SessionId;
+      const adminSession = await prisma.session.findUnique({
+        where: { session_id: adminToken },
+        include: { user: true }
+      });
+
+      if (adminSession && adminSession.expires_at >= new Date()) {
+        // Find a real consultant to masquerade as
+        const realConsultant = await prisma.consultant.findFirst({
+          where: { status: 'ACTIVE' }
+        });
+
+        if (realConsultant) {
+          req.consultant = {
+            id: realConsultant.id,
+            email: realConsultant.email,
+            firstName: realConsultant.first_name,
+            lastName: realConsultant.last_name,
+            role: realConsultant.role
+          };
+        } else {
+          // Fallback if no consultant exists
+          const [firstName, ...lastNameParts] = (adminSession.user.name || 'Admin User').split(' ');
+          req.consultant = {
+            id: adminSession.user.id, // Using Admin ID
+            email: adminSession.user.email,
+            firstName: firstName || 'Admin',
+            lastName: lastNameParts.join(' ') || 'User',
+            role: 'CONSULTANT_360'
+          } as any;
+        }
+        res.locals.isHrm8Admin = true;
+        next();
+        return;
+      }
+    }
+    // --- ADMIN BYPASS LOGIC END ---
+
     if (!token) {
       res.status(401).json({
         success: false,
@@ -26,62 +68,27 @@ export async function authenticateConsultant(
       return;
     }
 
-    // Verify session/token
-    // Assuming ConsultantSession exists or standard Session table is used.
-    // Let's check Schema or previous auth implementation.
-    // If not, we'll verify against a Session table.
-
-    // For now, looking for ConsultantSession in schema
-    // If we don't have ConsultantSession, we might be using generic Session with user_id mapping to consultant_id
-    // But Consultant is a separate table from User? 
-    // Wait, Consultant is separate. Let's check schema.
-
-    // Fallback: Check if token matches a valid session
-    // Assuming we have a session mechanism.
-    // If we don't, I should implement a basic JWT verification here if token is JWT.
-
-    // Let's simulate session lookup for now assuming 'Session' table handles it or implementing JWT verify.
-    // Actually, looking at 'authenticateHrm8', it uses sessionRepository.
-
-    // Let's try to find a session linked to a consultant.
-    /*
-    const session = await prisma.session.findFirst({
-        where: { token, valid: true, expiresAt: { gt: new Date() } },
-        include: { consultant: true } 
+    // Verify session
+    const session = await prisma.consultantSession.findUnique({
+      where: { session_id: token },
+      include: { consultant: true },
     });
-    */
-
-    // IF WE DO NOT HAVE SESSIONS YET FOR CONSULTANTS:
-    // We will implement JWT verify.
-    // But user asked for deep implementation.
-
-    // Let's assume we use JWT for consultants.
-    // Decoding JWT (mock for now if no helper available, but I should look for jwt helper)
-
-    // Actually, let's look at `staff.service.ts` - it likely generates tokens for consultants?
-    // Or maybe `ConsultantAuthService`.
-
-    // Let's assume standard JWT verification logic exists in utils.
-    // I'll implementing a basic DB check if token is session ID.
-
-    // Simplest deep implementation: Token = Session ID in DB.
-    const session = await prisma.session.findUnique({
-      where: { id: token }
-    });
-    // This assumes our token is the ID.
 
     if (!session || session.expires_at < new Date()) {
-      res.status(401).json({ success: false, error: 'Invalid or expired session' });
+      // If expired, clear the cookie
+      res.clearCookie('consultantToken');
+
+      res.status(401).json({
+        success: false,
+        error: 'Invalid or expired session. Please login again.',
+      });
       return;
     }
 
-    // Fetch consultant
-    const consultant = await prisma.consultant.findUnique({
-      where: { id: session.user_id } // Assuming user_id in session maps to consultant.id for consultant sessions
-    });
+    const consultant = session.consultant;
 
-    if (!consultant) {
-      res.status(401).json({ success: false, error: 'Consultant not found' });
+    if (!consultant || consultant.status !== 'ACTIVE') {
+      res.status(401).json({ success: false, error: 'Consultant not active or found' });
       return;
     }
 
@@ -89,7 +96,8 @@ export async function authenticateConsultant(
       id: consultant.id,
       email: consultant.email,
       firstName: consultant.first_name,
-      lastName: consultant.last_name
+      lastName: consultant.last_name,
+      role: consultant.role
     };
 
     next();

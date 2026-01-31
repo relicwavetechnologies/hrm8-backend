@@ -13,6 +13,7 @@ import { StaffController } from './staff.controller';
 import { AnalyticsController } from './analytics.controller';
 import { RegionalSalesController } from './regional-sales.controller';
 import { RevenueController } from './revenue.controller';
+import { WithdrawalController } from './withdrawal.controller';
 import { SettlementController } from './settlement.controller';
 import { SettingsController } from './settings.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
@@ -32,6 +33,7 @@ const staffController = new StaffController();
 const analyticsController = new AnalyticsController();
 const regionalSalesController = new RegionalSalesController();
 const revenueController = new RevenueController();
+const withdrawalController = new WithdrawalController();
 const settlementController = new SettlementController();
 const settingsController = new SettingsController();
 
@@ -85,6 +87,16 @@ router.put('/regional-licensee/:id', authenticateHrm8, regionalLicenseeControlle
 router.delete('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.delete);
 router.put('/regional-licensee/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
 router.get('/regional-licensee/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+
+// Legacy Alias for Frontend Compatibility
+router.get('/licensees', authenticateHrm8, regionalLicenseeController.getAll);
+router.get('/licensees/stats', authenticateHrm8, regionalLicenseeController.getStats);
+router.get('/licensees/:id', authenticateHrm8, regionalLicenseeController.getById);
+router.post('/licensees', authenticateHrm8, regionalLicenseeController.create);
+router.put('/licensees/:id', authenticateHrm8, regionalLicenseeController.update);
+router.delete('/licensees/:id', authenticateHrm8, regionalLicenseeController.delete);
+router.put('/licensees/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
+router.get('/licensees/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
 
 // Lead Conversion Routes
 router.get('/conversion-requests', authenticateHrm8, leadConversionController.getAll);
@@ -149,6 +161,14 @@ router.get('/revenue/regional/:id', authenticateHrm8, revenueController.getById)
 router.put('/revenue/regional/:id/confirm', authenticateHrm8, revenueController.confirm);
 router.put('/revenue/regional/:id/pay', authenticateHrm8, revenueController.markAsPaid);
 router.get('/revenue/analytics/company-breakdown', authenticateHrm8, revenueController.getCompanyBreakdown);
+router.get('/revenue/dashboard', authenticateHrm8, revenueController.getDashboard);
+router.get('/revenue/summary', authenticateHrm8, revenueController.getSummary);
+
+// Withdrawal Routes
+router.get('/admin/billing/withdrawals', authenticateHrm8, withdrawalController.getPendingWithdrawals);
+router.put('/admin/billing/withdrawals/:id/approve', authenticateHrm8, withdrawalController.approve);
+router.put('/admin/billing/withdrawals/:id/reject', authenticateHrm8, withdrawalController.reject);
+router.put('/admin/billing/withdrawals/:id/process', authenticateHrm8, withdrawalController.processPayment);
 
 // Settlement Routes
 router.get('/admin/billing/settlements', authenticateHrm8, settlementController.getAll);

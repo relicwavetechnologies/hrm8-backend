@@ -3,13 +3,65 @@ import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 import { JobAllocationService } from '../hrm8/job-allocation.service';
 import { JobAllocationRepository } from '../hrm8/job-allocation.repository';
-
+import { generateSessionId, getSessionExpiration } from '../../utils/session';
+import { hashPassword, comparePassword } from '../../utils/password';
 export class ConsultantService extends BaseService {
   private jobAllocationService: JobAllocationService;
 
   constructor() {
     super();
     this.jobAllocationService = new JobAllocationService(new JobAllocationRepository());
+  }
+  async login(data: { email: string; password: string }) {
+    const consultant = await prisma.consultant.findUnique({
+      where: { email: data.email }
+    });
+
+    if (!consultant) {
+      throw new HttpException(401, 'Invalid credentials');
+    }
+
+    const isValid = await comparePassword(data.password, consultant.password_hash);
+    if (!isValid) {
+      throw new HttpException(401, 'Invalid credentials');
+    }
+
+    if (consultant.status !== 'ACTIVE') {
+      throw new HttpException(403, 'Account is inactive');
+    }
+
+    const sessionId = generateSessionId();
+    const expiresAt = getSessionExpiration(7 * 24); // 7 days
+
+    await prisma.consultantSession.create({
+      data: {
+        session_id: sessionId,
+        consultant_id: consultant.id,
+        email: consultant.email,
+        expires_at: expiresAt
+      }
+    });
+
+    return { consultant, sessionId };
+  }
+
+  async logout(sessionId: string) {
+    await prisma.consultantSession.delete({
+      where: { session_id: sessionId }
+    });
+  }
+
+  async getCurrentConsultant(sessionId: string) {
+    const session = await prisma.consultantSession.findUnique({
+      where: { session_id: sessionId },
+      include: { consultant: true }
+    });
+
+    if (!session || session.expires_at < new Date()) {
+      return null;
+    }
+
+    return session.consultant;
   }
 
   async getProfile(consultantId: string) {
@@ -190,17 +242,125 @@ export class ConsultantService extends BaseService {
   }
 
   async getDashboardAnalytics(consultantId: string) {
-    // Aggregating dashboard stats
-    const [performance, activeJobsCount] = await Promise.all([
-      this.getPerformanceMetrics(consultantId),
-      prisma.consultantJobAssignment.count({
-        where: { consultant_id: consultantId, status: 'ACTIVE' }
+    // 1. Get performance metrics
+    const performance = await this.getPerformanceMetrics(consultantId);
+
+    // 2. Get active jobs (recent assignments)
+    const assignments = await prisma.consultantJobAssignment.findMany({
+      where: { consultant_id: consultantId, status: 'ACTIVE' },
+      take: 5,
+      orderBy: { assigned_at: 'desc' },
+      include: {
+        job: {
+          include: {
+            company: { select: { id: true, name: true } }
+          }
+        }
+      }
+    });
+
+    const activeJobs = assignments.map(a => ({
+      id: a.job.id,
+      title: a.job.title,
+      company: a.job.company?.name || 'Unknown Company',
+      location: 'Remote', // TODO: Add location to Job model
+      postedAt: a.job.created_at,
+      assignedAt: a.assigned_at,
+      activeCandidates: 0 // Mock
+    }));
+
+    // 3. Get pipeline stats
+    const pipelineGroups = await prisma.consultantJobAssignment.groupBy({
+      by: ['pipeline_stage'],
+      where: { consultant_id: consultantId, status: 'ACTIVE' },
+      _count: true
+    });
+
+    const pipeline = pipelineGroups.map(g => ({
+      stage: g.pipeline_stage,
+      count: g._count
+    }));
+
+    // 4. Get recent commissions
+    const recentCommissionsRaw = await prisma.commission.findMany({
+      where: { consultant_id: consultantId },
+      take: 5,
+      orderBy: { created_at: 'desc' },
+      include: {
+        job: { select: { title: true } }
+      }
+    });
+
+    const recentCommissions = recentCommissionsRaw.map(c => ({
+      id: c.id,
+      amount: Number(c.amount),
+      status: c.status,
+      description: c.description || 'Commission payment',
+      date: c.created_at,
+      jobTitle: c.job?.title
+    }));
+
+    // 4. Calculate dynamic performance metrics
+    const commissions = await prisma.commission.findMany({
+      where: { consultant_id: consultantId },
+      select: { amount: true, status: true, created_at: true }
+    });
+
+    const totalRevenue = commissions.reduce((sum, c) => sum + Number(c.amount), 0);
+    const paidRevenue = commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + Number(c.amount), 0);
+    const pendingRevenue = commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + Number(c.amount), 0);
+
+    // Calculate Monthly Revenue (for current month)
+    const currentMonthDate = new Date();
+    const currentMonthRevenue = commissions
+      .filter(c => {
+        const d = new Date(c.created_at);
+        return d.getMonth() === currentMonthDate.getMonth() && d.getFullYear() === currentMonthDate.getFullYear();
       })
-    ]);
+      .reduce((sum, c) => sum + Number(c.amount), 0);
+
+    // Calculate Success Rate (Placements / Total Jobs)
+    const totalJobs = await prisma.consultantJobAssignment.count({ where: { consultant_id: consultantId } });
+    const successfulPlacements = performance.totalPlacements; // Or count PLACEMENT commissions if better
+    const successRate = totalJobs > 0 ? Math.round((successfulPlacements / totalJobs) * 100) : 0;
+
+    // 5. Generate dynamic trends
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const currentMonthIndex = new Date().getMonth();
+    const trends = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthIdx = d.getMonth();
+      const year = d.getFullYear();
+
+      const monthlyComms = commissions.filter(c => {
+        const cd = new Date(c.created_at);
+        return cd.getMonth() === monthIdx && cd.getFullYear() === year;
+      });
+
+      trends.push({
+        name: months[monthIdx],
+        revenue: monthlyComms.reduce((sum, c) => sum + Number(c.amount), 0),
+        placements: 0, // TODO: Need date field on placements to trend this accurately
+        paid: monthlyComms.filter(c => c.status === 'PAID').reduce((sum, c) => sum + Number(c.amount), 0),
+        pending: monthlyComms.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + Number(c.amount), 0)
+      });
+    }
 
     return {
       ...performance,
-      activeJobs: activeJobsCount
+      successRate, // Override static value
+      totalRevenue, // Override static value
+      activeJobs,
+      pipeline,
+      recentCommissions,
+      trends,
+      targets: {
+        monthlyRevenue: 10000, // Mock target
+        monthlyPlacements: 5    // Mock target
+      }
     };
   }
 }

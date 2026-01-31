@@ -22,7 +22,7 @@ export class RegionController extends BaseController {
                 country: country as string,
                 regionIds: req.assignedRegionIds,
             });
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { regions: result });
         } catch (error) {
             return this.sendError(res, error);
         }

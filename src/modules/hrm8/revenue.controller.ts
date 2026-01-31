@@ -66,4 +66,32 @@ export class RevenueController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    getDashboard = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { startDate, endDate } = req.query;
+            const result = await this.revenueService.getDashboard(
+                req.assignedRegionIds,
+                startDate as string,
+                endDate as string
+            );
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    getSummary = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { startDate, endDate } = req.query;
+            const result = await this.revenueService.getSummary(
+                req.assignedRegionIds,
+                startDate as string,
+                endDate as string
+            );
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }

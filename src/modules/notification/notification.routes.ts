@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { NotificationController } from './notification.controller';
-import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 
 // Note: This router assumes standard 'authenticate' middleware.
 // If you need to support Candidates/Consultants, you might need a unified auth middleware
@@ -9,8 +9,8 @@ import { authenticate } from '../../middlewares/auth.middleware';
 const router = Router();
 const notificationController = new NotificationController();
 
-router.get('/', authenticate, notificationController.list);
-router.patch('/:id/read', authenticate, notificationController.markRead);
-router.patch('/read-all', authenticate, notificationController.markAllRead);
+router.get('/', authenticateUnified, notificationController.list);
+router.patch('/:id/read', authenticateUnified, notificationController.markRead);
+router.patch('/read-all', authenticateUnified, notificationController.markAllRead);
 
 export default router;

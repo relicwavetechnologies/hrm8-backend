@@ -16,7 +16,7 @@ export class Consultant360Controller extends BaseController {
   // Dashboard
   getDashboard = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -31,7 +31,7 @@ export class Consultant360Controller extends BaseController {
   // Leads
   getLeads = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -48,7 +48,7 @@ export class Consultant360Controller extends BaseController {
 
   createLead = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -62,7 +62,7 @@ export class Consultant360Controller extends BaseController {
 
   submitConversionRequest = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -78,7 +78,7 @@ export class Consultant360Controller extends BaseController {
   // Earnings
   getEarnings = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -93,7 +93,7 @@ export class Consultant360Controller extends BaseController {
   // Commissions
   getCommissions = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -109,7 +109,7 @@ export class Consultant360Controller extends BaseController {
   // Balance
   getBalance = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -124,7 +124,7 @@ export class Consultant360Controller extends BaseController {
   // Withdrawals
   requestWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -138,7 +138,7 @@ export class Consultant360Controller extends BaseController {
 
   getWithdrawals = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -153,7 +153,7 @@ export class Consultant360Controller extends BaseController {
 
   cancelWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -168,7 +168,7 @@ export class Consultant360Controller extends BaseController {
 
   executeWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -184,7 +184,7 @@ export class Consultant360Controller extends BaseController {
   // Stripe
   stripeOnboard = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -198,7 +198,7 @@ export class Consultant360Controller extends BaseController {
 
   getStripeStatus = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
@@ -212,7 +212,7 @@ export class Consultant360Controller extends BaseController {
 
   getStripeLoginLink = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const consultantId = req.user?.id;
+      const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }

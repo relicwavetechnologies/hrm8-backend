@@ -11,7 +11,14 @@ export async function authenticate(
   try {
     const sessionId = req.cookies?.sessionId;
 
+    console.log('[authenticate] Checking authentication');
+    console.log('[authenticate] All cookies:', req.cookies);
+    console.log('[authenticate] sessionId:', sessionId);
+    console.log('[authenticate] Request origin:', req.get('origin'));
+    console.log('[authenticate] Request headers:', req.headers);
+
     if (!sessionId) {
+      console.error('[authenticate] No sessionId found in cookies');
       res.status(401).json({
         success: false,
         error: 'Not authenticated. Please login.',

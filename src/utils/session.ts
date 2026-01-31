@@ -40,29 +40,35 @@ export function isSessionExpired(expiresAt: Date): boolean {
  */
 export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   // Determine sameSite setting:
   // - If explicitly set via env var, use that
+  // - In development with localhost on different ports: use 'none' with secure flag (simulates cross-site)
   // - In production, default to 'none' for cross-site compatibility (common in cloud deployments)
-  // - In development, use 'lax' for localhost compatibility
-  let sameSite: 'lax' | 'strict' | 'none' = 'lax';
-  
+  let sameSite: 'lax' | 'strict' | 'none' = 'none'; // Changed default for development cross-origin
+  let secure = false;
+
   if (process.env.COOKIE_SAME_SITE) {
     const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
     if (envValue === 'none' || envValue === 'strict' || envValue === 'lax') {
       sameSite = envValue as 'lax' | 'strict' | 'none';
     }
-  } else if (isProduction) {
-    // Default to 'none' in production for cross-site compatibility
-    // This is required when frontend and backend are on different domains
-    sameSite = 'none';
   }
-  
+
+  // In production, sameSite 'none' requires secure flag
+  if (isProduction) {
+    secure = true;
+  }
+  // In development, if using sameSite 'none', we can skip secure flag for localhost
+  if (sameSite === 'none' && !isProduction) {
+    secure = false; // localhost can use sameSite: 'none' without secure flag
+  }
+
   return {
     httpOnly: true, // Prevent XSS attacks
-    secure: isProduction, // HTTPS only in production (required for sameSite: 'none')
+    secure: secure, // HTTPS only in production (required for sameSite: 'none')
     sameSite: sameSite,
-    maxAge: maxAge || 24 * 60 * 60 * 1000, // 24 hours default
+    maxAge: maxAge || 7 * 24 * 60 * 60 * 1000, // 7 days default
     path: '/', // Available on all routes
     // Don't set domain - let browser handle it based on the request origin
   };

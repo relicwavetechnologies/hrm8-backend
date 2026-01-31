@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Response, Request } from 'express';
 import { BaseController } from '../../core/controller';
 import { ConsultantService } from './consultant.service';
 import { ConsultantCandidateService } from './consultant-candidate.service';
@@ -6,6 +6,7 @@ import { ConsultantWithdrawalService } from './consultant-withdrawal.service';
 import { ConversationService } from '../communication/conversation.service';
 import { ConsultantAuthenticatedRequest } from '../../types';
 import { ApplicationStatus, ApplicationStage } from '@prisma/client';
+import { getSessionCookieOptions } from '../../utils/session';
 
 export class ConsultantController extends BaseController {
   private consultantService: ConsultantService;
@@ -22,6 +23,43 @@ export class ConsultantController extends BaseController {
   }
 
   // ... existing methods ...
+
+  // Auth
+  login = async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      const { consultant, sessionId } = await this.consultantService.login({ email, password });
+
+      res.cookie('consultantToken', sessionId, getSessionCookieOptions());
+
+      return this.sendSuccess(res, {
+        consultant: {
+          id: consultant.id,
+          email: consultant.email,
+          firstName: consultant.first_name,
+          lastName: consultant.last_name,
+          role: consultant.role
+        }
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getCurrentUser = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      // Middleware already validates and populates req.consultant
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+
+      // Optional: fetch fresh full profile if needed, but req.consultant is usually enough for "me"
+      // Or call getProfile for full details
+      const consultant = await this.consultantService.getProfile(req.consultant.id);
+
+      return this.sendSuccess(res, { consultant });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 
   // Candidates & Pipeline
   getPipeline = async (req: ConsultantAuthenticatedRequest, res: Response) => {
@@ -238,12 +276,19 @@ export class ConsultantController extends BaseController {
   getJobs = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
+      console.log(`[ConsultantController.getJobs] Request from consultantId: ${consultantId}`);
+
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
       const { status } = req.query;
+      console.log(`[ConsultantController.getJobs] Fetching jobs with status: ${status}`);
+
       const result = await this.consultantService.getAssignedJobs(consultantId, { status: status as string });
+      console.log(`[ConsultantController.getJobs] Found ${result.length} jobs`);
+
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[ConsultantController.getJobs] Error:', error);
       return this.sendError(res, error);
     }
   };
@@ -338,9 +383,11 @@ export class ConsultantController extends BaseController {
 
   logout = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      // Clear cookie
-      res.clearCookie('consultantToken');
-      // Ideally invalidate session in DB
+      const sessionId = req.cookies?.consultantToken;
+      if (sessionId) {
+        await this.consultantService.logout(sessionId);
+      }
+      res.clearCookie('consultantToken', getSessionCookieOptions());
       return this.sendSuccess(res, { message: 'Logged out successfully' });
     } catch (error) {
       return this.sendError(res, error);

@@ -5,6 +5,7 @@ import { Lead, LeadConversionRequest, Opportunity, Activity, OpportunityStage, A
 import { HttpException } from '../../core/http-exception';
 import { SalesValidators } from './sales.validators';
 import { prisma } from '../../utils/prisma';
+import { notifySalesAgent } from '../notification/notification-service-singleton';
 
 export class SalesService extends BaseService {
   private withdrawalService: SalesWithdrawalService;
@@ -15,7 +16,7 @@ export class SalesService extends BaseService {
   }
 
   // --- Opportunities ---
-  
+
   private getProbabilityForStage(stage: OpportunityStage): number {
     switch (stage) {
       case 'NEW': return 10;
@@ -43,7 +44,7 @@ export class SalesService extends BaseService {
     const stage = data.stage || 'NEW';
     const probability = this.getProbabilityForStage(stage);
 
-    return this.salesRepository.createOpportunity({
+    const opportunity = await this.salesRepository.createOpportunity({
       company: { connect: { id: data.companyId } },
       name: data.name,
       type: data.type,
@@ -56,6 +57,16 @@ export class SalesService extends BaseService {
       description: data.description,
       tags: data.tags || [],
     });
+
+    // Notify sales agent about new opportunity
+    await notifySalesAgent(data.salesAgentId, {
+      title: 'New Opportunity Created',
+      message: `Opportunity "${data.name}" has been created with an estimated value of ${data.currency || 'USD'} ${data.amount || 0}.`,
+      type: 'SALES_OPPORTUNITY_CREATED',
+      actionUrl: `/sales-agent/pipeline/${opportunity.id}`
+    });
+
+    return opportunity;
   }
 
   async updateOpportunity(id: string, data: any) {
@@ -66,7 +77,7 @@ export class SalesService extends BaseService {
       if (probability === undefined) {
         probability = this.getProbabilityForStage(data.stage);
       }
-      
+
       if (data.stage === 'CLOSED_WON' || data.stage === 'CLOSED_LOST') {
         closedAt = new Date();
       }
@@ -84,21 +95,24 @@ export class SalesService extends BaseService {
     return this.salesRepository.updateOpportunity(id, updateData);
   }
 
-  async getOpportunities(consultantId: string, filters: { stage?: string; companyId?: string }) {
-    const where: any = { sales_agent_id: consultantId };
+  async getOpportunities(consultantId: string | null, filters: { stage?: string; companyId?: string }) {
+    const where: any = {};
+    if (consultantId) where.sales_agent_id = consultantId;
     if (filters.stage) where.stage = filters.stage;
     if (filters.companyId) where.company_id = filters.companyId;
     return this.salesRepository.findOpportunities(where);
   }
 
-  async getPipelineStats(consultantId: string) {
-    const opportunities = await this.salesRepository.findOpportunities({
-        sales_agent_id: consultantId,
-        stage: { notIn: ['CLOSED_WON', 'CLOSED_LOST'] }
-    });
+  async getPipelineStats(consultantId: string | null) {
+    const where: any = {
+      stage: { notIn: ['CLOSED_WON', 'CLOSED_LOST'] }
+    };
+    if (consultantId) where.sales_agent_id = consultantId;
+
+    const opportunities = await this.salesRepository.findOpportunities(where);
 
     const totalPipelineValue = opportunities.reduce((sum, opp) => sum + (opp.amount || 0), 0);
-    
+
     const weightedPipelineValue = opportunities.reduce((sum, opp) => {
       const amount = opp.amount || 0;
       const prob = opp.probability || 0;

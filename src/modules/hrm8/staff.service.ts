@@ -10,6 +10,31 @@ export class StaffService extends BaseService {
         super();
     }
 
+    private mapToFrontend(consultant: any) {
+        if (!consultant) return null;
+
+        const mapped = {
+            ...consultant,
+            firstName: consultant.first_name,
+            lastName: consultant.last_name,
+            regionId: consultant.region_id,
+            defaultCommissionRate: consultant.default_commission_rate,
+            createdAt: consultant.created_at,
+            updatedAt: consultant.updated_at,
+        };
+
+        // Remove snake_case fields and sensitive data
+        delete mapped.first_name;
+        delete mapped.last_name;
+        delete mapped.region_id;
+        delete mapped.default_commission_rate;
+        delete mapped.created_at;
+        delete mapped.updated_at;
+        delete mapped.password_hash;
+
+        return mapped;
+    }
+
     async getAll(filters: any) {
         const { regionId, regionIds, role, status } = filters;
         const where: any = {};
@@ -18,10 +43,12 @@ export class StaffService extends BaseService {
         if (role) where.role = role;
         if (status) where.status = status;
 
-        return this.staffRepository.findMany({
+        const consultants = await this.staffRepository.findMany({
             where,
             orderBy: { first_name: 'asc' },
         });
+
+        return consultants.map(c => this.mapToFrontend(c));
     }
 
     async getById(id: string) {
@@ -29,23 +56,44 @@ export class StaffService extends BaseService {
         if (!consultant) {
             throw new HttpException(404, 'Consultant not found');
         }
-        return consultant;
+        return this.mapToFrontend(consultant);
     }
 
     async create(data: any) {
+        // Validation
+        const requiredFields = ['email', 'firstName', 'lastName', 'role', 'regionId', 'password'];
+        const missingFields = requiredFields.filter(f => !data[f]);
+        if (missingFields.length > 0) {
+            throw new HttpException(400, `Missing required fields: ${missingFields.join(', ')}`);
+        }
+
         const existing = await this.staffRepository.findByEmail(data.email);
         if (existing) {
             throw new HttpException(409, 'Email already in use');
         }
 
-        const { password, ...rest } = data;
+        const {
+            password,
+            firstName,
+            lastName,
+            regionId,
+            defaultCommissionRate,
+            ...rest
+        } = data;
+
         const passwordHash = await hashPassword(password);
 
-        return this.staffRepository.create({
+        const created = await this.staffRepository.create({
             ...rest,
+            first_name: firstName,
+            last_name: lastName,
+            region_id: regionId,
+            default_commission_rate: defaultCommissionRate,
             password_hash: passwordHash,
             status: 'ACTIVE',
         });
+
+        return this.mapToFrontend(created);
     }
 
     async update(id: string, data: any) {
@@ -53,7 +101,27 @@ export class StaffService extends BaseService {
         delete data.password;
         delete data.password_hash;
 
-        return this.staffRepository.update(id, data);
+        // Map camelCase to snake_case if present
+        const mappedData: any = { ...data };
+        if (data.firstName) {
+            mappedData.first_name = data.firstName;
+            delete mappedData.firstName;
+        }
+        if (data.lastName) {
+            mappedData.last_name = data.lastName;
+            delete mappedData.lastName;
+        }
+        if (data.regionId) {
+            mappedData.region_id = data.regionId;
+            delete mappedData.regionId;
+        }
+        if (data.defaultCommissionRate) {
+            mappedData.default_commission_rate = data.defaultCommissionRate;
+            delete mappedData.defaultCommissionRate;
+        }
+
+        const updated = await this.staffRepository.update(id, mappedData);
+        return this.mapToFrontend(updated);
     }
 
     async suspend(id: string) {

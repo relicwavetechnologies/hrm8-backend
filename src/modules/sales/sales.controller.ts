@@ -227,7 +227,8 @@ export class SalesController extends BaseController {
   getOpportunities = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const opportunities = await this.salesService.getOpportunities(req.consultant.id, {
+      const isHrm8Admin = res.locals.isHrm8Admin === true;
+      const opportunities = await this.salesService.getOpportunities(isHrm8Admin ? null : req.consultant.id, {
         stage: req.query.stage as string,
         companyId: req.query.companyId as string
       });
@@ -240,7 +241,8 @@ export class SalesController extends BaseController {
   getPipelineStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const stats = await this.salesService.getPipelineStats(req.consultant.id);
+      const isHrm8Admin = res.locals.isHrm8Admin === true;
+      const stats = await this.salesService.getPipelineStats(isHrm8Admin ? null : req.consultant.id);
       return this.sendSuccess(res, stats);
     } catch (error) {
       return this.sendError(res, error);
