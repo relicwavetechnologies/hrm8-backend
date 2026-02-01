@@ -3,6 +3,7 @@ import { AuthenticatedRequest, Hrm8AuthenticatedRequest } from '../types';
 import { authenticate } from './auth.middleware';
 import { authenticateConsultant } from './consultant-auth.middleware';
 import { authenticateHrm8 } from './hrm8-auth.middleware';
+import { authenticateCandidate } from './candidate-auth.middleware';
 
 /**
  * Middleware that attempts to authenticate as ANY user type (User, Consultant, HRM8 Admin, etc.)
@@ -21,6 +22,12 @@ export async function authenticateUnified(
     if (req.cookies?.hrm8SessionId) {
         console.log('[authenticateUnified] Found hrm8SessionId, using HRM8 auth');
         return authenticateHrm8(req, res, next);
+    }
+
+    // Check for Candidate Session
+    if (req.cookies?.candidateSessionId) {
+        console.log('[authenticateUnified] Found candidateSessionId, using Candidate auth');
+        return authenticateCandidate(req as any, res, next);
     }
 
     // Check for Consultant Token (Header or Cookie)

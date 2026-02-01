@@ -178,6 +178,7 @@ export class InterviewService {
 
   static async getInterviews(filters: {
     jobId?: string;
+    applicationId?: string;
     jobRoundId?: string;
     status?: string;
     startDate?: Date;
@@ -186,6 +187,7 @@ export class InterviewService {
     const where: any = {};
 
     if (filters.jobId) where.job_id = filters.jobId;
+    if (filters.applicationId) where.application_id = filters.applicationId;
     if (filters.jobRoundId) where.job_round_id = filters.jobRoundId;
     if (filters.status) where.status = filters.status;
 

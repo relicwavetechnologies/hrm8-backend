@@ -13,61 +13,48 @@ export interface WebSocketAuthResult {
 
 export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSocketAuthResult | null> {
     try {
-        // 1. Try Cookie
         const cookieHeader = req.headers.cookie;
-        let sessionId: string | false | null = null;
+        const cookies = cookieHeader ? parse(cookieHeader) : {};
 
-        if (cookieHeader) {
-            const cookies = parse(cookieHeader);
-            const sessionCookieName = 'sessionId';
-            const signedSessionId = cookies[sessionCookieName];
+        // 1. Try to find a sessionId from various possible cookie names
+        // Note: In development, these might be unsigned if set via res.cookie without secret
+        // or if cookieParser is not used in the same way for these specific cookies.
+        let sessionId: string | null = null;
 
-            if (signedSessionId) {
-                sessionId = cookieParser.signedCookie(signedSessionId, env.SESSION_SECRET);
+        const possibleCookies = ['candidateSessionId', 'hrm8SessionId', 'sessionId', 'consultantToken'];
+
+        for (const name of possibleCookies) {
+            const value = cookies[name];
+            if (value) {
+                // Try to unsign if it looks like a signed cookie (starts with s:)
+                if (value.startsWith('s:')) {
+                    const unsigned = cookieParser.signedCookie(value, env.SESSION_SECRET);
+                    if (unsigned) {
+                        sessionId = unsigned;
+                        break;
+                    }
+                } else {
+                    // Use as is if not signed
+                    sessionId = value;
+                    break;
+                }
             }
         }
 
         // 2. Try Query Param (token) if cookie failed
         if (!sessionId) {
-            const url = new URL(req.url || '', `http://${req.headers.host}`);
-            const token = url.searchParams.get('token');
-            // If the token is the raw sessionId (unsigned) or a JWT, we need to handle it.
-            // Assuming it might be the raw session ID for now as we use DB sessions.
-            // Or it could be a signed cookie value passed as token.
-            // For simplicity, let's assume if it's passed as token, it's the raw session ID.
-            if (token) {
-                sessionId = token;
-            }
+            const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+            sessionId = url.searchParams.get('token') || url.searchParams.get('sessionId');
         }
 
         if (!sessionId) {
-            console.warn('WS Auth Failed: No valid session ID found in cookie or query param');
+            console.warn('WS Auth Failed: No valid session ID found');
             return null;
         }
 
-        // Lookup session in DB
-        // We have different session models: Session (User), CandidateSession, ConsultantSession, HRM8Session
-        // We need to check all or know which one.
-        // The sessionId in the cookie should correspond to a record in one of these tables.
-        // OR, if we are using JWT in cookie (stateless), we verify token.
-        // The 'session.ts' file said "Custom session store using database".
+        // 3. Lookup in various session tables
 
-        // Let's check `Session` table first.
-        const userSession = await prisma.session.findUnique({
-            where: { session_id: sessionId },
-            include: { user: true }
-        });
-
-        if (userSession && userSession.expires_at > new Date()) {
-            return {
-                userId: userSession.user_id,
-                email: userSession.email,
-                userType: 'USER',
-                name: userSession.user.name
-            };
-        }
-
-        // Check Candidate Session
+        // Try Candidate Session
         const candidateSession = await prisma.candidateSession.findUnique({
             where: { session_id: sessionId },
             include: { candidate: true }
@@ -82,7 +69,37 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
             };
         }
 
-        // Check Consultant Session
+        // Try HRM8 Session
+        const hrm8Session = await prisma.hRM8Session.findUnique({
+            where: { session_id: sessionId },
+            include: { user: true }
+        });
+
+        if (hrm8Session && hrm8Session.expires_at > new Date()) {
+            return {
+                userId: hrm8Session.hrm8_user_id,
+                email: hrm8Session.user.email,
+                userType: 'HRM8',
+                name: `${hrm8Session.user.first_name} ${hrm8Session.user.last_name}`
+            };
+        }
+
+        // Try Regular User Session
+        const userSession = await prisma.session.findUnique({
+            where: { session_id: sessionId },
+            include: { user: true }
+        });
+
+        if (userSession && userSession.expires_at > new Date()) {
+            return {
+                userId: userSession.user_id,
+                email: userSession.email,
+                userType: 'USER',
+                name: userSession.user.name
+            };
+        }
+
+        // Try Consultant Session
         const consultantSession = await prisma.consultantSession.findUnique({
             where: { session_id: sessionId },
             include: { consultant: true }

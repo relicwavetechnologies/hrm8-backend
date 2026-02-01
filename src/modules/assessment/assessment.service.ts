@@ -72,18 +72,11 @@ export class AssessmentService extends BaseService {
     if (existingAssessment) return;
 
     // Get configuration
-    // Note: We need to access prisma directly for configuration as repository might not have it exposed
-    // Assuming BaseService gives access to prisma client or we need to add it to repository
-    // For now, I'll assume AssessmentRepository has a method or I can use a raw prisma call if I had access.
-    // Since I don't have easy access to Prisma client here (it's in repository), I will add a method to repository to get config.
     const config = await this.assessmentRepository.findConfigByJobRoundId(jobRoundId);
 
     if (!config || !config.enabled) return;
 
-    // Get application details (needed for candidate/job IDs)
-    // We can fetch this via a new repository method or assume we have the IDs.
-    // Ideally we should pass candidateId and jobId to this method to avoid circular dependency with ApplicationService
-    // But for now let's query the application using a raw prisma call via repository if possible, or just add a helper in repository.
+    // Get application details
     const application = await this.assessmentRepository.findApplicationForAssignment(applicationId);
     if (!application) throw new Error('Application not found');
 
@@ -95,15 +88,13 @@ export class AssessmentService extends BaseService {
     }
 
     // Create assessment
-    // Create assessment
     const assessment = await this.assessmentRepository.create({
       user: { connect: { id: invitedBy } },
       application: { connect: { id: applicationId } },
       candidate_id: application.candidate_id,
       job_id: application.job_id,
-      // used to be job_round_id: scalar but let's try connect if easier, or keep scalar if allowed
       job_round_id: jobRoundId,
-      assessment_type: 'SKILLS_BASED', // Assuming string literal works for Enum
+      assessment_type: 'SKILLS_BASED',
       provider: config.provider || 'native',
       invited_at: new Date(),
       expiry_date: expiryDate,
@@ -115,11 +106,27 @@ export class AssessmentService extends BaseService {
     // Link to progress
     await this.assessmentRepository.linkToRoundProgress(applicationId, jobRoundId, assessment.id);
 
-    // Create questions (if native) is handled by repository or separate logic.
-    // For now, we'll assume config has questions linked and we might need to copy them or reference them.
-
-    // Send email (would need email service, omitted for now to avoid circular deps, or handled by caller)
+    // Create questions (if native)
+    if (config.questions && Array.isArray(config.questions)) {
+      await this.createQuestions(assessment.id, config.questions);
+    }
   }
+
+  async createQuestions(assessmentId: string, questions: any[]): Promise<void> {
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      await this.assessmentRepository.createQuestion({
+        assessment: { connect: { id: assessmentId } },
+        question_text: question.questionText || question.text || '',
+        question_type: (question.type || question.questionType || 'MULTIPLE_CHOICE') as any,
+        options: question.options || null,
+        correct_answer: question.correctAnswer || question.correct_answer || null,
+        points: question.points || 1,
+        order: question.order ?? i,
+      });
+    }
+  }
+
   async getRoundAssessments(roundId: string) {
     const currentRound = await this.assessmentRepository.findJobRound(roundId);
     if (!currentRound) throw new Error('Round not found');
@@ -127,17 +134,14 @@ export class AssessmentService extends BaseService {
     const assessments = await this.assessmentRepository.findByRoundIdWithDetails(roundId);
 
     return assessments.map(a => {
-      // Logic from old AssessmentController
-      const app = a.application as any; // Cast for accessing relations
+      const app = a.application as any;
       const name = app?.candidate ? `${app.candidate.first_name} ${app.candidate.last_name}` : '';
       const email = app?.candidate?.email || '';
 
-      // Check progress
       const currentRoundProgress = app?.application_round_progress?.find((p: any) => p.job_round_id === roundId);
       const hasLaterRound = app?.application_round_progress?.some((p: any) => p.job_round && p.job_round.order > currentRound.order) || false;
       const isMovedToNextRound = (currentRoundProgress?.completed || false) || hasLaterRound;
 
-      // Calculate Average Score
       let averageScore: number | null = null;
       if (a.assessment_response && a.assessment_response.length > 0) {
         const grades = a.assessment_response
@@ -156,7 +160,7 @@ export class AssessmentService extends BaseService {
         candidateName: name,
         candidateEmail: email,
         status: a.status,
-        score: (a as any).results?.score || null, // Assuming results might have score
+        score: (a as any).results?.score || null,
         averageScore,
         invitedAt: a.invited_at,
         completedAt: a.completed_at,

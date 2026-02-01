@@ -41,13 +41,12 @@ export function isSessionExpired(expiresAt: Date): boolean {
 export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // Determine sameSite setting:
-  // - If explicitly set via env var, use that
-  // - In development with localhost on different ports: use 'none' with secure flag (simulates cross-site)
-  // - In production, default to 'none' for cross-site compatibility (common in cloud deployments)
-  let sameSite: 'lax' | 'strict' | 'none' = 'none'; // Changed default for development cross-origin
-  let secure = false;
+  // For localhost development (different ports), 'lax' works because they're same-site
+  // In production with different domains, use 'none' with secure flag
+  let sameSite: 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
+  let secure = isProduction; // Only require HTTPS in production
 
+  // Allow override via environment variable
   if (process.env.COOKIE_SAME_SITE) {
     const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
     if (envValue === 'none' || envValue === 'strict' || envValue === 'lax') {
@@ -55,19 +54,15 @@ export function getSessionCookieOptions(maxAge?: number) {
     }
   }
 
-  // In production, sameSite 'none' requires secure flag
-  if (isProduction) {
+  // If sameSite is 'none', secure MUST be true (browser requirement)
+  if (sameSite === 'none') {
     secure = true;
-  }
-  // In development, if using sameSite 'none', we can skip secure flag for localhost
-  if (sameSite === 'none' && !isProduction) {
-    secure = false; // localhost can use sameSite: 'none' without secure flag
   }
 
   return {
     httpOnly: true, // Prevent XSS attacks
-    secure: secure, // HTTPS only in production (required for sameSite: 'none')
-    sameSite: sameSite,
+    secure: secure, // HTTPS only in production
+    sameSite: sameSite, // 'lax' allows localhost:8080 → localhost:3000
     maxAge: maxAge || 7 * 24 * 60 * 60 * 1000, // 7 days default
     path: '/', // Available on all routes
     // Don't set domain - let browser handle it based on the request origin
