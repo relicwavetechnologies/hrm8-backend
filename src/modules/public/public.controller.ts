@@ -26,7 +26,7 @@ export class PublicController extends BaseController {
         offset
       });
 
-      return this.sendSuccess(res, { 
+      return this.sendSuccess(res, {
         jobs: result.jobs,
         pagination: {
           total: result.total,
@@ -44,7 +44,7 @@ export class PublicController extends BaseController {
     try {
       const { id } = req.params as { id: string };
       const job = await this.publicService.getPublicJob(id);
-      
+
       if (!job) {
         return this.sendError(res, new Error('Job not found or no longer available'));
       }
@@ -52,6 +52,50 @@ export class PublicController extends BaseController {
       return this.sendSuccess(res, { job });
     } catch (error) {
       return this.sendError(res, error);
+    }
+  };
+
+  getFilters = async (req: Request, res: Response) => {
+    try {
+      const filters = await this.publicService.getFilters();
+      return this.sendSuccess(res, { data: filters });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getAggregations = async (req: Request, res: Response) => {
+    try {
+      const aggregations = await this.publicService.getAggregations();
+      return this.sendSuccess(res, { data: aggregations });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getRelatedJobs = async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const limit = parseInt(req.query.limit as string) || 5;
+      const result = await this.publicService.getRelatedJobs(id, limit);
+      return this.sendSuccess(res, { data: result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  trackJobView = async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      await this.publicService.trackJobView(id, {
+        ...req.body,
+        ip: req.ip,
+        userAgent: req.get('user-agent')
+      });
+      return this.sendSuccess(res, { success: true });
+    } catch (error) {
+      // Don't fail the request if tracking fails
+      return this.sendSuccess(res, { success: false });
     }
   };
 }

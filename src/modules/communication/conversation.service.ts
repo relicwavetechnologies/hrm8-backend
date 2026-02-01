@@ -1,6 +1,6 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
-import { ConversationStatus, ParticipantType, MessageContentType } from '@prisma/client';
+import { ConversationStatus, ParticipantType, MessageContentType, ConversationChannelType } from '@prisma/client';
 
 export class ConversationService {
 
@@ -12,7 +12,7 @@ export class ConversationService {
                         participant_id: participantId
                     }
                 },
-                status: 'ACTIVE'
+                // status: 'ACTIVE' // Removed to allow seeing all conversations
             },
             include: {
                 participants: true,
@@ -43,6 +43,41 @@ export class ConversationService {
         }));
 
         return conversationsWithDetails;
+    }
+
+    async createConversation(params: {
+        subject?: string;
+        jobId?: string;
+        candidateId?: string;
+        employerUserId?: string;
+        consultantId?: string;
+        channelType: ConversationChannelType;
+        participants: Array<{
+            participantType: ParticipantType;
+            participantId: string;
+            participantEmail: string;
+            displayName?: string;
+        }>;
+    }) {
+        return prisma.conversation.create({
+            data: {
+                subject: params.subject,
+                job_id: params.jobId,
+                candidate_id: params.candidateId,
+                employer_user_id: params.employerUserId,
+                consultant_id: params.consultantId,
+                channel_type: params.channelType,
+                participants: {
+                    create: params.participants.map((p) => ({
+                        participant_type: p.participantType,
+                        participant_id: p.participantId,
+                        participant_email: p.participantEmail,
+                        display_name: p.displayName,
+                    })),
+                },
+            },
+            include: { participants: true },
+        });
     }
 
     async getConversation(conversationId: string) {
@@ -146,5 +181,69 @@ export class ConversationService {
         // Skipping update for it to avoid error.
 
         return unreadMessages.length;
+    }
+
+    async findConversationByJobAndCandidate(jobId: string, candidateId: string) {
+        const conversation = await prisma.conversation.findFirst({
+            where: {
+                job_id: jobId,
+                candidate_id: candidateId
+            },
+            include: {
+                participants: true
+            }
+        });
+
+        if (!conversation) return null;
+
+        let candidate = null;
+        if (conversation.candidate_id) {
+            candidate = await prisma.candidate.findUnique({
+                where: { id: conversation.candidate_id },
+                select: { id: true, first_name: true, last_name: true, photo: true, email: true }
+            });
+        }
+
+        return { ...conversation, candidate };
+    }
+
+    async archiveConversation(conversationId: string, reason: string) {
+        const conversation = await prisma.conversation.update({
+            where: { id: conversationId },
+            data: { status: 'ARCHIVED' },
+            include: { participants: true }
+        });
+
+        // Add system message about archiving
+        await this.createMessage({
+            conversationId,
+            senderType: 'SYSTEM' as any,
+            senderId: 'SYSTEM',
+            senderEmail: 'system@hrm8.email',
+            content: `Conversation archived: ${reason}`,
+            contentType: 'TEXT'
+        });
+
+        return conversation;
+    }
+
+    async closeConversation(conversationId: string, reason: string) {
+        const conversation = await prisma.conversation.update({
+            where: { id: conversationId },
+            data: { status: 'CLOSED' },
+            include: { participants: true }
+        });
+
+        // Add system message about closing
+        await this.createMessage({
+            conversationId,
+            senderType: 'SYSTEM' as any,
+            senderId: 'SYSTEM',
+            senderEmail: 'system@hrm8.email',
+            content: `Conversation closed: ${reason}`,
+            contentType: 'TEXT'
+        });
+
+        return conversation;
     }
 }

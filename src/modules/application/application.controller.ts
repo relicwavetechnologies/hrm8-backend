@@ -2,7 +2,9 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { ApplicationService } from './application.service';
 import { ApplicationRepository } from './application.repository';
-import { AuthenticatedRequest } from '../../types';
+import { AuthenticatedRequest, CandidateAuthenticatedRequest } from '../../types';
+
+type UnifiedRequest = AuthenticatedRequest & CandidateAuthenticatedRequest;
 import { ApplicationStage } from '@prisma/client';
 import { CandidateRepository } from '../candidate/candidate.repository';
 
@@ -25,14 +27,20 @@ export class ApplicationController extends BaseController {
   };
 
   // Get application by ID
-  getApplication = async (req: AuthenticatedRequest, res: Response) => {
+  getApplication = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.getApplication(id);
 
-      // Security Check (Recruiter/Company only)
+      // Security Check
       if (req.user) {
+        // Recruiter/Company
         if (application.job?.company?.id && application.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      } else if (req.candidate) {
+        // Candidate
+        if ((application as any).candidate_id !== req.candidate.id) {
           throw new Error('Forbidden: You do not have access to this application.');
         }
       }
@@ -43,17 +51,9 @@ export class ApplicationController extends BaseController {
     }
   };
 
-  getResume = async (req: AuthenticatedRequest, res: Response) => {
+  getResume = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      // Pre-fetch app to check permissions (inefficient but safe). 
-      // Optimized way: service.getResume checks? Service doesn't check req.user.
-      // We'll trust getApplication to do the check logic, but getResume calls service.getResume.
-      // So we must check here.
-      // ApplicationService.getResume returns object. It doesn't fetch Job relations by default?
-      // getResume DOES fetch app. 
-      // I should update ApplicationService.getResume to return Job ID/Company ID for check?
-      // Or just fetch Application here first.
       const application = await this.applicationService.applicationRepository.findById(id);
       if (!application) throw new Error('Application not found');
 
@@ -61,6 +61,11 @@ export class ApplicationController extends BaseController {
         // Company user
         const appAny = application as any;
         if (appAny.job?.company?.id && appAny.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      } else if (req.candidate) {
+        // Candidate
+        if ((application as any).candidate_id !== req.candidate.id) {
           throw new Error('Forbidden: You do not have access to this application.');
         }
       }
@@ -73,9 +78,13 @@ export class ApplicationController extends BaseController {
   };
 
   // Get candidate's applications
-  getCandidateApplications = async (req: AuthenticatedRequest, res: Response) => {
+  getCandidateApplications = async (req: UnifiedRequest, res: Response) => {
     try {
-      const { candidateId } = req.query as { candidateId: string };
+      let candidateId = req.query.candidateId as string;
+
+      if (!candidateId && req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -214,10 +223,14 @@ export class ApplicationController extends BaseController {
   };
 
   // Withdraw application
-  withdrawApplication = async (req: AuthenticatedRequest, res: Response) => {
+  withdrawApplication = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const { candidateId } = req.body;
+      let { candidateId } = req.body;
+
+      if (!candidateId && req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
