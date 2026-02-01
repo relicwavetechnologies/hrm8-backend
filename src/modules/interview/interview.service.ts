@@ -171,6 +171,15 @@ export class InterviewService {
         meetingLink: params.meetingLink,
         interviewType: params.type
       });
+
+      await notificationService.createNotification({
+        recipientType: NotificationRecipientType.CANDIDATE,
+        recipientId: application.candidate_id,
+        type: UniversalNotificationType.INTERVIEW_SCHEDULED,
+        title: 'Interview Scheduled',
+        message: `Interview for ${application.job.title} scheduled.`,
+        actionUrl: `/candidate/interviews/${interview.id}`
+      });
     }
 
     return interview;
@@ -223,10 +232,24 @@ export class InterviewService {
   }
 
   static async updateStatus(id: string, status: any, notes?: string) {
-    return prisma.videoInterview.update({
+    const updated = await prisma.videoInterview.update({
       where: { id },
-      data: { status, notes }
+      data: { status, notes },
+      include: { application: { include: { job: true } } }
     });
+
+    if (updated.application?.candidate_id) {
+      await notificationService.createNotification({
+        recipientType: NotificationRecipientType.CANDIDATE,
+        recipientId: updated.application.candidate_id,
+        type: UniversalNotificationType.INTERVIEW_UPDATE,
+        title: 'Interview Update',
+        message: `Your interview status has been updated to ${status}.`,
+        actionUrl: `/candidate/interviews/${id}`
+      });
+    }
+
+    return updated;
   }
 
   static async addFeedback(interviewId: string, feedback: any) {

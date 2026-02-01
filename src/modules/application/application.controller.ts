@@ -19,7 +19,19 @@ export class ApplicationController extends BaseController {
   // Submit a new application
   submitApplication = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const application = await this.applicationService.submitApplication(req.body);
+      const payload = { ...req.body };
+
+      // Inject candidate ID from authenticated request
+      if ((req as any).candidate) {
+        payload.candidateId = (req as any).candidate.id;
+      }
+
+      if (!payload.candidateId) {
+        // If still no candidateId (and we require it for Prisma connection), throw error
+        return this.sendError(res, new Error('Candidate ID is required'), 401);
+      }
+
+      const application = await this.applicationService.submitApplication(payload);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);

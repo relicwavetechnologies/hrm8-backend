@@ -6,11 +6,14 @@ import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
 import { DocumentParser } from '../../utils/document-parser';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 
 export class ApplicationService extends BaseService {
   constructor(
-    public applicationRepository: ApplicationRepository, // Changed to public to allow controller access for security check
-    private candidateRepository: CandidateRepository
+    public applicationRepository: ApplicationRepository,
+    private candidateRepository: CandidateRepository,
+    private notificationService: NotificationService
   ) {
     super();
   }
@@ -48,8 +51,22 @@ export class ApplicationService extends BaseService {
     });
 
     // Trigger AI Scoring asynchronously
-    this.triggerAiAnalysis(application.id, data.jobId).catch(err => {
+    CandidateScoringService.scoreCandidate({
+      applicationId: application.id,
+      jobId: data.jobId
+    }).catch((err) => {
       console.error('Failed to trigger AI analysis:', err);
+    });
+
+    // Notify Candidate of successful submission
+    await this.notificationService.createNotification({
+      recipientType: NotificationRecipientType.CANDIDATE,
+      recipientId: data.candidateId,
+      type: UniversalNotificationType.NEW_APPLICATION,
+      title: 'Application Received',
+      message: 'Your application has been successfully submitted.',
+      data: { applicationId: application.id, jobId: data.jobId },
+      actionUrl: `/candidate/applications/${application.id}`,
     });
 
     return application;
@@ -217,7 +234,20 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateStage(id, stage);
+    const updatedApp = await this.applicationRepository.updateStage(id, stage);
+
+    // Notify Candidate of status change
+    await this.notificationService.createNotification({
+      recipientType: NotificationRecipientType.CANDIDATE,
+      recipientId: updatedApp.candidate_id,
+      type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+      title: 'Application Update',
+      message: `Your application status has been updated to ${stage.replace(/_/g, ' ')}.`,
+      data: { applicationId: id, stage },
+      actionUrl: `/candidate/applications/${id}`,
+    });
+
+    return updatedApp;
   }
 
   async updateNotes(id: string, notes: string): Promise<Application> {
