@@ -1355,6 +1355,9 @@ model AssessmentConfiguration {
   deadline_days          Int?
   time_limit_minutes     Int?
   pass_threshold         Float?
+  auto_reject_on_fail    Boolean  @default(false)
+  auto_reject_on_deadline Boolean @default(false)
+  auto_move_on_pass      Boolean  @default(false)
   provider               String?
   provider_config        Json?
   assessment_template_id String?

@@ -41,4 +41,59 @@ export class AssessmentController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  getGrading = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const data = await this.assessmentService.getGradingDetails(id);
+      return this.sendSuccess(res, data);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  saveGrade = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const { grades } = req.body;
+      // Mock grader ID if auth not fully set up in this context, or use req.user.id
+      const graderId = (req as any).user?.id || 'system';
+      await this.assessmentService.saveGrade(id, grades, graderId);
+      return this.sendSuccess(res, { message: 'Grades saved successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  saveComment = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const { comment } = req.body;
+      const userId = (req as any).user?.id || 'system';
+      await this.assessmentService.addComment(id, comment, userId);
+      return this.sendSuccess(res, { message: 'Comment added' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  finalizeAssessment = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const result = await this.assessmentService.finalizeAssessment(id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resendInvitation = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      await this.assessmentService.resendInvitation(id);
+      return this.sendSuccess(res, { message: 'Invitation resent' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

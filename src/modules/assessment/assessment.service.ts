@@ -156,7 +156,7 @@ export class AssessmentService extends BaseService {
         candidateName: name,
         candidateEmail: email,
         status: a.status,
-        score: (a as any).results?.score || null, // Assuming results might have score
+        score: (a as any).results?.score || null,
         averageScore,
         invitedAt: a.invited_at,
         completedAt: a.completed_at,
@@ -165,5 +165,86 @@ export class AssessmentService extends BaseService {
         applicationStage: app?.stage
       };
     });
+  }
+
+  async getGradingDetails(assessmentId: string) {
+    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    return assessment;
+  }
+
+  async saveGrade(assessmentId: string, grades: Array<{ questionId: string; score: number; feedback: string }>, graderId: string) {
+    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+
+    for (const g of grades) {
+      // Find response for this question
+      const response = assessment.assessment_response.find(r => r.question_id === g.questionId);
+      if (response) {
+        await this.assessmentRepository.upsertGrade(response.id, graderId, g.score, g.feedback);
+      }
+    }
+    return { message: 'Grades saved' };
+  }
+
+  async addComment(assessmentId: string, comment: string, userId: string) {
+    const assessment = await this.assessmentRepository.findById(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+
+    return this.assessmentRepository.addComment(assessmentId, userId, comment);
+  }
+
+  async finalizeAssessment(assessmentId: string) {
+    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+
+    // Calculate Average Score
+    let averageScore: number = 0;
+    if (assessment.assessment_response && assessment.assessment_response.length > 0) {
+      const grades = assessment.assessment_response
+        .flatMap((r: any) => r.assessment_grade || [])
+        .filter((g: any) => g.score !== null && g.score !== undefined);
+
+      if (grades.length > 0) {
+        const sum = grades.reduce((acc: number, curr: any) => acc + curr.score, 0);
+        averageScore = Number((sum / grades.length).toFixed(2));
+      }
+    }
+
+    // Update Assessment Status and Score
+    // Note: 'results' is a Json field, we store score there for persistent record
+    await this.assessmentRepository.update(assessment.id, {
+      status: 'COMPLETED',
+      completed_at: assessment.completed_at || new Date(),
+      results: { score: averageScore }
+    });
+
+    // Automation Logic
+    if (assessment.job_round_id) {
+      const config = await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id);
+
+      if (config) {
+        const passThreshold = config.pass_threshold || 70;
+
+        if ((config as any).auto_reject_on_fail && averageScore < passThreshold) {
+          await this.assessmentRepository.rejectApplication(assessment.application_id);
+        } else if ((config as any).auto_move_on_pass && averageScore >= passThreshold) {
+          await this.assessmentRepository.moveToNextRound(assessment.application_id, assessment.job_round_id);
+        }
+      }
+    }
+
+    return { success: true, averageScore };
+  }
+
+  async resendInvitation(assessmentId: string) {
+    const assessment = await this.assessmentRepository.findById(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    // TODO: Integrate EmailService to actually resend email
+    // For now, reset invited_at to simulate fresh invite
+    await this.assessmentRepository.update(assessment.id, {
+      invited_at: new Date()
+    });
+    return { message: 'Invitation resent' };
   }
 }

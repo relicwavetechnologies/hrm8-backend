@@ -157,6 +157,7 @@ export class ApplicationService extends BaseService {
 
     return {
       ...app,
+      recruiterNotes: app.recruiter_notes,
       // Map screening_result to aiAnalysis property expected by frontend
       aiAnalysis,
       // Map candidate details to parsedResume property expected by frontend
