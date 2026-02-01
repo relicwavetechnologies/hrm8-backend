@@ -75,6 +75,17 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/consultant360', consultant360Routes);
   app.use('/api/admin/billing', adminBillingRoutes);
 
+  // Diagnostic endpoints
+  app.use('/api/dev/session-info', (req, res) => {
+    res.json({
+      cookies: Object.keys(req.cookies || {}),
+      sessionId: !!req.cookies?.sessionId,
+      candidateSessionId: !!req.cookies?.candidateSessionId,
+      hrm8SessionId: !!req.cookies?.hrm8SessionId,
+      consultantToken: !!req.cookies?.consultantToken,
+    });
+  });
+
   // Error middleware must be registered last
   app.use(errorMiddleware);
 };

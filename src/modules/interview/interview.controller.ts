@@ -54,6 +54,16 @@ export class InterviewController extends BaseController {
     }
   };
 
+  listByApplication = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const applicationId = req.params.applicationId as string;
+      const interviews = await InterviewService.getInterviews({ applicationId });
+      return this.sendSuccess(res, { interviews });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   getById = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;

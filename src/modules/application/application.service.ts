@@ -64,7 +64,8 @@ export class ApplicationService extends BaseService {
   }
 
   async getCandidateApplications(candidateId: string): Promise<Application[]> {
-    return this.applicationRepository.findByCandidateId(candidateId);
+    const applications = await this.applicationRepository.findByCandidateId(candidateId);
+    return applications.map(app => this.mapApplication(app));
   }
 
   async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
@@ -110,6 +111,7 @@ export class ApplicationService extends BaseService {
   }
 
   private mapApplication(app: any): Application {
+    console.log(`[mapApplication] Mapping application: ${app.id}`);
     // Find AI screening result (AUTOMATED) or fallback to first result
     const aiResult = Array.isArray(app.screening_result)
       ? app.screening_result.find((r: any) => r.screening_type === 'AUTOMATED')
@@ -157,6 +159,12 @@ export class ApplicationService extends BaseService {
 
     return {
       ...app,
+      // Map document URLs to camelCase for frontend
+      resumeUrl: app.resume_url,
+      coverLetterUrl: app.cover_letter_url,
+      portfolioUrl: app.portfolio_url,
+      linkedInUrl: app.linked_in_url,
+      websiteUrl: app.website_url,
       // Map screening_result to aiAnalysis property expected by frontend
       aiAnalysis,
       // Map candidate details to parsedResume property expected by frontend
@@ -282,6 +290,7 @@ export class ApplicationService extends BaseService {
         last_name: data.lastName,
         password_hash: '', // No password for manually added
         status: 'ACTIVE',
+        resume_url: data.resumeUrl, // Sync profile URL
         resumes: data.resumeUrl ? {
           create: {
             file_url: data.resumeUrl,

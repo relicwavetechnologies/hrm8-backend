@@ -25,7 +25,30 @@ export class CandidateApplicationsController extends BaseController {
         take: 50
       });
 
-      return this.sendSuccess(res, { applications });
+      const mappedApplications = applications.map(app => ({
+        id: app.id,
+        candidateId: app.candidate_id,
+        jobId: app.job_id,
+        status: app.status,
+        stage: app.stage,
+        appliedDate: app.applied_date,
+        resumeUrl: app.resume_url,
+        coverLetterUrl: app.cover_letter_url,
+        portfolioUrl: app.portfolio_url,
+        linkedInUrl: app.linked_in_url,
+        websiteUrl: app.website_url,
+        isRead: app.is_read,
+        isNew: app.is_new,
+        tags: app.tags,
+        score: app.score,
+        rank: app.rank,
+        shortlisted: app.shortlisted,
+        createdAt: app.created_at,
+        updatedAt: app.updated_at,
+        job: app.job
+      }));
+
+      return this.sendSuccess(res, { applications: mappedApplications });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -57,7 +80,30 @@ export class CandidateApplicationsController extends BaseController {
         return this.sendError(res, new Error('Application not found'), 404);
       }
 
-      return this.sendSuccess(res, { application });
+      const mappedApplication = {
+        id: application.id,
+        candidateId: application.candidate_id,
+        jobId: application.job_id,
+        status: application.status,
+        stage: application.stage,
+        appliedDate: application.applied_date,
+        resumeUrl: application.resume_url,
+        coverLetterUrl: application.cover_letter_url,
+        portfolioUrl: application.portfolio_url,
+        linkedInUrl: application.linked_in_url,
+        websiteUrl: application.website_url,
+        isRead: application.is_read,
+        isNew: application.is_new,
+        tags: application.tags,
+        score: application.score,
+        rank: application.rank,
+        shortlisted: application.shortlisted,
+        createdAt: application.created_at,
+        updatedAt: application.updated_at,
+        job: application.job
+      };
+
+      return this.sendSuccess(res, { application: mappedApplication });
     } catch (error) {
       return this.sendError(res, error);
     }

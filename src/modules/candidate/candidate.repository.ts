@@ -2,7 +2,7 @@ import type { Prisma, Candidate } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class CandidateRepository extends BaseRepository {
-  
+
   async create(data: Prisma.CandidateCreateInput): Promise<Candidate> {
     return this.prisma.candidate.create({ data });
   }
@@ -201,7 +201,10 @@ export class CandidateRepository extends BaseRepository {
     const [resumes, coverLetters, portfolios] = await Promise.all([
       this.prisma.candidateResume.findMany({
         where: { candidate_id: candidateId },
-        orderBy: { uploaded_at: 'desc' }
+        orderBy: [
+          { is_default: 'desc' },
+          { uploaded_at: 'desc' }
+        ]
       }),
       this.prisma.candidateCoverLetter.findMany({
         where: { candidate_id: candidateId },
@@ -270,6 +273,13 @@ export class CandidateRepository extends BaseRepository {
   async deleteResume(resumeId: string) {
     return this.prisma.candidateResume.delete({
       where: { id: resumeId },
+    });
+  }
+
+  async updateResumeUrl(candidateId: string, url: string | null) {
+    return this.prisma.candidate.update({
+      where: { id: candidateId },
+      data: { resume_url: url },
     });
   }
 
@@ -494,6 +504,152 @@ export class CandidateRepository extends BaseRepository {
   async deleteWorkExperience(experienceId: string) {
     return this.prisma.candidateWorkExperience.delete({
       where: { id: experienceId },
+    });
+  }
+
+  // Notification Preferences
+  async getNotificationPreferences(candidateId: string) {
+    return this.prisma.notificationPreferences.findUnique({
+      where: { candidate_id: candidateId }
+    });
+  }
+
+  async upsertNotificationPreferences(candidateId: string, data: any) {
+    return this.prisma.notificationPreferences.upsert({
+      where: { candidate_id: candidateId },
+      update: {
+        application_status_changes: data.application_status_changes,
+        interview_reminders: data.interview_reminders,
+        job_match_alerts: data.job_match_alerts,
+        messages: data.messages,
+        system_updates: data.system_updates,
+        email_enabled: data.email_enabled,
+        in_app_enabled: data.in_app_enabled,
+        reminder_hours_before: data.reminder_hours_before,
+      },
+      create: {
+        candidate_id: candidateId,
+        application_status_changes: data.application_status_changes ?? true,
+        interview_reminders: data.interview_reminders ?? true,
+        job_match_alerts: data.job_match_alerts ?? true,
+        messages: data.messages ?? true,
+        system_updates: data.system_updates ?? true,
+        email_enabled: data.email_enabled ?? true,
+        in_app_enabled: data.in_app_enabled ?? true,
+        reminder_hours_before: data.reminder_hours_before ?? 24,
+      },
+    });
+  }
+
+  // Skills Methods
+  async getSkills(candidateId: string) {
+    return this.prisma.candidateSkill.findMany({
+      where: { candidate_id: candidateId },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async createSkill(candidateId: string, data: any) {
+    return this.prisma.candidateSkill.create({
+      data: {
+        candidate_id: candidateId,
+        name: data.name,
+        level: data.level ?? null,
+      },
+    });
+  }
+
+  async updateSkill(skillId: string, data: any) {
+    return this.prisma.candidateSkill.update({
+      where: { id: skillId },
+      data: {
+        name: data.name ?? undefined,
+        level: data.level ?? undefined,
+      },
+    });
+  }
+
+  async deleteSkill(skillId: string) {
+    return this.prisma.candidateSkill.delete({
+      where: { id: skillId },
+    });
+  }
+
+  // Saved Jobs Methods
+  async getSavedJobs(candidateId: string) {
+    return this.prisma.savedJob.findMany({
+      where: { candidate_id: candidateId },
+      include: {
+        job: {
+          include: {
+            company: { select: { id: true, name: true } }
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async deleteSavedJob(candidateId: string, jobId: string) {
+    return this.prisma.savedJob.deleteMany({
+      where: {
+        candidate_id: candidateId,
+        job_id: jobId
+      }
+    });
+  }
+
+  // Saved Searches Methods
+  async getSavedSearches(candidateId: string) {
+    return this.prisma.savedSearch.findMany({
+      where: { candidate_id: candidateId },
+      orderBy: { last_searched_at: 'desc' }
+    });
+  }
+
+  async deleteSavedSearch(searchId: string) {
+    return this.prisma.savedSearch.delete({
+      where: { id: searchId }
+    });
+  }
+
+  // Job Alerts Methods
+  async getJobAlerts(candidateId: string) {
+    return this.prisma.jobAlert.findMany({
+      where: { candidate_id: candidateId },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async createJobAlert(candidateId: string, data: any) {
+    return this.prisma.jobAlert.create({
+      data: {
+        candidate_id: candidateId,
+        name: data.name,
+        criteria: data.criteria || {},
+        frequency: data.frequency || 'DAILY',
+        channels: data.channels || ['EMAIL'],
+        is_active: data.isActive ?? true,
+      }
+    });
+  }
+
+  async updateJobAlert(alertId: string, data: any) {
+    return this.prisma.jobAlert.update({
+      where: { id: alertId },
+      data: {
+        name: data.name ?? undefined,
+        criteria: data.criteria ?? undefined,
+        frequency: data.frequency ?? undefined,
+        channels: data.channels ?? undefined,
+        is_active: data.isActive ?? undefined,
+      }
+    });
+  }
+
+  async deleteJobAlert(alertId: string) {
+    return this.prisma.jobAlert.delete({
+      where: { id: alertId }
     });
   }
 }
