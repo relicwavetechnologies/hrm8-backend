@@ -10,6 +10,49 @@ export class RegionalLicenseeService extends BaseService {
         super();
     }
 
+    private mapToDTO(licensee: any) {
+        return {
+            ...licensee,
+            legalEntityName: licensee.legal_entity_name,
+            taxId: licensee.tax_id,
+            agreementStartDate: licensee.agreement_start_date,
+            agreementEndDate: licensee.agreement_end_date,
+            revenueSharePercent: licensee.revenue_share_percent,
+            contractFileUrl: licensee.contract_file_url,
+            managerContact: licensee.manager_contact,
+            financeContact: licensee.finance_contact,
+            complianceContact: licensee.compliance_contact,
+        };
+    }
+
+    private mapToPersistence(data: any) {
+        // Map common fields to ensure they exist if provided in camelCase
+        const mapped: any = { ...data };
+        if (data.legalEntityName !== undefined) mapped.legal_entity_name = data.legalEntityName;
+        if (data.taxId !== undefined) mapped.tax_id = data.taxId;
+        if (data.agreementStartDate !== undefined) mapped.agreement_start_date = data.agreementStartDate;
+        if (data.agreementEndDate !== undefined) mapped.agreement_end_date = data.agreementEndDate;
+        if (data.revenueSharePercent !== undefined) mapped.revenue_share_percent = data.revenueSharePercent;
+        if (data.contractFileUrl !== undefined) mapped.contract_file_url = data.contractFileUrl;
+        if (data.managerContact !== undefined) mapped.manager_contact = data.managerContact;
+        if (data.financeContact !== undefined) mapped.finance_contact = data.financeContact;
+        if (data.complianceContact !== undefined) mapped.compliance_contact = data.complianceContact;
+
+        // Remove camelCase keys to avoid Prisma errors if strictly typed (though Prisma ignores unknown args usually, but best to clean up)
+        delete mapped.legalEntityName;
+        delete mapped.taxId;
+        delete mapped.agreementStartDate;
+        delete mapped.agreementEndDate;
+        delete mapped.revenueSharePercent;
+        delete mapped.contractFileUrl;
+        delete mapped.managerContact;
+        delete mapped.financeContact;
+        delete mapped.complianceContact;
+        delete mapped.password; // Handled separately
+
+        return mapped;
+    }
+
     async getAll(params: { status?: LicenseeStatus; limit?: number; offset?: number }) {
         const { status, limit = 50, offset = 0 } = params;
         const where: any = {};
@@ -25,20 +68,21 @@ export class RegionalLicenseeService extends BaseService {
             this.regionalLicenseeRepository.count(where),
         ]);
 
-        return { licensees, total };
+        return { licensees: licensees.map(l => this.mapToDTO(l)), total };
     }
 
     async getById(id: string) {
         const licensee = await this.regionalLicenseeRepository.findById(id);
         if (!licensee) throw new HttpException(404, 'Licensee not found');
-        return licensee;
+        return { licensee: this.mapToDTO(licensee) };
     }
 
     async create(data: any, performedBy?: string) {
-        const existing = await this.regionalLicenseeRepository.findByEmail(data.email);
+        const persistenceData = this.mapToPersistence(data);
+        const existing = await this.regionalLicenseeRepository.findByEmail(persistenceData.email);
         if (existing) throw new HttpException(409, 'Licensee with this email already exists');
 
-        const licensee = await this.regionalLicenseeRepository.create(data);
+        const licensee = await this.regionalLicenseeRepository.create(persistenceData);
 
         // Create HRM8 user for the licensee
         const password = data.password || 'vAbhi2678';
@@ -46,20 +90,22 @@ export class RegionalLicenseeService extends BaseService {
 
         await prisma.hRM8User.create({
             data: {
-                email: data.email,
+                email: persistenceData.email,
                 password_hash: passwordHash,
-                first_name: data.manager_contact?.split(' ')[0] || data.name,
-                last_name: data.manager_contact?.split(' ').slice(1).join(' ') || 'Licensee',
+                first_name: persistenceData.manager_contact?.split(' ')[0] || persistenceData.name,
+                last_name: persistenceData.manager_contact?.split(' ').slice(1).join(' ') || 'Licensee',
                 role: HRM8UserRole.REGIONAL_LICENSEE,
                 licensee_id: licensee.id,
             },
         });
 
-        return licensee;
+        return { licensee: this.mapToDTO(licensee) };
     }
 
     async update(id: string, data: any) {
-        return this.regionalLicenseeRepository.update(id, data);
+        const persistenceData = this.mapToPersistence(data);
+        const licensee = await this.regionalLicenseeRepository.update(id, persistenceData);
+        return { licensee: this.mapToDTO(licensee) };
     }
 
     async delete(id: string) {
@@ -72,12 +118,15 @@ export class RegionalLicenseeService extends BaseService {
     }
 
     async updateStatus(id: string, status: LicenseeStatus) {
+        let result;
         if (status === 'SUSPENDED') {
-            return this.suspend(id);
+            result = await this.suspend(id);
         } else if (status === 'TERMINATED') {
-            return this.terminate(id);
+            result = await this.terminate(id);
+        } else {
+            result = await this.regionalLicenseeRepository.update(id, { status });
         }
-        return this.regionalLicenseeRepository.update(id, { status });
+        return { licensee: this.mapToDTO(result) };
     }
 
     async suspend(id: string) {
@@ -138,6 +187,7 @@ export class RegionalLicenseeService extends BaseService {
             regions: regionIds.length,
             activeJobs,
             consultants,
+            pendingRevenue: 0, // Placeholder
         };
     }
 }

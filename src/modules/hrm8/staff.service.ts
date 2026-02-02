@@ -15,22 +15,57 @@ export class StaffService extends BaseService {
 
         const mapped = {
             ...consultant,
+            id: consultant.id,
             firstName: consultant.first_name,
             lastName: consultant.last_name,
             regionId: consultant.region_id,
             defaultCommissionRate: consultant.default_commission_rate,
             createdAt: consultant.created_at,
             updatedAt: consultant.updated_at,
+
+            // Stats & details
+            totalCommissionsPaid: consultant.total_commissions_paid,
+            pendingCommissions: consultant.pending_commissions,
+            totalRevenue: consultant.total_revenue,
+            totalPlacements: consultant.total_placements,
+            successRate: consultant.success_rate,
+            averageDaysToFill: consultant.average_days_to_fill,
+            currentJobs: consultant.current_jobs,
+            maxJobs: consultant.max_jobs,
+            currentEmployers: consultant.current_employers,
+            maxEmployers: consultant.max_employers,
+            paymentMethod: consultant.payment_method,
+            taxInformation: consultant.tax_information,
+            industryExpertise: consultant.industry_expertise,
+            resumeUrl: consultant.resume_url,
+            stateProvince: consultant.state_province,
+            commissionStructure: consultant.commission_structure,
+            lastLoginAt: consultant.last_login_at,
+
+            city: consultant.city,
+            country: consultant.country,
+            phone: consultant.phone,
+            photo: consultant.photo,
+            role: consultant.role,
+            status: consultant.status,
+            address: consultant.address,
+            availability: consultant.availability,
+            languages: consultant.languages
         };
 
         // Remove snake_case fields and sensitive data
-        delete mapped.first_name;
-        delete mapped.last_name;
-        delete mapped.region_id;
-        delete mapped.default_commission_rate;
-        delete mapped.created_at;
-        delete mapped.updated_at;
-        delete mapped.password_hash;
+        const keysToDelete = [
+            'first_name', 'last_name', 'region_id', 'default_commission_rate',
+            'created_at', 'updated_at', 'password_hash', 'total_commissions_paid',
+            'pending_commissions', 'total_revenue', 'total_placements', 'success_rate',
+            'average_days_to_fill', 'current_jobs', 'max_jobs', 'current_employers',
+            'max_employers', 'payment_method', 'tax_information', 'industry_expertise',
+            'resume_url', 'state_province', 'commission_structure', 'last_login_at',
+            'payout_enabled', 'stripe_account_id', 'stripe_account_status', 'stripe_onboarded_at',
+            'current_leads', 'max_leads'
+        ];
+
+        keysToDelete.forEach(key => delete mapped[key]);
 
         return mapped;
     }

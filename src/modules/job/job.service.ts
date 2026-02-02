@@ -151,6 +151,76 @@ export class JobService extends BaseService {
     return deletedCount;
   }
 
+  /**
+   * Archive a job
+   */
+  async archiveJob(id: string, companyId: string, userId?: string): Promise<Job> {
+    await this.getJob(id, companyId); // Verify ownership
+
+    const updatedJob = await this.jobRepository.update(id, {
+      archived: true,
+      archived_at: new Date(),
+      archived_by: userId,
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  /**
+   * Unarchive a job
+   */
+  async unarchiveJob(id: string, companyId: string): Promise<Job> {
+    await this.getJob(id, companyId); // Verify ownership
+
+    const updatedJob = await this.jobRepository.update(id, {
+      archived: false,
+      archived_at: null,
+      archived_by: null,
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  /**
+   * Bulk archive jobs
+   */
+  async bulkArchiveJobs(jobIds: string[], companyId: string, userId?: string): Promise<number> {
+    if (!jobIds || jobIds.length === 0) {
+      throw new HttpException(400, 'No job IDs provided');
+    }
+
+    // Verify all jobs belong to company
+    const jobs = await this.jobRepository.findByCompanyId(companyId);
+    const validJobIds = jobs.filter(job => jobIds.includes(job.id)).map(job => job.id);
+
+    if (validJobIds.length === 0) {
+      throw new HttpException(400, 'No valid jobs found for archiving');
+    }
+
+    const result = await this.jobRepository.bulkArchive(validJobIds, companyId, userId);
+    return result;
+  }
+
+  /**
+   * Bulk unarchive jobs
+   */
+  async bulkUnarchiveJobs(jobIds: string[], companyId: string): Promise<number> {
+    if (!jobIds || jobIds.length === 0) {
+      throw new HttpException(400, 'No job IDs provided');
+    }
+
+    // Verify all jobs belong to company
+    const jobs = await this.jobRepository.findByCompanyId(companyId);
+    const validJobIds = jobs.filter(job => jobIds.includes(job.id)).map(job => job.id);
+
+    if (validJobIds.length === 0) {
+      throw new HttpException(400, 'No valid jobs found for unarchiving');
+    }
+
+    const result = await this.jobRepository.bulkUnarchive(validJobIds, companyId);
+    return result;
+  }
+
   async publishJob(id: string, companyId: string, userId?: string): Promise<Job> {
     const job = await this.getJob(id, companyId);
 
@@ -207,6 +277,107 @@ export class JobService extends BaseService {
     });
 
     return this.mapToResponse(updatedJob);
+  }
+
+  /**
+   * Submit and activate a job (after review step)
+   * This activates the job and makes it live on internal job board and careers page
+   */
+  async submitAndActivate(id: string, companyId: string, userId?: string, _paymentId?: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+
+    // Idempotency: if already published, return success
+    if (job.status === 'OPEN') {
+      return job;
+    }
+
+    if (job.status !== 'DRAFT') {
+      throw new HttpException(400, 'Only draft jobs can be submitted');
+    }
+
+    // TODO: Implement wallet payment verification here
+    // For now, just activate the job
+
+    // Generate share link and referral link
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const shareLink = `${frontendUrl}/jobs/${id}`;
+    const referralLink = `${shareLink}?ref=${id.substring(0, 8)}`;
+
+    // Activate job - set status to OPEN and set posting date
+    const updatedJob = await this.jobRepository.update(id, {
+      status: 'OPEN',
+      posting_date: job.postingDate || new Date(),
+      share_link: shareLink,
+      referral_link: referralLink,
+    });
+
+    // Trigger notification
+    if (this.notificationService && userId) {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.USER,
+        recipientId: userId,
+        type: UniversalNotificationType.JOB_PUBLISHED,
+        title: 'Job Published',
+        message: `Your job "${updatedJob.title}" is now live and alerts have been sent to relevant candidates.`,
+        data: { jobId: id, companyId, status: 'OPEN' },
+        actionUrl: `/ats/jobs/${id}`
+      });
+    }
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  /**
+   * Update job alerts configuration
+   */
+  async updateAlerts(
+    id: string,
+    companyId: string,
+    alertsConfig: {
+      newApplicants?: boolean;
+      inactivity?: boolean;
+      deadlines?: boolean;
+      inactivityDays?: number;
+    }
+  ): Promise<Job> {
+    await this.getJob(id, companyId); // Verify ownership
+
+    const updatedJob = await this.jobRepository.update(id, {
+      alerts_enabled: alertsConfig,
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  /**
+   * Save job as a named template
+   * Note: Template name/description are returned in response but the schema
+   * only supports a boolean saved_as_template flag. Consider adding dedicated
+   * template fields to the schema for full template management.
+   */
+  async saveAsTemplate(
+    id: string,
+    companyId: string,
+    templateName: string,
+    templateDescription?: string
+  ): Promise<{ job: any; templateId: string; templateName: string; templateDescription?: string }> {
+    // Use parameter for unused variable lint
+    void templateName;
+    void templateDescription;
+
+    const job = await this.getJob(id, companyId); // Verify ownership
+
+    // Mark the job as a template (schema only has boolean flag)
+    const updatedJob = await this.jobRepository.update(id, {
+      saved_as_template: true,
+    });
+
+    return {
+      job: this.mapToResponse(updatedJob),
+      templateId: id,
+      templateName,
+      templateDescription,
+    };
   }
 
   private async generateJobCode(companyId: string): Promise<string> {

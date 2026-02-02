@@ -36,6 +36,29 @@ export class CommissionService extends BaseService {
         super();
     }
 
+    private mapToDTO(commission: any) {
+        return {
+            id: commission.id,
+            consultantId: commission.consultant_id,
+            regionId: commission.region_id,
+            jobId: commission.job_id,
+            subscriptionId: commission.subscription_id,
+            type: commission.type,
+            amount: commission.amount,
+            description: commission.description,
+            status: commission.status,
+            createdAt: commission.created_at,
+            confirmedAt: commission.confirmed_at,
+            paidAt: commission.paid_at,
+            consultant: commission.consultant ? {
+                id: commission.consultant.id,
+                firstName: commission.consultant.first_name,
+                lastName: commission.consultant.last_name,
+                email: commission.consultant.email
+            } : undefined
+        };
+    }
+
     async getAll(params: { limit?: number; offset?: number; consultantId?: string }) {
         const { limit = 50, offset = 0, consultantId } = params;
         const where: any = {};
@@ -47,17 +70,18 @@ export class CommissionService extends BaseService {
                 take: limit,
                 skip: offset,
                 orderBy: { created_at: 'desc' },
+                include: { consultant: true }
             }),
             this.commissionRepository.count(where),
         ]);
 
-        return { commissions, total };
+        return { commissions: commissions.map(c => this.mapToDTO(c)), total };
     }
 
     async getById(id: string) {
         const commission = await this.commissionRepository.findById(id);
         if (!commission) throw new HttpException(404, 'Commission not found');
-        return commission;
+        return this.mapToDTO(commission);
     }
 
     async create(input: AwardCommissionInput) {

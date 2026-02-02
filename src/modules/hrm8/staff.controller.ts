@@ -136,9 +136,9 @@ export class StaffController extends BaseController {
             const result = await this.staffService.getConsultantsForReassignment(
                 id as string,
                 consultant.role,
-                consultant.region_id as string
+                consultant.regionId as string
             );
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { consultants: result });
         } catch (error) {
             return this.sendError(res, error);
         }

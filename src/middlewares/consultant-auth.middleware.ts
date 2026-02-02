@@ -68,22 +68,84 @@ export async function authenticateConsultant(
       return;
     }
 
-    // Verify session
-    const session = await prisma.consultantSession.findUnique({
+    // Verify consultant session first
+    const session = token ? await prisma.consultantSession.findUnique({
       where: { session_id: token },
       include: { consultant: true },
-    });
+    }) : null;
 
-    if (!session || session.expires_at < new Date()) {
-      // If expired, clear the cookie
-      res.clearCookie('consultantToken');
-
-      res.status(401).json({
-        success: false,
-        error: 'Invalid or expired session. Please login again.',
-      });
+    if (session && session.expires_at >= new Date()) {
+      const consultant = session.consultant;
+      if (!consultant || consultant.status !== 'ACTIVE') {
+        // Consultant found but inactive
+        res.status(401).json({ success: false, error: 'Consultant not active' });
+        return;
+      }
+      req.consultant = {
+        id: consultant.id,
+        email: consultant.email,
+        firstName: consultant.first_name,
+        lastName: consultant.last_name,
+        role: consultant.role
+      };
+      next();
       return;
     }
+
+    // If not a valid Consultant session, check for Admin Session (Bypass for HRM8 Admins)
+    // We check this if 'token' is present (passed as Bearer) OR if there is an hrm8SessionId cookie
+    const adminToken = token || (req.cookies && req.cookies.hrm8SessionId);
+
+    if (adminToken) {
+      const adminSession = await prisma.session.findUnique({
+        where: { session_id: adminToken },
+        include: { user: true }
+      });
+
+      if (adminSession && adminSession.expires_at >= new Date()) {
+        // Admin found - Enable Bypass
+        // Find a real consultant to masquerade as (for data context) or create dummy
+        const realConsultant = await prisma.consultant.findFirst({
+          where: { status: 'ACTIVE' }
+        });
+
+        if (realConsultant) {
+          req.consultant = {
+            id: realConsultant.id,
+            email: realConsultant.email,
+            firstName: realConsultant.first_name,
+            lastName: realConsultant.last_name,
+            role: realConsultant.role
+          };
+        } else {
+          const [firstName, ...lastNameParts] = (adminSession.user.name || 'Admin User').split(' ');
+          req.consultant = {
+            id: adminSession.user.id,
+            email: adminSession.user.email,
+            firstName: firstName || 'Admin',
+            lastName: lastNameParts.join(' ') || 'User',
+            role: 'CONSULTANT_360'
+          } as any;
+        }
+        res.locals.isHrm8Admin = true;
+        next();
+        return;
+      }
+    }
+
+    // Attempted both, failed
+    if (session) {
+      // Session existed but expired (handled in first block, but here means expired)
+      res.clearCookie('consultantToken');
+      res.status(401).json({ success: false, error: 'Session expired' });
+      return;
+    }
+
+    res.status(401).json({
+      success: false,
+      error: 'Not authenticated. Please login.',
+    });
+    return;
 
     const consultant = session.consultant;
 

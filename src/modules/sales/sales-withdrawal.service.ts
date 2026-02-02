@@ -5,27 +5,19 @@ import { WithdrawalStatus } from '@prisma/client';
 export class SalesWithdrawalService {
 
     async calculateBalance(consultantId: string) {
-        // 1. Get all CONFIRMED commissions (eligible for withdrawal)
-        const eligibleCommissions = await prisma.commission.findMany({
-            where: {
-                consultant_id: consultantId,
-                status: 'CONFIRMED'
-            }
+        // 1. Get all commissions
+        const allCommissions = await prisma.commission.findMany({
+            where: { consultant_id: consultantId }
         });
 
-        if (eligibleCommissions.length === 0) {
-            return { balance: 0, currency: 'USD', commissionCount: 0 };
-        }
+        // 2. Calculate Available Balance (Confirmed and NOT locked in active withdrawals)
+        const confirmedCommissions = allCommissions.filter(c => c.status === 'CONFIRMED');
 
-        const eligibleIds = eligibleCommissions.map(c => c.id);
-
-        // 2. Find commissions currently locked in active withdrawals
+        // Find commissions currently locked in active withdrawals
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: {
-                    in: ['PENDING', 'APPROVED', 'PROCESSING']
-                }
+                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
             },
             select: { commission_ids: true }
         });
@@ -35,13 +27,43 @@ export class SalesWithdrawalService {
             w.commission_ids.forEach(id => lockedCommissionIds.add(id));
         });
 
-        // 3. Filter out locked commissions
-        const availableCommissions = eligibleCommissions.filter(c => !lockedCommissionIds.has(c.id));
+        const availableCommissions = confirmedCommissions.filter(c => !lockedCommissionIds.has(c.id));
+        const balance = availableCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
-        // Sum amounts
-        const balance = availableCommissions.reduce((sum, c) => sum + (c.amount || 0), 0);
+        // 3. Calculate Pending (Status = PENDING or CONFIRMED but locked?) 
+        // Typically Pending means status='PENDING'. Confirmed means ready for withdrawal.
+        const pendingCommissions = allCommissions.filter(c => c.status === 'PENDING');
+        const pendingBalance = pendingCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
-        return { balance, currency: 'USD', commissionCount: availableCommissions.length };
+        // 4. Calculate Total Earned (All time commissions excluding Cancelled)
+        const totalEarned = allCommissions
+            .filter(c => c.status !== 'CANCELLED')
+            .reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+        // 5. Calculate Total Withdrawn
+        // Sum of COMPLETED withdrawals
+        const completedWithdrawals = await prisma.commissionWithdrawal.findMany({
+            where: {
+                consultant_id: consultantId,
+                status: 'COMPLETED'
+            }
+        });
+        const totalWithdrawn = completedWithdrawals.reduce((sum, w) => sum + Number(w.amount || 0), 0);
+
+        return {
+            availableBalance: balance,
+            pendingBalance: pendingBalance,
+            totalEarned,
+            totalWithdrawn,
+            currency: 'USD',
+            commissionCount: availableCommissions.length,
+            availableCommissions: availableCommissions.map(c => ({
+                id: c.id,
+                amount: Number(c.amount),
+                description: c.description || 'Commission',
+                date: c.created_at
+            }))
+        };
     }
 
     async requestWithdrawal(consultantId: string, data: {
@@ -84,7 +106,7 @@ export class SalesWithdrawalService {
             throw new HttpException(400, 'One or more commissions are already in an active withdrawal request');
         }
 
-        const totalAmount = commissions.reduce((sum, c) => sum + c.amount, 0);
+        const totalAmount = commissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
         // Allow slight float difference
         if (Math.abs(totalAmount - data.amount) > 0.01) {
@@ -108,13 +130,24 @@ export class SalesWithdrawalService {
     }
 
     async getWithdrawals(consultantId: string, status?: string) {
-        return prisma.commissionWithdrawal.findMany({
+        const withdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
                 ...(status ? { status: status as WithdrawalStatus } : {})
             },
             orderBy: { created_at: 'desc' }
         });
+
+        // Map to camelCase for frontend
+        return withdrawals.map(w => ({
+            id: w.id,
+            amount: Number(w.amount),
+            status: w.status,
+            paymentMethod: w.payment_method,
+            createdAt: w.created_at,
+            processedAt: w.processed_at,
+            notes: w.notes
+        }));
     }
 
     async cancelWithdrawal(withdrawalId: string, consultantId: string) {

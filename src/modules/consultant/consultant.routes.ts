@@ -28,7 +28,8 @@ router.get('/jobs/:jobId/rounds', authenticateConsultant, consultantController.g
 // Candidates
 router.post('/candidates/:applicationId/status', authenticateConsultant, consultantController.updateCandidateStatus);
 router.post('/candidates/:applicationId/note', authenticateConsultant, consultantController.addCandidateNote);
-router.post('/candidates/:applicationId/move-round', authenticateConsultant, consultantController.moveCandidateToRound);
+router.post('/candidates/:applicationId/move-to-round', authenticateConsultant, consultantController.moveCandidateToRound);
+router.post('/candidates/:applicationId/stage', authenticateConsultant, consultantController.updateCandidateStage);
 
 // Messaging
 router.get('/conversations', authenticateConsultant, consultantController.listConversations);

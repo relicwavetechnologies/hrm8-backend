@@ -8,10 +8,17 @@ const jobController = new JobController();
 router.post('/', authenticate, jobController.createJob);
 router.get('/', authenticate, jobController.getJobs);
 router.post('/bulk-delete', authenticate, jobController.bulkDeleteJobs);
+router.post('/bulk-archive', authenticate, jobController.bulkArchiveJobs);
+router.post('/bulk-unarchive', authenticate, jobController.bulkUnarchiveJobs);
 router.get('/:id', authenticate, jobController.getJob);
 router.post('/:id/publish', authenticate, jobController.publishJob);
+router.post('/:id/submit', authenticate, jobController.submitAndActivate);
 router.post('/:id/save-draft', authenticate, jobController.saveDraft);
 router.post('/:id/save-template', authenticate, jobController.saveTemplate);
+router.post('/:id/save-as-template', authenticate, jobController.saveAsTemplate);
+router.post('/:id/archive', authenticate, jobController.archiveJob);
+router.post('/:id/unarchive', authenticate, jobController.unarchiveJob);
+router.put('/:id/alerts', authenticate, jobController.updateAlerts);
 router.put('/:id', authenticate, jobController.updateJob);
 router.delete('/:id', authenticate, jobController.deleteJob);
 

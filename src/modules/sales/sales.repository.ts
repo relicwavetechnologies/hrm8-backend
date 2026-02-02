@@ -290,6 +290,13 @@ export class SalesRepository extends BaseRepository {
       activeSubscriptions: companiesCount // Placeholder
     };
 
+    // Fetch recent commissions for activity feed
+    const recentCommissions = await this.prisma.commission.findMany({
+      where: { consultant_id: consultantId },
+      orderBy: { created_at: 'desc' },
+      take: 5
+    });
+
     // Map activity for frontend
     const mappedActivity = activities.map(a => ({
       type: a.opportunity_id ? 'OPPORTUNITY' : (a.lead_id ? 'LEAD' : 'ACTIVITY'),
@@ -299,11 +306,25 @@ export class SalesRepository extends BaseRepository {
       amount: 0 // Opportunities have amounts, but activities are general
     }));
 
+    // Map commissions to activity
+    const mappedCommissions = recentCommissions.map(c => ({
+      type: 'COMMISSION',
+      description: c.description || 'Commission Earned',
+      date: c.created_at,
+      status: c.status,
+      amount: Number(c.amount)
+    }));
+
+    // Combine and sort
+    const combinedActivity = [...mappedActivity, ...mappedCommissions]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10);
+
     return {
       leads: leadStats,
       commissions: commissionStats,
       companies: companyStats,
-      recentActivity: mappedActivity
+      recentActivity: combinedActivity
     };
   }
 }

@@ -228,4 +228,49 @@ export class AnalyticsRepository {
             select: { id: true, company_id: true },
         });
     }
+
+    async getApplicationCountsByCompanyIds(companyIds: string[]) {
+        const jobs = await prisma.job.findMany({
+            where: { company_id: { in: companyIds } },
+            select: {
+                company_id: true,
+                _count: {
+                    select: { applications: true }
+                }
+            }
+        });
+
+        const appCounts = new Map<string, number>();
+        jobs.forEach(job => {
+            const current = appCounts.get(job.company_id) || 0;
+            appCounts.set(job.company_id, current + job._count.applications);
+        });
+
+        return appCounts;
+    }
+
+    async getJobBoardStats() {
+        const [companies, jobStats] = await Promise.all([
+            prisma.company.findMany({
+                select: {
+                    id: true,
+                    name: true,
+                    domain: true,
+                    careers_page_logo: true, // Assuming this is the logo field
+                }
+            }),
+            prisma.job.groupBy({
+                by: ['company_id', 'status'],
+                _count: {
+                    id: true
+                },
+                _sum: {
+                    views_count: true,
+                    clicks_count: true
+                }
+            })
+        ]);
+
+        return { companies, jobStats };
+    }
 }

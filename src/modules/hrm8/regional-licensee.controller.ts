@@ -86,6 +86,16 @@ export class RegionalLicenseeController extends BaseController {
         }
     };
 
+    terminate = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const result = await this.regionalLicenseeService.terminate(id as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     getImpactPreview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;

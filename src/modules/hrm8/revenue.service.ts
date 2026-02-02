@@ -8,8 +8,29 @@ export class RevenueService extends BaseService {
         super();
     }
 
+    private mapToDTO(revenue: any) {
+        return {
+            id: revenue.id,
+            regionId: revenue.region_id,
+            licenseeId: revenue.licensee_id,
+            periodStart: revenue.period_start,
+            periodEnd: revenue.period_end,
+            totalRevenue: revenue.total_revenue,
+            licenseeShare: revenue.licensee_share,
+            hrm8Share: revenue.hrm8_share,
+            status: revenue.status,
+            paymentDate: revenue.payment_date,
+            regionName: revenue.region?.name, // Assuming relation exists
+            licenseeName: revenue.licensee?.name,
+        };
+    }
+
     async getAll(filters: any) {
-        return this.revenueRepository.findMany(filters);
+        const revenues = await this.revenueRepository.findMany(filters);
+        return {
+            revenues: revenues.map(r => this.mapToDTO(r)),
+            total: revenues.length
+        }
     }
 
     async getById(id: string) {

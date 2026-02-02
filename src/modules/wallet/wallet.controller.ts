@@ -15,22 +15,22 @@ export class WalletController extends BaseController {
     let ownerId: string;
 
     if (user.type === 'COMPANY' && user.companyId) {
+      ownerType = 'COMPANY';
+      ownerId = user.companyId;
+    } else if (user.type === 'CONSULTANT') {
+      ownerType = 'CONSULTANT';
+      ownerId = user.id;
+    } else if (user.role === 'SUPER_ADMIN' && !user.companyId) {
+      ownerType = 'HRM8_GLOBAL';
+      ownerId = 'global';
+    } else {
+      if (user.companyId) {
         ownerType = 'COMPANY';
         ownerId = user.companyId;
-    } else if (user.type === 'CONSULTANT') {
+      } else {
         ownerType = 'CONSULTANT';
         ownerId = user.id;
-    } else if (user.role === 'SUPER_ADMIN' && !user.companyId) {
-        ownerType = 'HRM8_GLOBAL';
-        ownerId = 'global';
-    } else {
-        if (user.companyId) {
-            ownerType = 'COMPANY';
-            ownerId = user.companyId;
-        } else {
-            ownerType = 'CONSULTANT';
-            ownerId = user.id;
-        }
+      }
     }
 
     return { ownerType, ownerId };
@@ -97,7 +97,7 @@ export class WalletController extends BaseController {
   requestWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { ownerType, ownerId } = this.getOwnerInfo(req);
-      const { amount, paymentMethod, paymentDetails, notes } = req.body;
+      const { amount, paymentMethod, bankDetails, notes } = req.body;
 
       if (!amount || !paymentMethod) {
         throw new HttpException(400, 'Missing required fields: amount, paymentMethod');
@@ -106,11 +106,11 @@ export class WalletController extends BaseController {
       const withdrawal = await WalletService.requestWithdrawal(ownerType, ownerId, {
         amount,
         paymentMethod,
-        paymentDetails,
+        bankDetails,
         notes
       });
 
-      return this.sendSuccess(res, { withdrawal }, 201);
+      return this.sendSuccess(res, { withdrawal });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -124,7 +124,8 @@ export class WalletController extends BaseController {
       const status = req.query.status as string;
 
       const history = await WalletService.getWithdrawalHistory(ownerType, ownerId);
-      const filtered = status ? history.filter(w => w.status === status) : history;
+      const withdrawalsList = history.withdrawals;
+      const filtered = status ? withdrawalsList.filter(w => w.status === status) : withdrawalsList;
       const paginated = filtered.slice(offset, offset + limit);
 
       return this.sendSuccess(res, { withdrawals: paginated, total: filtered.length, limit, offset });
@@ -149,7 +150,7 @@ export class WalletController extends BaseController {
         description
       });
 
-      return this.sendSuccess(res, { refund }, 201);
+      return this.sendSuccess(res, { refund });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -184,7 +185,7 @@ export class WalletController extends BaseController {
   getSubscription = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { subscriptionId } = req.params;
-      const subscription = await WalletService.getSubscription(subscriptionId);
+      const subscription = await WalletService.getSubscription(subscriptionId as string);
       return this.sendSuccess(res, { subscription });
     } catch (error) {
       return this.sendError(res, error);
@@ -194,20 +195,19 @@ export class WalletController extends BaseController {
   createSubscription = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { ownerType, ownerId } = this.getOwnerInfo(req);
-      const { planId, planName, amount, duration } = req.body;
+      const { planName, amount, billingCycle } = req.body;
 
-      if (!planId || !planName || !amount) {
-        throw new HttpException(400, 'Missing required fields: planId, planName, amount');
+      if (!planName || !amount) {
+        throw new HttpException(400, 'Missing required fields: planName, amount');
       }
 
       const subscription = await WalletService.createSubscription(ownerType, ownerId, {
-        planId,
-        planName,
+        name: planName,
         amount,
-        duration: duration || 1
+        billingCycle: billingCycle || 'MONTHLY'
       });
 
-      return this.sendSuccess(res, { subscription }, 201);
+      return this.sendSuccess(res, { subscription });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -216,7 +216,7 @@ export class WalletController extends BaseController {
   renewSubscription = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { subscriptionId } = req.params;
-      const subscription = await WalletService.renewSubscription(subscriptionId);
+      const subscription = await WalletService.renewSubscription(subscriptionId as string);
       return this.sendSuccess(res, { subscription });
     } catch (error) {
       return this.sendError(res, error);
@@ -226,7 +226,7 @@ export class WalletController extends BaseController {
   cancelSubscription = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { subscriptionId } = req.params;
-      const subscription = await WalletService.cancelSubscription(subscriptionId);
+      const subscription = await WalletService.cancelSubscription(subscriptionId as string);
       return this.sendSuccess(res, { subscription });
     } catch (error) {
       return this.sendError(res, error);
@@ -237,20 +237,20 @@ export class WalletController extends BaseController {
   purchaseAddonService = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { ownerType, ownerId } = this.getOwnerInfo(req);
-      const { addonId, addonName, amount, description } = req.body;
+      const { addonName, amount, quantity, description } = req.body;
 
-      if (!addonId || !addonName || !amount) {
-        throw new HttpException(400, 'Missing required fields: addonId, addonName, amount');
+      if (!addonName || !amount) {
+        throw new HttpException(400, 'Missing required fields: addonName, amount');
       }
 
       const purchase = await WalletService.purchaseAddonService(ownerType, ownerId, {
-        addonId,
         addonName,
         amount,
+        quantity,
         description
       });
 
-      return this.sendSuccess(res, { purchase }, 201);
+      return this.sendSuccess(res, { purchase });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -260,20 +260,20 @@ export class WalletController extends BaseController {
   createStripeCheckoutSession = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { ownerType, ownerId } = this.getOwnerInfo(req);
-      const { amount, planName, successUrl, cancelUrl } = req.body;
+      const { amount, description, successUrl, cancelUrl } = req.body;
 
-      if (!amount || !planName) {
-        throw new HttpException(400, 'Missing required fields: amount, planName');
+      if (!amount || !successUrl || !cancelUrl) {
+        throw new HttpException(400, 'Missing required fields: amount, successUrl, cancelUrl');
       }
 
       const session = await WalletService.createStripeCheckoutSession(ownerType, ownerId, {
         amount,
-        planName,
+        description,
         successUrl,
         cancelUrl
       });
 
-      return this.sendSuccess(res, { session }, 201);
+      return this.sendSuccess(res, { session });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -289,10 +289,11 @@ export class WalletController extends BaseController {
       const limit = parseInt(req.query.limit as string) || 50;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const withdrawals = await WalletService.getPendingWithdrawals();
-      const paginated = withdrawals.slice(offset, offset + limit);
+      const result = await WalletService.getPendingWithdrawals();
+      const withdrawalsList = result.withdrawals;
+      const paginated = withdrawalsList.slice(offset, offset + limit);
 
-      return this.sendSuccess(res, { withdrawals: paginated, total: withdrawals.length, limit, offset });
+      return this.sendSuccess(res, { withdrawals: paginated, total: withdrawalsList.length, limit, offset });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -305,7 +306,7 @@ export class WalletController extends BaseController {
       }
 
       const { withdrawalId } = req.params;
-      const withdrawal = await WalletService.approveWithdrawal(withdrawalId);
+      const withdrawal = await WalletService.approveWithdrawal(withdrawalId as string);
 
       return this.sendSuccess(res, { withdrawal });
     } catch (error) {
@@ -326,7 +327,7 @@ export class WalletController extends BaseController {
         throw new HttpException(400, 'Reason is required for rejection');
       }
 
-      const withdrawal = await WalletService.rejectWithdrawal(withdrawalId, reason);
+      const withdrawal = await WalletService.rejectWithdrawal(withdrawalId as string, reason);
       return this.sendSuccess(res, { withdrawal });
     } catch (error) {
       return this.sendError(res, error);
@@ -371,7 +372,7 @@ export class WalletController extends BaseController {
       }
 
       const { refundId } = req.params;
-      const refund = await WalletService.approveRefund?.(refundId) || null;
+      const refund = await WalletService.approveRefund?.(refundId as string) || null;
 
       if (!refund) {
         throw new HttpException(404, 'Refund not found');
@@ -396,7 +397,7 @@ export class WalletController extends BaseController {
         throw new HttpException(400, 'Reason is required for rejection');
       }
 
-      const refund = await WalletService.rejectRefund?.(refundId, reason) || null;
+      const refund = await WalletService.rejectRefund?.(refundId as string, reason) || null;
 
       if (!refund) {
         throw new HttpException(404, 'Refund not found');

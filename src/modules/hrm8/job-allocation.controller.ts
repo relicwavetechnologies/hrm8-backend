@@ -11,7 +11,15 @@ export class JobAllocationController extends BaseController {
         super();
         this.jobAllocationService = new JobAllocationService(new JobAllocationRepository());
     }
-
+    getJobDetail = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { jobId } = req.params;
+            const result = await this.jobAllocationService.getJobDetail(jobId as string);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
     allocate = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { jobId, consultantId, source } = req.body;
@@ -91,7 +99,22 @@ export class JobAllocationController extends BaseController {
 
     getJobsForAllocation = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.jobAllocationService.getJobsForAllocation(req.query);
+            const { limit, offset, ...otherFilters } = req.query;
+            const cleanedFilters: any = { ...otherFilters };
+
+            // Sanitize filters: remove 'ALL', 'all', or empty string values
+            Object.keys(cleanedFilters).forEach(key => {
+                if (cleanedFilters[key] === 'ALL' || cleanedFilters[key] === 'all' || cleanedFilters[key] === '') {
+                    delete cleanedFilters[key];
+                }
+            });
+
+            const filters = {
+                ...cleanedFilters,
+                limit: limit ? parseInt(limit as string) : 10,
+                offset: offset ? parseInt(offset as string) : 0
+            };
+            const result = await this.jobAllocationService.getJobsForAllocation(filters);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

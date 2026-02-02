@@ -18,7 +18,6 @@ export class RevenueController extends BaseController {
             const { regionId, licenseeId, status } = req.query;
             const result = await this.revenueService.getAll({
                 regionId: regionId as string,
-                regionIds: req.assignedRegionIds,
                 licenseeId: licenseeId as string,
                 status: status as RevenueStatus,
             });
@@ -61,7 +60,7 @@ export class RevenueController extends BaseController {
     getCompanyBreakdown = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.revenueService.getCompanyBreakdown(req.assignedRegionIds);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { companies: result });
         } catch (error) {
             return this.sendError(res, error);
         }
