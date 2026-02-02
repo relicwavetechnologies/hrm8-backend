@@ -71,15 +71,13 @@ export class Consultant360Repository extends BaseRepository {
         select: {
           id: true,
           assigned_at: true,
-          created_at: true,
           job: {
             select: {
               id: true,
               title: true,
               location: true,
               company: { select: { name: true } },
-              status: true,
-              created_at: true
+              status: true
             }
           }
         }

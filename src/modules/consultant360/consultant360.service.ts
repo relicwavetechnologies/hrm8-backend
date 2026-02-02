@@ -86,7 +86,7 @@ export class Consultant360Service extends BaseService {
         title: assignment.job.title,
         companyName: assignment.job.company.name,
         location: assignment.job.location || 'N/A',
-        assignedAt: assignment.assigned_at || assignment.created_at,
+        assignedAt: assignment.assigned_at,
         status: assignment.job.status
       })),
       activeLeads: dashboard.leads.slice(0, 5).map(l => ({
