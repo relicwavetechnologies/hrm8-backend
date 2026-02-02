@@ -25,7 +25,6 @@ export class NotificationRepository extends BaseRepository {
       expires_at: { gte: new Date() }
     };
 
-    console.log(`[NotificationRepository] Querying notifications for ${recipientType}:${recipientId}, limit=${limit}, offset=${offset}`);
 
     const [notifications, total] = await Promise.all([
       this.prisma.universalNotification.findMany({
@@ -37,8 +36,8 @@ export class NotificationRepository extends BaseRepository {
       this.prisma.universalNotification.count({ where })
     ]);
 
-    console.log(`[NotificationRepository] Found ${notifications.length} notifications, total=${total}`);
 
+    /*
     // Also log if no notifications found to help debug
     if (notifications.length === 0) {
       const allCount = await this.prisma.universalNotification.count();
@@ -51,6 +50,7 @@ export class NotificationRepository extends BaseRepository {
       });
       console.log(`[NotificationRepository] Available recipients:`, recipients);
     }
+    */
 
     return { notifications, total };
   }

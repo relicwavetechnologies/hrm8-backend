@@ -17,7 +17,6 @@ export class NotificationController extends BaseController {
   private getRecipientInfo(req: AuthenticatedRequest & Hrm8AuthenticatedRequest): { type: NotificationRecipientType, id: string } {
     // If HRM8 Auth was used:
     if ((req as any).hrm8User) {
-      console.log(`[NotificationController.getRecipientInfo] HRM8 user authenticated: ${(req as any).hrm8User.email}`);
       return { type: 'HRM8_USER', id: (req as any).hrm8User.id };
     }
 
@@ -41,24 +40,14 @@ export class NotificationController extends BaseController {
 
   list = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
     try {
-      console.log('[NotificationController.list] Request headers:', req.headers);
-      console.log('[NotificationController.list] Request cookies:', req.cookies);
-      console.log('[NotificationController.list] Request user objects:', {
-        user: (req as any).user,
-        consultant: (req as any).consultant,
-        candidate: (req as any).candidate,
-        hrm8User: (req as any).hrm8User
-      });
 
       const { type, id } = this.getRecipientInfo(req);
       const limit = parseInt(req.query.limit as string) || 10;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      console.log(`[NotificationController.list] Fetching notifications for ${type}:${id}, limit=${limit}, offset=${offset}`);
 
       const result = await this.notificationService.getUserNotifications(type, id, limit, offset);
 
-      console.log(`[NotificationController.list] Found ${result.notifications.length} notifications, total=${result.total}`);
 
       // Calculate unread count
       const unreadCount = result.notifications.filter(n => !n.read).length;
@@ -69,7 +58,6 @@ export class NotificationController extends BaseController {
         unreadCount
       });
     } catch (error) {
-      console.error(`[NotificationController.list] Error:`, error);
       return this.sendError(res, error);
     }
   };
@@ -102,7 +90,6 @@ export class NotificationController extends BaseController {
       const { type, id } = this.getRecipientInfo(req);
       const { title, message } = req.body;
 
-      console.log(`[NotificationController.createTestNotification] Creating test notification for ${type}:${id}`);
 
       const notification = await this.notificationService['createNotification']({
         recipientType: type,
