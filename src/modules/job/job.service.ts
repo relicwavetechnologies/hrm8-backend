@@ -4,6 +4,8 @@ import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
+import { JobAlertService } from '../candidate/job-alert.service';
+import { EmailService } from '../email/email.service';
 
 export class JobService extends BaseService {
   constructor(
@@ -250,6 +252,16 @@ export class JobService extends BaseService {
         message: `Your job "${updatedJob.title}" has been successfully published.`,
         data: { jobId: id, companyId },
         actionUrl: `/ats/jobs/${id}`
+      });
+    }
+
+    // Process job alerts asynchronously (fire and forget)
+    // This notifies candidates who have matching job alerts
+    if (this.notificationService) {
+      const emailService = new EmailService();
+      const jobAlertService = new JobAlertService(this.notificationService, emailService);
+      jobAlertService.processJobAlerts(updatedJob).catch(error => {
+        console.error('[JobService] Failed to process job alerts:', error);
       });
     }
 

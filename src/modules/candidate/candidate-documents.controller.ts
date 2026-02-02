@@ -33,7 +33,9 @@ const upload = multer({
 export class CandidateDocumentsController extends BaseController {
 
     // Middleware exports for route mounting
+    // Middleware exports for route mounting
     public uploadSingle = upload.single('file');
+    public uploadResumeMiddleware = upload.single('resume');
 
     // RESUMES
     listResumes = async (req: CandidateAuthenticatedRequest, res: Response) => {

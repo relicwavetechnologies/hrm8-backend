@@ -431,10 +431,11 @@ export class CandidateService extends BaseService {
     const workExperienceList = data.workExperience || data;
     const updates = await Promise.all(
       workExperienceList.map(async (experience: any) => {
+        const mappedData = this.mapWorkExperienceInput(experience);
         if (experience.id) {
-          return this.candidateRepository.updateWorkExperience(experience.id, experience);
+          return this.candidateRepository.updateWorkExperience(experience.id, mappedData);
         } else {
-          return this.candidateRepository.createWorkExperience(candidateId, experience);
+          return this.candidateRepository.createWorkExperience(candidateId, mappedData);
         }
       })
     );
@@ -462,6 +463,60 @@ export class CandidateService extends BaseService {
       createdAt: exp.created_at,
       updatedAt: exp.updated_at
     };
+  };
+
+
+  // Helper for mapping Work Experience Input (camelCase -> snake_case)
+  private mapWorkExperienceInput(data: any) {
+    return {
+      company: data.company,
+      role: data.role,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
+  }
+
+  // Helper for mapping Education Input
+  private mapEducationInput(data: any) {
+    return {
+      institution: data.institution,
+      degree: data.degree,
+      field: data.field,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
+  }
+
+  // Helper for mapping Certification Input
+  private mapCertificationInput(data: any) {
+    return {
+      name: data.name,
+      issuing_org: data.issuingOrg,
+      issue_date: data.issueDate,
+      expiry_date: data.expiryDate,
+      credential_id: data.credentialId,
+      credential_url: data.credentialUrl,
+      does_not_expire: data.doesNotExpire,
+    };
+  }
+
+  // Helper for mapping Training Input
+  private mapTrainingInput(data: any) {
+    return {
+      title: data.title,
+      institution: data.institution,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
   }
 
   async getWorkHistory(candidateId: string) {
@@ -470,12 +525,14 @@ export class CandidateService extends BaseService {
   }
 
   async createWorkExperience(candidateId: string, data: any) {
-    const experience = await this.candidateRepository.createWorkExperience(candidateId, data);
+    const mappedData = this.mapWorkExperienceInput(data);
+    const experience = await this.candidateRepository.createWorkExperience(candidateId, mappedData);
     return this.mapWorkExperience(experience);
   }
 
   async updateWorkExperienceItem(id: string, data: any) {
-    const experience = await this.candidateRepository.updateWorkExperience(id, data);
+    const mappedData = this.mapWorkExperienceInput(data);
+    const experience = await this.candidateRepository.updateWorkExperience(id, mappedData);
     return this.mapWorkExperience(experience);
   }
 
@@ -517,10 +574,13 @@ export class CandidateService extends BaseService {
     if (skills && Array.isArray(skills)) {
       await Promise.all(
         skills.map(async (skill: any) => {
-          if (skill.id) {
-            return this.candidateRepository.updateSkill(skill.id, skill);
+          // Handle string skills (e.g. ['Java', 'Python'])
+          const skillData = typeof skill === 'string' ? { name: skill } : skill;
+
+          if (skillData.id) {
+            return this.candidateRepository.updateSkill(skillData.id, skillData);
           } else {
-            return this.candidateRepository.createSkill(candidateId, skill);
+            return this.candidateRepository.createSkill(candidateId, skillData);
           }
         })
       );
@@ -577,11 +637,13 @@ export class CandidateService extends BaseService {
   }
 
   async createEducation(candidateId: string, data: any) {
-    return this.candidateRepository.createEducation(candidateId, data);
+    const mappedData = this.mapEducationInput(data);
+    return this.candidateRepository.createEducation(candidateId, mappedData);
   }
 
   async updateEducation(id: string, data: any) {
-    return this.candidateRepository.updateEducation(id, data);
+    const mappedData = this.mapEducationInput(data);
+    return this.candidateRepository.updateEducation(id, mappedData);
   }
 
   async deleteEducation(id: string) {
@@ -594,11 +656,13 @@ export class CandidateService extends BaseService {
   }
 
   async createCertification(candidateId: string, data: any) {
-    return this.candidateRepository.createCertification(candidateId, data);
+    const mappedData = this.mapCertificationInput(data);
+    return this.candidateRepository.createCertification(candidateId, mappedData);
   }
 
   async updateCertification(id: string, data: any) {
-    return this.candidateRepository.updateCertification(id, data);
+    const mappedData = this.mapCertificationInput(data);
+    return this.candidateRepository.updateCertification(id, mappedData);
   }
 
   async deleteCertification(id: string) {
@@ -611,11 +675,13 @@ export class CandidateService extends BaseService {
   }
 
   async createTraining(candidateId: string, data: any) {
-    return this.candidateRepository.createTraining(candidateId, data);
+    const mappedData = this.mapTrainingInput(data);
+    return this.candidateRepository.createTraining(candidateId, mappedData);
   }
 
   async updateTraining(id: string, data: any) {
-    return this.candidateRepository.updateTraining(id, data);
+    const mappedData = this.mapTrainingInput(data);
+    return this.candidateRepository.updateTraining(id, mappedData);
   }
 
   async deleteTraining(id: string) {

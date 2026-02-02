@@ -96,7 +96,7 @@ router.put('/skills', authenticateCandidate, candidateController.updateSkills);
 // Resumes
 router.get('/documents/resumes', authenticateCandidate, documentsController.listResumes);
 router.post('/documents/resumes', authenticateCandidate, documentsController.uploadSingle, documentsController.uploadResume);
-router.post('/resume/parse', authenticateCandidate, documentsController.uploadSingle, documentsController.parseResume);
+router.post('/resume/parse', authenticateCandidate, documentsController.uploadResumeMiddleware, documentsController.parseResume);
 router.put('/documents/resumes/:id/set-default', authenticateCandidate, documentsController.setDefaultResume);
 router.delete('/documents/resumes/:id', authenticateCandidate, documentsController.deleteResume);
 
