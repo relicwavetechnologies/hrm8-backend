@@ -16,7 +16,13 @@ import { RevenueController } from './revenue.controller';
 import { WithdrawalController } from './withdrawal.controller';
 import { SettlementController } from './settlement.controller';
 import { SettingsController } from './settings.controller';
+import { RegionalCompanyController } from './regional-company.controller';
+import { FinanceController } from './finance.controller';
+import { CapacityController } from './capacity.controller';
+import { AlertController } from './alert.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
+
+import { CareersRequestController } from './careers-request.controller';
 
 const router = Router();
 const hrm8Controller = new Hrm8Controller();
@@ -25,6 +31,7 @@ const commissionController = new CommissionController();
 const complianceController = new ComplianceController();
 const jobAllocationController = new JobAllocationController();
 const regionalLicenseeController = new RegionalLicenseeController();
+const regionalCompanyController = new RegionalCompanyController();
 const leadConversionController = new LeadConversionController();
 const refundController = new RefundController();
 const pricingController = new PricingController();
@@ -36,6 +43,10 @@ const revenueController = new RevenueController();
 const withdrawalController = new WithdrawalController();
 const settlementController = new SettlementController();
 const settingsController = new SettingsController();
+const financeController = new FinanceController();
+const capacityController = new CapacityController();
+const alertController = new AlertController();
+const careersRequestController = new CareersRequestController();
 
 // Auth Routes
 router.post('/auth/login', hrm8Controller.login);
@@ -74,7 +85,7 @@ router.post('/jobs/:jobId/assign-region', authenticateHrm8, jobAllocationControl
 router.post('/jobs/:jobId/unassign', authenticateHrm8, jobAllocationController.unassign);
 router.get('/jobs/:jobId/consultants', authenticateHrm8, jobAllocationController.getJobConsultants);
 router.get('/jobs/allocation', authenticateHrm8, jobAllocationController.getJobsForAllocation);
-router.get('/jobs/:jobId/assignment-info', authenticateHrm8, jobAllocationController.getAssignmentInfo);
+router.get('/jobs/detail/:jobId', authenticateHrm8, jobAllocationController.getJobDetail);
 router.post('/jobs/:jobId/auto-assign', authenticateHrm8, jobAllocationController.autoAssign);
 router.get('/consultants/for-assignment', authenticateHrm8, jobAllocationController.getConsultantsForAssignment);
 
@@ -96,13 +107,27 @@ router.post('/licensees', authenticateHrm8, regionalLicenseeController.create);
 router.put('/licensees/:id', authenticateHrm8, regionalLicenseeController.update);
 router.delete('/licensees/:id', authenticateHrm8, regionalLicenseeController.delete);
 router.put('/licensees/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
+router.post('/licensees/:id/terminate', authenticateHrm8, regionalLicenseeController.terminate);
+router.post('/licensees/:id/suspend', authenticateHrm8, (req, res, next) => {
+    req.body.status = 'SUSPENDED';
+    regionalLicenseeController.updateStatus(req, res, next);
+});
 router.get('/licensees/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+
+// Company Routes
+router.get('/companies/:id', authenticateHrm8, regionalCompanyController.getById);
+router.get('/companies/:id/jobs', authenticateHrm8, regionalCompanyController.getCompanyJobs);
 
 // Lead Conversion Routes
 router.get('/conversion-requests', authenticateHrm8, leadConversionController.getAll);
 router.get('/conversion-requests/:id', authenticateHrm8, leadConversionController.getOne);
 router.put('/conversion-requests/:id/approve', authenticateHrm8, leadConversionController.approve);
 router.put('/conversion-requests/:id/decline', authenticateHrm8, leadConversionController.decline);
+
+// Careers Request Routes
+router.get('/careers/requests', authenticateHrm8, careersRequestController.getRequests);
+router.post('/careers/:id/approve', authenticateHrm8, careersRequestController.approve);
+router.post('/careers/:id/reject', authenticateHrm8, careersRequestController.reject);
 
 // Refund Routes
 router.get('/refund-requests', authenticateHrm8, refundController.getAll);
@@ -152,7 +177,7 @@ router.get('/analytics/regional/:regionId/companies', authenticateHrm8, analytic
 router.get('/sales/regional/opportunities', authenticateHrm8, regionalSalesController.getOpportunities);
 router.get('/sales/regional/stats', authenticateHrm8, regionalSalesController.getStats);
 router.get('/sales/regional/activities', authenticateHrm8, regionalSalesController.getActivities);
-router.get('/leads/regional', authenticateHrm8, regionalSalesController.getOpportunities); // Mapping to same for now
+router.get('/leads/regional', authenticateHrm8, regionalSalesController.getLeads);
 router.post('/leads/:leadId/reassign', authenticateHrm8, regionalSalesController.reassignLead);
 
 // Revenue Routes
@@ -166,16 +191,35 @@ router.get('/revenue/summary', authenticateHrm8, revenueController.getSummary);
 
 // Withdrawal Routes
 router.get('/admin/billing/withdrawals', authenticateHrm8, withdrawalController.getPendingWithdrawals);
-router.put('/admin/billing/withdrawals/:id/approve', authenticateHrm8, withdrawalController.approve);
-router.put('/admin/billing/withdrawals/:id/reject', authenticateHrm8, withdrawalController.reject);
-router.put('/admin/billing/withdrawals/:id/process', authenticateHrm8, withdrawalController.processPayment);
+router.post('/admin/billing/withdrawals/:id/approve', authenticateHrm8, withdrawalController.approve);
+router.post('/admin/billing/withdrawals/:id/reject', authenticateHrm8, withdrawalController.reject);
+router.post('/admin/billing/withdrawals/:id/process', authenticateHrm8, withdrawalController.processPayment);
 
 // Settlement Routes
 router.get('/admin/billing/settlements', authenticateHrm8, settlementController.getAll);
 router.get('/admin/billing/settlements/stats', authenticateHrm8, settlementController.getStats);
+router.put('/finance/settlements/:id/pay', authenticateHrm8, settlementController.markAsPaid); // Matching frontend error route
 
 // Settings Routes
 router.get('/settings', authenticateHrm8, settingsController.getSettings);
 router.put('/settings/:key', authenticateHrm8, settingsController.updateSetting);
+
+// Finance Routes
+router.get('/finance/invoices', authenticateHrm8, financeController.getInvoices);
+router.get('/finance/dunning', authenticateHrm8, financeController.getDunning);
+router.post('/finance/settlements/calculate', authenticateHrm8, financeController.calculateSettlement);
+
+// Capacity Routes
+router.get('/consultants/capacity-warnings', authenticateHrm8, capacityController.getCapacityWarnings);
+
+// System Alerts Routes
+router.get('/alerts', authenticateHrm8, alertController.getActiveAlerts);
+
+// Aliases for Frontend Compatibility
+router.get('/finance/settlements', authenticateHrm8, settlementController.getAll);
+router.get('/revenue', authenticateHrm8, revenueController.getAll);
+router.get('/revenue/companies', authenticateHrm8, revenueController.getCompanyBreakdown);
+router.get('/pricing/books', authenticateHrm8, pricingController.getPriceBooks);
+router.get('/jobs/companies', authenticateHrm8, analyticsController.getJobBoardStats); // Job board company stats
 
 export default router;

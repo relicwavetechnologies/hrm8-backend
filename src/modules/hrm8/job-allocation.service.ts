@@ -63,10 +63,20 @@ export class JobAllocationService extends BaseService {
   }
 
   async getJobsForAllocation(filters: any) {
-    const { limit = 10, offset = 0, search, regionId } = filters;
+    const { limit = 10, offset = 0, search, regionId, assignmentStatus } = filters;
     const where: any = {
-      status: { in: ['OPEN', 'PENDING'] },
+      status: { in: ['OPEN', 'ON_HOLD'] },
     };
+
+    if (assignmentStatus && assignmentStatus !== 'ALL') {
+      if (assignmentStatus === 'UNASSIGNED') {
+        where.assigned_consultant_id = null;
+      } else if (assignmentStatus === 'ASSIGNED') {
+        where.assigned_consultant_id = { not: null };
+      } else if (['OPEN', 'ON_HOLD', 'CLOSED', 'FILLED', 'DRAFT', 'CANCELLED', 'EXPIRED'].includes(assignmentStatus)) {
+        where.status = assignmentStatus;
+      }
+    }
 
     if (regionId) {
       where.region_id = regionId;
@@ -79,20 +89,48 @@ export class JobAllocationService extends BaseService {
       ];
     }
 
-    return prisma.job.findMany({
-      where,
-      take: limit,
-      skip: offset,
-      orderBy: { created_at: 'desc' },
-      include: {
-        assigned_consultant: {
-          select: { id: true, first_name: true, last_name: true, email: true }
-        },
-        company: {
-          select: { id: true, name: true }
+    const [jobs, total] = await Promise.all([
+      prisma.job.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { created_at: 'desc' },
+        include: {
+          assigned_consultant: {
+            select: { id: true, first_name: true, last_name: true, email: true }
+          },
+          company: {
+            select: { id: true, name: true, region_id: true }
+          },
+          region: {
+            select: { name: true }
+          }
         }
-      }
-    });
+      }),
+      prisma.job.count({ where }),
+    ]);
+
+    return { jobs: jobs.map(this.mapToDTO), total };
+  }
+
+  private mapToDTO(job: any) {
+    return {
+      ...job,
+      createdAt: job.created_at,
+      postedAt: job.posted_at,
+      assignedConsultant: job.assigned_consultant ? {
+        id: job.assigned_consultant.id,
+        firstName: job.assigned_consultant.first_name,
+        lastName: job.assigned_consultant.last_name,
+        email: job.assigned_consultant.email,
+      } : null,
+      assignedRegion: job.region ? job.region.name : 'Unassigned',
+      company: job.company ? {
+        id: job.company.id,
+        name: job.company.name,
+        regionId: job.company.region_id
+      } : null,
+    };
   }
 
   async getStats() {
@@ -102,9 +140,12 @@ export class JobAllocationService extends BaseService {
   async getConsultantsForAssignment(filters: { regionId: string; search?: string }) {
     const { regionId, search } = filters;
     const where: any = {
-      region_id: regionId,
       status: 'ACTIVE',
     };
+
+    if (regionId && regionId !== 'all') {
+      where.region_id = regionId;
+    }
 
     if (search) {
       where.OR = [
@@ -114,7 +155,7 @@ export class JobAllocationService extends BaseService {
       ];
     }
 
-    return prisma.consultant.findMany({
+    const consultants = await prisma.consultant.findMany({
       where,
       select: {
         id: true,
@@ -125,16 +166,26 @@ export class JobAllocationService extends BaseService {
         max_jobs: true,
       },
     });
+
+    return consultants.map(c => ({
+      id: c.id,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      email: c.email,
+      currentJobs: c.current_jobs,
+      maxJobs: c.max_jobs
+    }));
   }
 
-  async autoAssignJob(jobId: string): Promise<any> {
-    // Logic for auto-assignment would go here (e.g. finding best consultant)
-    // For now, finding least busy consultant in the job's region or any region
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
+  async autoAssignJob(jobId: string) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { company: true }
+    });
     if (!job) throw new HttpException(404, 'Job not found');
 
-    const regionId = job.region_id;
-    if (!regionId) throw new HttpException(400, 'Job has no region assigned');
+    const regionId = job.region_id || job.company?.region_id;
+    if (!regionId) throw new HttpException(400, 'Job (and its Company) has no region assigned');
 
     const bestConsultant = await prisma.consultant.findFirst({
       where: { region_id: regionId, status: 'ACTIVE' },
@@ -143,12 +194,56 @@ export class JobAllocationService extends BaseService {
 
     if (!bestConsultant) throw new HttpException(404, 'No suitable consultant for auto-assignment');
 
-    return this.allocate({
+    const result = await this.allocate({
       jobId,
       consultantId: bestConsultant.id,
       assignedBy: 'system',
       source: AssignmentSource.AUTO_RULES,
     });
+
+    return result;
+  }
+
+  async getJobDetail(jobId: string) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        company: {
+          select: { id: true, name: true, region_id: true }
+        },
+        assigned_consultant: {
+          select: { id: true, first_name: true, last_name: true, email: true }
+        },
+        region: {
+          select: { name: true }
+        }
+      }
+    });
+
+    if (!job) throw new HttpException(404, 'Job not found');
+
+    const jobDTO = {
+      ...this.mapToDTO(job),
+      hrm8Notes: '',
+      hrm8Hidden: job.stealth,
+      hrm8Status: job.status,
+      description: job.description || '',
+      location: job.location || '',
+      status: job.status,
+    };
+
+    const analytics = {
+      totalViews: job.views_count || 0,
+      totalClicks: job.clicks_count || 0,
+      totalApplications: 0,
+      conversionRate: 0,
+      viewsOverTime: [],
+      sourceBreakdown: []
+    };
+
+    const activities: any[] = [];
+
+    return { job: jobDTO, analytics, activities };
   }
 
   async getPipelineForJob(jobId: string, preferredConsultantId?: string | null): Promise<any> {

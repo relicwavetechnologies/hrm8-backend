@@ -23,6 +23,8 @@ import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import resumeRoutes from '../modules/resume/resume.routes';
 import consultant360Routes from '../modules/consultant360/consultant360.routes';
 import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
+import adminRoutes from '../modules/admin/admin.routes';
+import emailTemplateRoutes from '../modules/email-template/email-template.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -74,6 +76,8 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/resumes', resumeRoutes);
   app.use('/api/consultant360', consultant360Routes);
   app.use('/api/admin/billing', adminBillingRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/email-templates', emailTemplateRoutes);
 
   // Diagnostic endpoints
   app.use('/api/dev/session-info', (req, res) => {

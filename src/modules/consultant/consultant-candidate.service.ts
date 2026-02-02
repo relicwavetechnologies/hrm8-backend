@@ -142,6 +142,26 @@ export class ConsultantCandidateService {
         }
     }
 
+    async updateStage(consultantId: string, applicationId: string, stage: ApplicationStage) {
+        const application = await prisma.application.findUnique({
+            where: { id: applicationId },
+            include: { job: true }
+        });
+
+        if (!application) throw new HttpException(404, 'Application not found');
+        await this.verifyJobAccess(consultantId, application.job_id);
+
+        const updatedApp = await prisma.application.update({
+            where: { id: applicationId },
+            data: {
+                stage,
+                updated_at: new Date()
+            }
+        });
+
+        return updatedApp;
+    }
+
     async getJobRounds(consultantId: string, jobId: string) {
         await this.verifyJobAccess(consultantId, jobId);
 

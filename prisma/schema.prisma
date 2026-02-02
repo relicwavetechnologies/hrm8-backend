@@ -2594,6 +2594,7 @@ enum UniversalNotificationType {
   SYSTEM_ANNOUNCEMENT
   NEW_MESSAGE
   JOB_ALERT
+  WITHDRAWAL_APPROVED
 }
 
 enum NotificationRecipientType {

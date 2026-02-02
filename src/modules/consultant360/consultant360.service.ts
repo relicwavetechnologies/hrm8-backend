@@ -13,11 +13,11 @@ export class Consultant360Service extends BaseService {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    const dashboardData = await this.repository.getDashboardStats(consultantId);
-    const commissions = dashboardData.commissions;
+    const dashboard = await this.repository.getDashboardStats(consultantId);
+    const commissions = dashboard.commissions;
 
     // Helper: Sum commissions by type
-    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
 
     // Filter commissions by type (using fixed enums)
     const recruiterCommissions = commissions.filter(c => !c.type || c.type === 'PLACEMENT' || c.type === 'RECRUITMENT_SERVICE');
@@ -29,15 +29,15 @@ export class Consultant360Service extends BaseService {
     // Calculate stats matching frontend interface
     const stats = {
       totalEarnings: sumAmount(commissions.filter(earnedFilter)),
-      activeJobs: 5, // Mock data or fetch from job assignments
-      activeLeads: dashboardData.leads.filter(l => l.status !== 'CONVERTED' && l.status !== 'LOST').length,
+      activeJobs: dashboard.jobAssignments.length,
+      activeLeads: dashboard.leads.filter(l => l.status !== 'CONVERTED' && l.status !== 'LOST').length,
       totalSubscriptionSales: salesCommissions.length,
       salesEarnings: sumAmount(salesCommissions.filter(earnedFilter)),
       recruiterEarnings: sumAmount(recruiterCommissions.filter(earnedFilter)),
       pendingBalance: sumAmount(commissions.filter(c => c.status === 'PENDING')),
       availableBalance: 0, // Should fetch from wallet or sum confirmed unwithdrawn
       totalPlacements: recruiterCommissions.length,
-      conversionRate: dashboardData.leads.length > 0 ? Math.round((dashboardData.leads.filter(l => l.status === 'CONVERTED').length / dashboardData.leads.length) * 100) : 0
+      conversionRate: dashboard.leads.length > 0 ? Math.round((dashboard.leads.filter(l => l.status === 'CONVERTED').length / dashboard.leads.length) * 100) : 0
     };
 
     // Calculate Wallet Balance (Mock or fetch real)
@@ -81,8 +81,15 @@ export class Consultant360Service extends BaseService {
     return {
       stats,
       monthlyTrend,
-      activeJobs: [], // Populate if needed
-      activeLeads: dashboardData.leads.slice(0, 5).map(l => ({
+      activeJobs: dashboard.jobAssignments.map(assignment => ({
+        id: assignment.job.id,
+        title: assignment.job.title,
+        companyName: assignment.job.company.name,
+        location: assignment.job.location || 'N/A',
+        assignedAt: assignment.assigned_at,
+        status: assignment.job.status
+      })),
+      activeLeads: dashboard.leads.slice(0, 5).map(l => ({
         id: l.id,
         companyName: l.company_name,
         contactEmail: l.email,

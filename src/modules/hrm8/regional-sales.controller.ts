@@ -13,6 +13,20 @@ export class RegionalSalesController extends BaseController {
         this.regionalSalesService = new RegionalSalesService(new RegionalSalesRepository());
     }
 
+    getLeads = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { regionId, status, assignedTo } = req.query;
+            const result = await this.regionalSalesService.getLeads(
+                regionId as string,
+                req.assignedRegionIds,
+                { status: status as string, assignedTo: assignedTo as string }
+            );
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     getOpportunities = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { regionId, stage, salesAgentId } = req.query;

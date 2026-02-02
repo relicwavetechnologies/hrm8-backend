@@ -20,7 +20,7 @@ export class RefundController extends BaseController {
                 status: status as RefundStatus,
                 companyId: companyId as string,
             });
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { refundRequests: result });
         } catch (error) {
             return this.sendError(res, error);
         }

@@ -41,6 +41,15 @@ export class NotificationController extends BaseController {
 
   list = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
     try {
+      console.log('[NotificationController.list] Request headers:', req.headers);
+      console.log('[NotificationController.list] Request cookies:', req.cookies);
+      console.log('[NotificationController.list] Request user objects:', {
+        user: (req as any).user,
+        consultant: (req as any).consultant,
+        candidate: (req as any).candidate,
+        hrm8User: (req as any).hrm8User
+      });
+
       const { type, id } = this.getRecipientInfo(req);
       const limit = parseInt(req.query.limit as string) || 10;
       const offset = parseInt(req.query.offset as string) || 0;

@@ -146,18 +146,30 @@ export class ConsultantService extends BaseService {
   }
 
   async getJobDetails(consultantId: string, jobId: string) {
-    // 1. Verify assignment
+    // Sanitize jobId: replace spaces with hyphens if it looks like a UUID with spaces
+    let cleanJobId = jobId;
+    if (jobId.includes(' ') && !jobId.includes('-') && jobId.length === 36) { // 32 chars + 4 spaces = 36
+      cleanJobId = jobId.replace(/\s/g, '-');
+      console.log(`[ConsultantService] Sanitized jobId: "${jobId}" -> "${cleanJobId}"`);
+    } else if (jobId.length > 36 && jobId.includes('%20')) {
+      cleanJobId = decodeURIComponent(jobId);
+    }
+
+    console.log(`[ConsultantService.getJobDetails] Fetching details for job: "${cleanJobId}"`);
+
+    // 1. Verify availability/assignment
     const assignment = await prisma.consultantJobAssignment.findFirst({
-      where: { consultant_id: consultantId, job_id: jobId, status: 'ACTIVE' }
+      where: { consultant_id: consultantId, job_id: cleanJobId, status: 'ACTIVE' }
     });
 
     if (!assignment) {
+      console.warn(`[ConsultantService] Assignment not found for job: ${cleanJobId}`);
       throw new HttpException(403, 'Consultant is not assigned to this job');
     }
 
     // 2. Fetch Job with detailed info
     const job = await prisma.job.findUnique({
-      where: { id: jobId },
+      where: { id: cleanJobId },
       include: {
         company: { select: { id: true, name: true, domain: true } }, // Minimal company info
         assigned_consultant: { select: { id: true, first_name: true, last_name: true } }
@@ -246,6 +258,7 @@ export class ConsultantService extends BaseService {
     const performance = await this.getPerformanceMetrics(consultantId);
 
     // 2. Get active jobs (recent assignments)
+    console.log(`[ConsultantService.getDashboardAnalytics] Fetching assignments for consultant: ${consultantId}`);
     const assignments = await prisma.consultantJobAssignment.findMany({
       where: { consultant_id: consultantId, status: 'ACTIVE' },
       take: 5,
@@ -253,10 +266,20 @@ export class ConsultantService extends BaseService {
       include: {
         job: {
           include: {
-            company: { select: { id: true, name: true } }
+            company: { select: { id: true, name: true } },
+            applications: {
+              // Get count of active applications for this job
+              where: { status: { notIn: ['REJECTED', 'WITHDRAWN'] } },
+              select: { id: true, status: true }
+            }
           }
         }
       }
+    });
+
+    console.log(`[ConsultantService.getDashboardAnalytics] Found ${assignments.length} assignments.`);
+    assignments.forEach(a => {
+      console.log(`[ConsultantService] Job: ${a.job.title} (${a.job.id}), Applications: ${a.job.applications.length}`);
     });
 
     const activeJobs = assignments.map(a => ({
@@ -266,18 +289,31 @@ export class ConsultantService extends BaseService {
       location: 'Remote', // TODO: Add location to Job model
       postedAt: a.job.created_at,
       assignedAt: a.assigned_at,
-      activeCandidates: 0 // Mock
+      activeCandidates: a.job.applications.length
     }));
 
     // 3. Get pipeline stats
-    const pipelineGroups = await prisma.consultantJobAssignment.groupBy({
-      by: ['pipeline_stage'],
+    // We want to count candidates in each stage for jobs assigned to this consultant
+    // First get all job IDs assigned to this consultant
+    const allAssignments = await prisma.consultantJobAssignment.findMany({
       where: { consultant_id: consultantId, status: 'ACTIVE' },
+      select: { job_id: true }
+    });
+
+    const jobIds = allAssignments.map(a => a.job_id);
+
+    // Group applications by stage for these jobs
+    const pipelineGroups = await prisma.application.groupBy({
+      by: ['stage'],
+      where: {
+        job_id: { in: jobIds },
+        status: { notIn: ['REJECTED', 'WITHDRAWN'] } // Only count active candidates
+      },
       _count: true
     });
 
     const pipeline = pipelineGroups.map(g => ({
-      stage: g.pipeline_stage,
+      stage: g.stage,
       count: g._count
     }));
 
@@ -326,7 +362,7 @@ export class ConsultantService extends BaseService {
 
     // 5. Generate dynamic trends
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const currentMonthIndex = new Date().getMonth();
+    // const currentMonthIndex = new Date().getMonth(); // Unused
     const trends = [];
 
     for (let i = 5; i >= 0; i--) {

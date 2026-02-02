@@ -76,3 +76,27 @@ export async function authenticateHrm8(
     });
   }
 }
+
+/**
+ * Middleware to require specific HRM8 roles
+ * @param allowedRoles - Array of allowed roles (e.g., ['GLOBAL_ADMIN', 'REGIONAL_LICENSEE'])
+ */
+export function requireHrm8Role(allowedRoles: string[]) {
+  return (req: Hrm8AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.hrm8User) {
+      res.status(401).json({ success: false, error: 'Not authenticated' });
+      return;
+    }
+
+    if (!allowedRoles.includes(req.hrm8User.role)) {
+      res.status(403).json({
+        success: false,
+        error: `Access denied. Required roles: ${allowedRoles.join(' or ')}`,
+      });
+      return;
+    }
+
+    next();
+  };
+}
+
