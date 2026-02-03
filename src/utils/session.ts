@@ -40,29 +40,40 @@ export function isSessionExpired(expiresAt: Date): boolean {
  */
 export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
-  
+
   // Determine sameSite setting:
-  // - If explicitly set via env var, use that
-  // - In production, default to 'none' for cross-site compatibility (common in cloud deployments)
-  // - In development, use 'lax' for localhost compatibility
-  let sameSite: 'lax' | 'strict' | 'none' = 'lax';
-  
+  // - In development with localhost: use 'lax' (works best for localhost:3000 vs localhost:8080)
+  // - In production: likely 'none' with secure: true if cross-site, or 'lax' if same domain
+  let sameSite: 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
+  let secure = isProduction;
+
   if (process.env.COOKIE_SAME_SITE) {
     const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
     if (envValue === 'none' || envValue === 'strict' || envValue === 'lax') {
       sameSite = envValue as 'lax' | 'strict' | 'none';
     }
-  } else if (isProduction) {
-    // Default to 'none' in production for cross-site compatibility
-    // This is required when frontend and backend are on different domains
-    sameSite = 'none';
   }
-  
+
+  // If SameSite is None, Secure MUST be true
+  if (sameSite === 'none') {
+    secure = true;
+  }
+
+  // Force secure to false if not production and we aren't using https (unless explicitly configured otherwise)
+  // This prevents setting Secure cookie on HTTP localhost key
+  if (!isProduction) {
+    secure = false;
+    // If we forced secure=false, we MUST NOT use sameSite=none
+    if (sameSite === 'none') {
+      sameSite = 'lax';
+    }
+  }
+
   return {
     httpOnly: true, // Prevent XSS attacks
-    secure: isProduction, // HTTPS only in production (required for sameSite: 'none')
+    secure: secure, // HTTPS only in production (required for sameSite: 'none')
     sameSite: sameSite,
-    maxAge: maxAge || 24 * 60 * 60 * 1000, // 24 hours default
+    maxAge: maxAge || 7 * 24 * 60 * 60 * 1000, // 7 days default
     path: '/', // Available on all routes
     // Don't set domain - let browser handle it based on the request origin
   };

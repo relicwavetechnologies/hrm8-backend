@@ -1,7 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { ConsultantAuthenticatedRequest } from '../types';
-import { ConsultantRepository } from '../modules/consultant/consultant.repository';
-import { getSessionCookieOptions } from '../utils/session';
+import { prisma } from '../utils/prisma';
 
 export async function authenticateConsultant(
   req: ConsultantAuthenticatedRequest,
@@ -9,9 +8,59 @@ export async function authenticateConsultant(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.consultantSessionId;
+    // Check for authorization header (Bearer token) or cookie
+    const authHeader = req.headers.authorization;
+    let token = '';
 
-    if (!sessionId) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.cookies && req.cookies.consultantToken) {
+      token = req.cookies.consultantToken;
+    }
+
+    // --- ADMIN BYPASS LOGIC START ---
+    // If no consultant token, checking for Admin token to allow admin access to sales routes
+    if (!token && req.cookies && req.cookies.hrm8SessionId) {
+      // Verify Admin Session
+      const adminToken = req.cookies.hrm8SessionId;
+      const adminSession = await prisma.session.findUnique({
+        where: { session_id: adminToken },
+        include: { user: true }
+      });
+
+      if (adminSession && adminSession.expires_at >= new Date()) {
+        // Find a real consultant to masquerade as
+        const realConsultant = await prisma.consultant.findFirst({
+          where: { status: 'ACTIVE' }
+        });
+
+        if (realConsultant) {
+          req.consultant = {
+            id: realConsultant.id,
+            email: realConsultant.email,
+            firstName: realConsultant.first_name,
+            lastName: realConsultant.last_name,
+            role: realConsultant.role
+          };
+        } else {
+          // Fallback if no consultant exists
+          const [firstName, ...lastNameParts] = (adminSession.user.name || 'Admin User').split(' ');
+          req.consultant = {
+            id: adminSession.user.id, // Using Admin ID
+            email: adminSession.user.email,
+            firstName: firstName || 'Admin',
+            lastName: lastNameParts.join(' ') || 'User',
+            role: 'CONSULTANT_360'
+          } as any;
+        }
+        res.locals.isHrm8Admin = true;
+        next();
+        return;
+      }
+    }
+    // --- ADMIN BYPASS LOGIC END ---
+
+    if (!token) {
       res.status(401).json({
         success: false,
         error: 'Not authenticated. Please login.',
@@ -19,11 +68,15 @@ export async function authenticateConsultant(
       return;
     }
 
-    const consultantRepository = new ConsultantRepository();
-    const session = await consultantRepository.findSessionBySessionId(sessionId);
+    // Verify session
+    const session = await prisma.consultantSession.findUnique({
+      where: { session_id: token },
+      include: { consultant: true },
+    });
 
     if (!session || session.expires_at < new Date()) {
-      res.clearCookie('consultantSessionId', getSessionCookieOptions());
+      // If expired, clear the cookie
+      res.clearCookie('consultantToken');
 
       res.status(401).json({
         success: false,
@@ -32,11 +85,19 @@ export async function authenticateConsultant(
       return;
     }
 
+    const consultant = session.consultant;
+
+    if (!consultant || consultant.status !== 'ACTIVE') {
+      res.status(401).json({ success: false, error: 'Consultant not active or found' });
+      return;
+    }
+
     req.consultant = {
-      id: session.consultant.id,
-      email: session.consultant.email,
-      firstName: session.consultant.first_name,
-      lastName: session.consultant.last_name,
+      id: consultant.id,
+      email: consultant.email,
+      firstName: consultant.first_name,
+      lastName: consultant.last_name,
+      role: consultant.role
     };
 
     next();

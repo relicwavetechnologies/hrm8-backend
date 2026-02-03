@@ -277,4 +277,25 @@ export class JobController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  inviteHiringTeamMember = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const { email, name, role, permissions } = req.body;
+
+      if (!email || !role) {
+        return this.sendError(res, new Error('Email and role are required'), 400);
+      }
+
+      // Verify job access
+      await this.jobService.getJob(id, req.user.companyId);
+
+      await this.jobService.inviteTeamMember(id, req.user.companyId, { email, name, role, permissions });
+
+      return this.sendSuccess(res, { message: 'Invitation sent successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

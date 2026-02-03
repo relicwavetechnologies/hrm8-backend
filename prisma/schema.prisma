@@ -786,6 +786,7 @@ model Assessment {
   cost                Float?               @default(0)
   payment_status      String?              @default("pending")
   notes               String?
+  started_at          DateTime?
   created_at          DateTime             @default(now())
   updated_at          DateTime             @default(now()) @updatedAt
   invitation_token    String?              @unique
@@ -825,18 +826,18 @@ model AssessmentQuestion {
 model AssessmentResponse {
   id                  String              @id @default(uuid())
   assessment_id       String
-  question_id         String?
+  question_id         String
   candidate_id        String
   response            Json
   score               Float?
   answered_at         DateTime            @default(now())
   assessment_grade    AssessmentGrade[]
   assessment          Assessment          @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
-  assessment_question AssessmentQuestion? @relation(fields: [question_id], references: [id])
+  assessment_question AssessmentQuestion @relation(fields: [question_id], references: [id])
 
+  @@unique([assessment_id, question_id], name: "response_identifier")
   @@index([assessment_id])
   @@index([candidate_id])
-  @@index([question_id])
 }
 
 model Commission {
@@ -1399,6 +1400,7 @@ model JobRound {
   updated_at                 DateTime                   @default(now()) @updatedAt
   application_round_progress ApplicationRoundProgress[]
   assessment_configuration   AssessmentConfiguration?
+  email_config               Json?                      @map("email_config")
   email_template             EmailTemplate[]
   email_template_trigger     EmailTemplateTrigger[]
   interview_configuration    InterviewConfiguration?
@@ -1947,6 +1949,7 @@ model EmailTemplate {
   subject                String
   body                   String
   variables              String[]               @default([])
+  attachments            Json?                  @map("attachments")
   is_active              Boolean                @default(true)
   is_default             Boolean                @default(false)
   is_ai_generated        Boolean                @default(false)
@@ -2361,6 +2364,7 @@ enum HiringMode {
   SHORTLISTING
   FULL_SERVICE
   EXECUTIVE_SEARCH
+  ASSESSMENT_ONLY
 }
 
 enum WorkArrangement {
@@ -2596,6 +2600,14 @@ enum UniversalNotificationType {
   SYSTEM_ANNOUNCEMENT
   NEW_MESSAGE
   JOB_ALERT
+  REFUND_STATUS_CHANGED
+  SUBSCRIPTION_RENEWAL_FAILED
+  WITHDRAWAL_APPROVED
+  WITHDRAWAL_REJECTED
+  LOW_BALANCE_WARNING
+  COMMISSION_EARNED
+  LEAD_CONVERSION_REQUESTED
+  LEAD_CONVERSION_DECLINED
 }
 
 enum NotificationRecipientType {
@@ -2864,10 +2876,15 @@ enum EmailStatus {
 
 enum EmailTemplateType {
   APPLICATION_CONFIRMATION
+  NEW
+  ASSESSMENT
   INTERVIEW_INVITATION
+  INTERVIEW
   REJECTION
   OFFER_EXTENDED
+  OFFER
   OFFER_ACCEPTED
+  HIRED
   STAGE_CHANGE
   REMINDER
   FOLLOW_UP
@@ -2906,6 +2923,8 @@ enum VirtualTransactionType {
   PLATFORM_FEE
   TRANSFER_IN
   TRANSFER_OUT
+  ASSESSMENT_CREDIT_DEDUCTION
+  ASSESSMENT_CREDIT_REFUND
 }
 
 enum TransactionDirection {
@@ -2956,3 +2975,4 @@ model UserAlertRule {
   @@index([event_type])
   @@map("user_alert_rules")
 }
+

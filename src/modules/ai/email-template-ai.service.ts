@@ -6,6 +6,15 @@ export interface GenerateEmailRequest {
   companyName: string;
   candidateName: string; // Used for context, but template should use {{candidateName}}
   context?: string; // Additional instructions
+  tone?: string; // 'formal', 'friendly', 'excited', 'direct'
+}
+
+export interface RewriteTextRequest {
+  text: string;
+  field: 'subject' | 'body';
+  instruction: string; // 'make it shorter', 'fix grammar', 'change tone to friendly'
+  tone?: string;
+  context?: string;
 }
 
 export class EmailTemplateAIService {
@@ -16,18 +25,51 @@ export class EmailTemplateAIService {
     }
 
     const openai = new OpenAI({ apiKey });
-    
-    const systemPrompt = `You are an expert HR communications specialist. Create professional, empathetic, and clear email templates.
-    The output should be a JSON object: { "subject": "string", "body": "string" }.
-    Use Handlebars-style variables for dynamic content: {{candidateName}}, {{jobTitle}}, {{companyName}}, {{senderName}}.
-    Do not fill in the real values for these variables in the output, use the placeholders.`;
 
-    const userPrompt = `Create an email template for: ${request.type}.
-    Job: ${request.jobTitle}
-    Company: ${request.companyName}
-    Context/Tone: ${request.context || 'Professional and polite'}
+    // Strictly match variables supported by TEMPLATE_VARIABLES in frontend
+    const supportedVariables = [
+      '{{candidate.firstName}}', '{{candidate.lastName}}', '{{candidate.current_company}}', '{{candidate.current_designation}}',
+      '{{job.title}}', '{{job.location}}', '{{job.salary_min}}', '{{job.salary_max}}',
+      '{{job.hiringManager.name}}', '{{job.hiringManager.email}}',
+      '{{company.name}}', '{{company.website}}',
+      '{{interviewer.name}}', '{{interviewer.email}}',
+      '{{candidateName}}', '{{jobTitle}}', '{{companyName}}', '{{senderName}}' // Legacy support
+    ];
+
+    const systemPrompt = `You are an expert HR communications specialist at a top-tier recruitment firm. Your goal is to write professional, engaging, and clear emails.
     
-    Ensure the body includes placeholders like {{candidateName}} where appropriate.`;
+    OUTPUT FORMAT:
+    Return a JSON object: { "subject": "string", "body": "string" }.
+    
+    FORMATTING RULES (CRITICAL):
+    1. Use HTML strictly for the "body" field.
+    2. Use <p> for paragraphs.
+    3. Use <b> or <strong> for emphasis on key details (dates, roles).
+    4. Use <ul> and <li> for lists (responsibilities, next steps).
+    5. Use <br> for line breaks where necessary.
+    6. DO NOT use Markdown (no **, no ##).
+
+    VARIABLE RULES:
+    1. You MUST use ONLY these supported variables where appropriate: ${supportedVariables.join(', ')}.
+    2. PREFER deep variables (e.g., {{candidate.firstName}} over {{candidateName}}) for better personalization.
+    3. Do not invent variables like {{interviewDate}}. Use square brackets e.g., [Date] for information that needs manual entry if no variable exists.
+    
+    TONE: ${request.tone || 'Professional, warm, and respectful.'}`;
+
+    const userPrompt = `Create a ${request.tone || 'professional'} email template for a "${request.type}".
+    
+    JOB DETAILS:
+    Title: ${request.jobTitle}
+    Company: ${request.companyName}
+    
+    ADDITIONAL CONTEXT:
+    ${request.context || 'No specific context provided. Create a standard, well-structured template.'}
+    
+    INSTRUCTIONS:
+    - Subject line should be concise and catchy.
+    - Body should be ready to send, requiring minimal editing.
+    - Highlight the Job Title and Company Name.
+    - If this is an interview invitation, include clear placeholders for Date/Time if variables aren't used.`;
 
     try {
       const completion = await openai.chat.completions.create({
@@ -55,18 +97,65 @@ export class EmailTemplateAIService {
     if (!apiKey) return currentBody;
 
     const openai = new OpenAI({ apiKey });
-    
+
     try {
-        const completion = await openai.chat.completions.create({
-            model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: 'You are an email editor. Improve the email content based on instructions. Keep existing variables like {{name}} intact.' },
-                { role: 'user', content: `Original: ${currentBody}\n\nInstructions: ${instructions}` }
-            ]
-        });
-        return completion.choices[0]?.message?.content || currentBody;
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You are an email editor. Improve the email content based on instructions. Keep existing variables like {{name}} intact.' },
+          { role: 'user', content: `Original: ${currentBody}\n\nInstructions: ${instructions}` }
+        ]
+      });
+      return completion.choices[0]?.message?.content || currentBody;
     } catch (error) {
-        return currentBody;
+      return currentBody;
+    }
+  }
+
+  static async rewriteText(request: RewriteTextRequest): Promise<string> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return request.text; // Fallback to returning original
+
+    const openai = new OpenAI({ apiKey });
+
+    const fieldInstruction = request.field === 'subject'
+      ? 'You are rewriting an email SUBJECT LINE only. Return ONLY the raw subject line text. Do not include "Subject:" prefix. Keep it concise.'
+      : 'You are rewriting an email BODY only. Return ONLY the raw body text. Do not include a subject line. Do not include "Body:" prefix.';
+
+    const systemPrompt = `${fieldInstruction}
+    Tone: ${request.tone || 'Professional'}
+    
+    CRITICAL RULES:
+    1. Preserve all Handlebars variables (e.g., {{candidateName}}, {{jobTitle}}) EXACTLY as they appear. Do NOT replace them.
+    2. Do NOT add "Subject:" or "Body:" headers.
+    3. Do NOT output a JSON object, just the raw plain text.`;
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Original Text: "${request.text}"\n\nInstruction: ${request.instruction}\nContext: ${request.context || ''}` }
+        ],
+        temperature: 0.7,
+      });
+
+      let content = completion.choices[0]?.message?.content || request.text;
+
+      // Cleanup: remove surrounding quotes
+      content = content.replace(/^["']|["']$/g, '');
+
+      // Cleanup: remove "Subject:" prefix if AI ignored instructions
+      if (request.field === 'subject') {
+        content = content.replace(/^Subject:\s*/i, '');
+      }
+      // Cleanup: remove "Body:" prefix
+      content = content.replace(/^Body:\s*/i, '');
+
+      return content;
+    } catch (error) {
+      console.error('AI Rewrite error:', error);
+      return request.text;
     }
   }
 

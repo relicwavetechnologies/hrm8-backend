@@ -25,9 +25,28 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async findWithCandidateDetails(id: string) {
+    return this.prisma.assessment.findUnique({
+      where: { id },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+            job: true
+          }
+        }
+      }
+    });
+  }
+
   async findByInvitationToken(token: string): Promise<Assessment | null> {
     return this.prisma.assessment.findUnique({
       where: { invitation_token: token },
+      include: {
+        assessment_question: {
+          orderBy: { order: 'asc' }
+        }
+      }
     });
   }
 
@@ -77,6 +96,10 @@ export class AssessmentRepository extends BaseRepository {
     return this.prisma.assessmentQuestion.create({ data });
   }
 
+  async createManyQuestions(data: Prisma.AssessmentQuestionCreateManyInput[]) {
+    return this.prisma.assessmentQuestion.createMany({ data });
+  }
+
   async getQuestions(assessmentId: string): Promise<AssessmentQuestion[]> {
     return this.prisma.assessmentQuestion.findMany({
       where: { assessment_id: assessmentId },
@@ -84,9 +107,36 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async deleteQuestions(assessmentId: string): Promise<Prisma.BatchPayload> {
+    return this.prisma.assessmentQuestion.deleteMany({
+      where: { assessment_id: assessmentId }
+    });
+  }
+
   // Responses
   async createResponse(data: Prisma.AssessmentResponseCreateInput): Promise<AssessmentResponse> {
     return this.prisma.assessmentResponse.create({ data });
+  }
+
+  async upsertResponse(assessmentId: string, questionId: string, candidateId: string, response: any): Promise<AssessmentResponse> {
+    return this.prisma.assessmentResponse.upsert({
+      where: {
+        response_identifier: {
+          assessment_id: assessmentId,
+          question_id: questionId
+        }
+      },
+      create: {
+        assessment: { connect: { id: assessmentId } },
+        assessment_question: { connect: { id: questionId } },
+        candidate_id: candidateId,
+        response: response
+      },
+      update: {
+        response: response,
+        answered_at: new Date()
+      }
+    });
   }
 
   async getResponses(assessmentId: string): Promise<AssessmentResponse[]> {
@@ -105,7 +155,16 @@ export class AssessmentRepository extends BaseRepository {
   async findApplicationForAssignment(applicationId: string) {
     return this.prisma.application.findUnique({
       where: { id: applicationId },
-      select: { candidate_id: true, job_id: true }
+      select: {
+        candidate_id: true,
+        job_id: true,
+        candidate: {
+          select: { first_name: true, last_name: true, email: true }
+        },
+        job: {
+          select: { title: true }
+        }
+      }
     });
   }
 
@@ -135,7 +194,9 @@ export class AssessmentRepository extends BaseRepository {
         assessment_question: { orderBy: { order: 'asc' } },
         assessment_response: {
           include: {
-            assessment_grade: true
+            assessment_grade: {
+              include: { user: true }
+            }
           }
         },
         application: {

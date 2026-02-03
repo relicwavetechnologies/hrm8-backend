@@ -42,10 +42,20 @@ export class Hrm8Repository extends BaseRepository {
   }
 
   async findSessionBySessionId(sessionId: string) {
-    return this.prisma.hRM8Session.findUnique({
+    console.log(`[Hrm8Repository.findSessionBySessionId] Looking up session: ${sessionId}`);
+
+    const session = await this.prisma.hRM8Session.findUnique({
       where: { session_id: sessionId },
       include: { user: true },
     });
+
+    if (!session) {
+      console.log(`[Hrm8Repository.findSessionBySessionId] Session not found for: ${sessionId}`);
+    } else {
+      console.log(`[Hrm8Repository.findSessionBySessionId] Session found for user: ${session.hrm8_user_id}, user object exists: ${!!session.user}`);
+    }
+
+    return session;
   }
 
   async deleteSession(sessionId: string) {

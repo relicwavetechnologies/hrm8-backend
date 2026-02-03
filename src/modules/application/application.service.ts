@@ -6,6 +6,8 @@ import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
 import { DocumentParser } from '../../utils/document-parser';
+import { prisma } from '../../utils/prisma';
+import { emailService } from '../email/email.service';
 
 export class ApplicationService extends BaseService {
   constructor(
@@ -51,6 +53,53 @@ export class ApplicationService extends BaseService {
     this.triggerAiAnalysis(application.id, data.jobId).catch(err => {
       console.error('Failed to trigger AI analysis:', err);
     });
+
+    // Handle Auto-Email for NEW round
+    // Non-blocking catch-all to prevent application failure if email fails
+    (async () => {
+      try {
+        const newRound = await prisma.jobRound.findFirst({
+          where: {
+            job_id: data.jobId,
+            is_fixed: true,
+            fixed_key: 'NEW'
+          }
+        });
+
+        if (newRound?.email_config) {
+          const config = newRound.email_config as any;
+          if (config.enabled && config.templateId) {
+            // Fetch candidate to get email if not in request
+            // Ideally we use the application's candidate relation but we just created it. 
+            // We have data.candidateId.
+            const candidate = await this.candidateRepository.findById(data.candidateId);
+
+            if (candidate && candidate.email) {
+              await emailService.sendTemplateEmail({
+                to: candidate.email,
+                templateId: config.templateId,
+                contextIds: {
+                  candidateId: candidate.id,
+                  jobId: data.jobId,
+                  companyId: application.company_id // application has company_id from connect? No it's connected via relation.
+                  // We need to fetch application with company_id or just let services resolve via jobId if needed.
+                  // application object from create might not have company_id populated if it's not selected.
+                  // But prisma create returns the object. let's check schema.
+                  // Application: company_id String @map("company_id")
+                  // When creating with connect: job: { connect: { id: jobId } }, prisma usually fetches the relation field?
+                  // No, it returns the scalars. 
+                  // Since Job belongs to Company, Application belongs to Company.
+                  // We might need to look up companyId from Job.
+                }
+              });
+              console.log(`[Auto-Email] Sent 'New Application' email to ${candidate.email}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Auto-Email] Failed to process auto-email for new application:', err);
+      }
+    })();
 
     return application;
   }

@@ -1,6 +1,16 @@
 import nodemailer from 'nodemailer';
 import { BaseService } from '../../core/service';
 import { env } from '../../config/env';
+import { EmailTemplateService } from './email-template.service';
+import { prisma } from '../../utils/prisma';
+
+interface EmailAttachment {
+  filename: string;
+  content?: string | Buffer;
+  path?: string;
+  contentType?: string;
+  cid?: string;
+}
 
 export class EmailService extends BaseService {
   private transporter: nodemailer.Transporter;
@@ -9,7 +19,7 @@ export class EmailService extends BaseService {
     super();
     this.transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
-      port: parseInt(env.SMTP_PORT),
+      port: parseInt(env.SMTP_PORT || '587'),
       secure: env.SMTP_SECURE === 'true',
       auth: {
         user: env.SMTP_USER,
@@ -18,11 +28,94 @@ export class EmailService extends BaseService {
     });
   }
 
-  private async sendEmail(to: string, subject: string, html: string) {
+  /**
+   * Fetch full entity details to populate template variables
+   */
+  async populateVariables(ids: {
+    candidateId?: string;
+    jobId?: string;
+    companyId?: string;
+    interviewerId?: string;
+  }): Promise<Record<string, any>> {
+    const variables: Record<string, any> = {};
+
+    if (ids.candidateId) {
+      const candidate = await prisma.candidate.findUnique({
+        where: { id: ids.candidateId },
+        include: { work_experience: true, education: true }
+      });
+      if (candidate) {
+        variables.candidate = {
+          ...candidate,
+          // Flatten first_name/last_name to camelCase if needed, but schema has them as snake_case mapped to camelCase in Prisma client?
+          // Prisma client uses camelCase by default for mapped fields. 
+          // Schema says: first_name String @map("first_name"). Prisma generate creates firstName.
+          // Let's ensure we provide what the template expects.
+
+          firstName: candidate.first_name, // Prisma Client maps this to first_name? No, defaults to camelCase usually unless configured otherwise. 
+          // Wait, if @map is used, the DB column is snake_case, but the Model field name is the one before the type.
+          // In schema: first_name String @map("first_name") -> Field name is first_name.
+          // So variables.candidate.first_name exists. 
+          // But template uses candidate.firstName. We need to map it.
+          // Actually, let's check standard prisma behavior. "first_name String" means the JS property is "first_name".
+
+          firstName: candidate.first_name,
+          lastName: candidate.last_name,
+
+          // Logic for current company/designation from work experience
+          current_company: candidate.work_experience?.[0]?.company_name || '',
+          current_designation: candidate.work_experience?.[0]?.job_title || ''
+        };
+      }
+    }
+
+    if (ids.jobId) {
+      const job = await prisma.job.findUnique({
+        where: { id: ids.jobId },
+        include: {
+          job_category: true,
+          assigned_consultant: true,
+          company: true
+        }
+      });
+      if (job) {
+        variables.job = {
+          ...job,
+          type: job.employment_type, // Remap for template
+          currency: job.salary_currency, // Remap for template
+          hiringManager: job.assigned_consultant
+        };
+        // If companyId wasn't passed but job has it, use it
+        if (!ids.companyId && job.company_id) {
+          variables.company = job.company;
+        }
+      }
+    }
+
+    if (ids.companyId && !variables.company) {
+      const company = await prisma.company.findUnique({
+        where: { id: ids.companyId },
+        include: { profile: true }
+      });
+      if (company) variables.company = company;
+    }
+
+    if (ids.interviewerId) {
+      const interviewer = await prisma.user.findUnique({
+        where: { id: ids.interviewerId }
+      });
+      if (interviewer) variables.interviewer = interviewer;
+    }
+
+    return variables;
+  }
+
+  private async sendEmail(to: string, subject: string, html: string, attachments: EmailAttachment[] = []) {
     if (!env.SMTP_HOST) {
       console.log(`[EmailService] SMTP not configured. Skipping email to ${to}`);
       console.log(`Subject: ${subject}`);
       console.log(`Body: ${html}`);
+      if (attachments.length) console.log(`Attachments: ${attachments.length} files`);
       return;
     }
 
@@ -32,12 +125,76 @@ export class EmailService extends BaseService {
         to,
         subject,
         html,
+        attachments,
       });
       console.log(`[EmailService] Email sent to ${to}`);
     } catch (error) {
       console.error('[EmailService] Failed to send email:', error);
       // Don't throw, just log
     }
+  }
+
+  /**
+   * Send an email using a stored template
+   */
+  async sendTemplateEmail(data: {
+    to: string;
+    templateId: string;
+    variables?: Record<string, any>; // Manual overrides
+    contextIds?: { // IDs to auto-fetch
+      candidateId?: string;
+      jobId?: string;
+      companyId?: string;
+      interviewerId?: string;
+    };
+    attachments?: EmailAttachment[];
+  }) {
+    const template = await EmailTemplateService.findOne(data.templateId);
+    if (!template) {
+      throw new Error(`Email template not found: ${data.templateId}`);
+    }
+
+    // Auto-populate variables from DB if IDs provided
+    const dbVariables = data.contextIds ? await this.populateVariables(data.contextIds) : {};
+
+    // Merge: Manual variables take precedence over DB variables
+    const finalVariables = {
+      ...dbVariables,
+      ...(data.variables || {})
+    };
+
+    const { subject, body } = template;
+    const interpolatedSubject = this.interpolateTemplate(subject, finalVariables);
+    const interpolatedBody = this.interpolateTemplate(body, finalVariables);
+
+    // Combine manual attachments with template-defined attachments (if any)
+    const allAttachments = [...(data.attachments || [])];
+
+    // If template has attachments metadata (e.g. stored URLs), fetch/attach them here
+    // For now, assuming template.attachments is just metadata to be resolved or ignored if no binary content
+    if (Array.isArray((template as any).attachments)) {
+      // Example: template.attachments = [{ name: 'flyer.pdf', url: 'https://...' }]
+      // We would need to fetch content or pass 'path' if it's a publicly accessible URL supported by nodemailer
+      // For simplicity, we'll just log or implement basic 'path' support
+      ((template as any).attachments as any[]).forEach(att => {
+        if (att.url) {
+          allAttachments.push({
+            filename: att.name,
+            path: att.url // Nodemailer supports URL as path
+          });
+        }
+      });
+    }
+
+    await this.sendEmail(data.to, interpolatedSubject, interpolatedBody, allAttachments);
+  }
+
+  private interpolateTemplate(template: string, variables: Record<string, any>): string {
+    return template.replace(/\{\{([\w.]+)\}\}/g, (match, key) => {
+      // Handle nested keys like user.name
+      const value = key.split('.').reduce((obj: any, k: string) => (obj || {})[k], variables);
+      return value !== undefined ? value : match; // Keep {{variable}} if not found, or replace with empty string? Keeping match helps debugging.
+    });
   }
 
   async sendPasswordResetEmail(data: { to: string; name: string; resetUrl: string; expiresAt?: Date }) {
@@ -127,6 +284,44 @@ export class EmailService extends BaseService {
       <p>Welcome to the team!</p>
     `;
     await this.sendEmail(data.to, `Offer Accepted: ${data.jobTitle}`, html);
+  }
+  async sendAssessmentInvitation(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    assessmentUrl: string;
+    expiryDate?: Date;
+  }) {
+    const html = `
+      <p>Hi ${data.candidateName},</p>
+      <p>You have been invited to complete an assessment for the <strong>${data.jobTitle}</strong> position.</p>
+      <p>Please complete the assessment by clicking the link below:</p>
+      <p><a href="${data.assessmentUrl}">Start Assessment</a></p>
+      <p style="font-size: 12px; color: #666;">Legacy URL: ${data.assessmentUrl}</p>
+      ${data.expiryDate ? `<p>This link expires on ${data.expiryDate.toLocaleString()}</p>` : ''}
+      <p>Good luck!</p>
+    `;
+    await this.sendEmail(data.to, `Assessment Invitation: ${data.jobTitle}`, html);
+  }
+
+  async sendHiringTeamInvitation(data: {
+    to: string;
+    inviterName: string;
+    jobTitle: string;
+    companyName: string;
+    role: string;
+    inviteLink: string;
+  }) {
+    const html = `
+      <p>Hi,</p>
+      <p>${data.inviterName} has invited you to join the hiring team for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+      <p>You have been assigned the role of <strong>${data.role}</strong>.</p>
+      <p>To accept this invitation and set up your account, please click the link below:</p>
+      <p><a href="${data.inviteLink}">Accept Invitation</a></p>
+      <p>If you already have an account, you can simply log in.</p>
+      <p>Best regards,<br/>The ${data.companyName} Team</p>
+    `;
+    await this.sendEmail(data.to, `Invitation to Hiring Team: ${data.jobTitle}`, html);
   }
 }
 

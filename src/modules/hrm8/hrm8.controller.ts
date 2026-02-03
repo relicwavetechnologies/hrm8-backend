@@ -16,15 +16,22 @@ export class Hrm8Controller extends BaseController {
   login = async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
+      console.log(`[Hrm8Controller.login] Login attempt for email: ${email}`);
+
       const { user, sessionId, regionIds } = await this.hrm8Service.login({ email, password });
-      
-      res.cookie('hrm8SessionId', sessionId, getSessionCookieOptions());
-      
+
+      console.log(`[Hrm8Controller.login] Login successful, setting hrm8SessionId: ${sessionId}`);
+      const cookieOptions = getSessionCookieOptions();
+      console.log(`[Hrm8Controller.login] Cookie options:`, cookieOptions);
+
+      res.cookie('hrm8SessionId', sessionId, cookieOptions);
+
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { 
-        hrm8User: { ...userData, regionIds } 
+      return this.sendSuccess(res, {
+        hrm8User: { ...userData, regionIds }
       });
     } catch (error) {
+      console.error(`[Hrm8Controller.login] Login error:`, error);
       return this.sendError(res, error);
     }
   };

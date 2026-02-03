@@ -67,8 +67,8 @@ export class CompanyRepository extends BaseRepository {
   }
 
   async upsertProfile(
-    companyId: string, 
-    createData: Prisma.CompanyProfileCreateInput, 
+    companyId: string,
+    createData: Prisma.CompanyProfileCreateInput,
     updateData: Prisma.CompanyProfileUpdateInput
   ): Promise<CompanyProfile> {
     return this.prisma.companyProfile.upsert({
@@ -76,5 +76,121 @@ export class CompanyRepository extends BaseRepository {
       create: createData,
       update: updateData,
     });
+  }
+
+  // --- Transactions ---
+  async findTransactions(companyId: string, limit?: number, offset?: number) {
+    return this.prisma.virtualTransaction.findMany({
+      where: {
+        account: {
+          owner_type: 'COMPANY',
+          owner_id: companyId
+        }
+      },
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+      include: {
+        account: {
+          select: {
+            id: true,
+            owner_type: true,
+            owner_id: true,
+            balance: true
+          }
+        }
+      }
+    });
+  }
+
+  async getTransactionStats(companyId: string) {
+    const transactions = await this.prisma.virtualTransaction.findMany({
+      where: {
+        account: {
+          owner_type: 'COMPANY',
+          owner_id: companyId
+        }
+      },
+      select: {
+        amount: true,
+        type: true,
+        status: true,
+        created_at: true
+      }
+    });
+
+    const totalTransactions = transactions.length;
+    const totalDebited = transactions
+      .filter(t => t.type === 'DEBIT' && t.status === 'COMPLETED')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const totalCredited = transactions
+      .filter(t => t.type === 'CREDIT' && t.status === 'COMPLETED')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const pendingAmount = transactions
+      .filter(t => t.status === 'PENDING')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return {
+      totalTransactions,
+      totalDebited,
+      totalCredited,
+      pendingAmount,
+      netFlow: totalCredited - totalDebited
+    };
+  }
+
+  // --- Refund Requests ---
+  async createRefundRequest(data: any) {
+    return this.prisma.refundRequest.create({ data });
+  }
+
+  async findRefundRequests(filters: any, limit?: number, offset?: number) {
+    return this.prisma.refundRequest.findMany({
+      where: filters,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      skip: offset,
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+  }
+
+  async findRefundRequestById(id: string) {
+    return this.prisma.refundRequest.findUnique({
+      where: { id },
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+  }
+
+  async updateRefundRequest(id: string, data: any) {
+    return this.prisma.refundRequest.update({
+      where: { id },
+      data,
+      include: {
+        company: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+  }
+
+  async deleteRefundRequest(id: string) {
+    return this.prisma.refundRequest.delete({ where: { id } });
   }
 }

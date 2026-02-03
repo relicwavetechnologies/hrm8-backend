@@ -21,6 +21,10 @@ import offerRoutes from '../modules/offer/offer.routes';
 import walletRoutes from '../modules/wallet/wallet.routes';
 import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import resumeRoutes from '../modules/resume/resume.routes';
+import consultant360Routes from '../modules/consultant360/consultant360.routes';
+import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
+import aiRoutes from '../modules/ai/ai.routes';
+import emailTemplateRoutes from '../modules/email/email-template.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -33,12 +37,18 @@ const expressLoader = async (app: Application): Promise<void> => {
 
   // CORS setup
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
+  const allowedOrigins = frontendUrl.includes(',')
+    ? frontendUrl.split(',').map(u => u.trim())
+    : [frontendUrl]; // Ensure it's always an array for cors middleware
+
   const corsOptions = {
-    origin: frontendUrl.includes(',') ? frontendUrl.split(',').map(u => u.trim()) : frontendUrl,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
+
+  console.log('[Express] CORS enabled for origins:', allowedOrigins);
   app.use(cors(corsOptions));
 
   // Register module routers
@@ -65,6 +75,10 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/sales', salesRoutes);
   app.use('/api/hrm8', hrm8Routes);
   app.use('/api/resumes', resumeRoutes);
+  app.use('/api/consultant360', consultant360Routes);
+  app.use('/api/admin/billing', adminBillingRoutes);
+  app.use('/api/ai', aiRoutes);
+  app.use('/api/email-templates', emailTemplateRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

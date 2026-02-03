@@ -580,6 +580,7 @@ export interface ConsultantAuthenticatedRequest extends Request {
     email: string;
     firstName: string;
     lastName: string;
+    role: ConsultantRole;
   };
 }
 

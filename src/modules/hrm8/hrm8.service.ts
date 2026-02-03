@@ -26,7 +26,7 @@ export class Hrm8Service extends BaseService {
     }
 
     const sessionId = generateSessionId();
-    const expiresAt = getSessionExpiration();
+    const expiresAt = getSessionExpiration(7 * 24); // 7 days
 
     await this.hrm8Repository.createSession({
       session_id: sessionId,
@@ -37,8 +37,8 @@ export class Hrm8Service extends BaseService {
 
     let regionIds: string[] = [];
     if (user.role === 'REGIONAL_LICENSEE' && user.licensee_id) {
-        const regions = await this.hrm8Repository.getRegionsForLicensee(user.licensee_id);
-        regionIds = regions.map(r => r.id);
+      const regions = await this.hrm8Repository.getRegionsForLicensee(user.licensee_id);
+      regionIds = regions.map(r => r.id);
     }
 
     return { user, sessionId, regionIds };
@@ -54,8 +54,8 @@ export class Hrm8Service extends BaseService {
 
     let regionIds: string[] = [];
     if (user.role === 'REGIONAL_LICENSEE' && user.licensee_id) {
-        const regions = await this.hrm8Repository.getRegionsForLicensee(user.licensee_id);
-        regionIds = regions.map(r => r.id);
+      const regions = await this.hrm8Repository.getRegionsForLicensee(user.licensee_id);
+      regionIds = regions.map(r => r.id);
     }
 
     return { user, regionIds };

@@ -113,4 +113,106 @@ export class CompanyController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  // Transactions
+  getTransactions = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const transactions = await this.companyService.getTransactions(companyId, limit, offset);
+      return this.sendSuccess(res, { transactions, limit, offset });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getTransactionStats = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const stats = await this.companyService.getTransactionStats(companyId);
+      return this.sendSuccess(res, stats);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Refund Requests
+  createRefundRequest = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const { amount, reason, description, invoiceNumber } = req.body;
+
+      const refundRequest = await this.companyService.createRefundRequest(companyId, {
+        amount,
+        reason,
+        description,
+        invoiceNumber
+      });
+
+      return this.sendSuccess(res, { refundRequest }, 201);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getRefundRequests = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const refundRequests = await this.companyService.getRefundRequests(companyId, limit, offset);
+      return this.sendSuccess(res, { refundRequests, limit, offset });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  cancelRefundRequest = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const result = await this.companyService.cancelRefundRequest(id, companyId);
+      return this.sendSuccess(res, { message: 'Refund request cancelled', result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  withdrawRefundRequest = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+
+      const refundRequest = await this.companyService.withdrawRefundRequest(id, companyId);
+      return this.sendSuccess(res, { refundRequest });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

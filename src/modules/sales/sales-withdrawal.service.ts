@@ -1,0 +1,221 @@
+import { prisma } from '../../utils/prisma';
+import { HttpException } from '../../core/http-exception';
+import { WithdrawalStatus } from '@prisma/client';
+
+export class SalesWithdrawalService {
+
+    async calculateBalance(consultantId: string) {
+        // 1. Get all CONFIRMED commissions (eligible for withdrawal)
+        const eligibleCommissions = await prisma.commission.findMany({
+            where: {
+                consultant_id: consultantId,
+                status: 'CONFIRMED'
+            }
+        });
+
+        if (eligibleCommissions.length === 0) {
+            return { balance: 0, currency: 'USD', commissionCount: 0 };
+        }
+
+        const eligibleIds = eligibleCommissions.map(c => c.id);
+
+        // 2. Find commissions currently locked in active withdrawals
+        const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
+            where: {
+                consultant_id: consultantId,
+                status: {
+                    in: ['PENDING', 'APPROVED', 'PROCESSING']
+                }
+            },
+            select: { commission_ids: true }
+        });
+
+        const lockedCommissionIds = new Set<string>();
+        activeWithdrawals.forEach(w => {
+            w.commission_ids.forEach(id => lockedCommissionIds.add(id));
+        });
+
+        // 3. Filter out locked commissions
+        const availableCommissions = eligibleCommissions.filter(c => !lockedCommissionIds.has(c.id));
+
+        // Sum amounts
+        const balance = availableCommissions.reduce((sum, c) => sum + (c.amount || 0), 0);
+
+        return { balance, currency: 'USD', commissionCount: availableCommissions.length };
+    }
+
+    async requestWithdrawal(consultantId: string, data: {
+        amount: number;
+        paymentMethod: string;
+        paymentDetails: any;
+        commissionIds: string[];
+        notes?: string;
+    }) {
+        if (data.amount <= 0) throw new HttpException(400, 'Invalid amount');
+
+        // Verify commissions belong to consultant and are CONFIRMED
+        const commissions = await prisma.commission.findMany({
+            where: {
+                id: { in: data.commissionIds },
+                consultant_id: consultantId,
+                status: 'CONFIRMED'
+            }
+        });
+
+        if (commissions.length !== data.commissionIds.length) {
+            throw new HttpException(400, 'One or more commissions are invalid or not eligible for withdrawal');
+        }
+
+        // Check if any correspond to active withdrawals
+        const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
+            where: {
+                consultant_id: consultantId,
+                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
+            },
+            select: { commission_ids: true }
+        });
+
+        const lockedCommissionIds = new Set<string>();
+        activeWithdrawals.forEach(w => {
+            w.commission_ids.forEach(id => lockedCommissionIds.add(id));
+        });
+
+        if (data.commissionIds.some(id => lockedCommissionIds.has(id))) {
+            throw new HttpException(400, 'One or more commissions are already in an active withdrawal request');
+        }
+
+        const totalAmount = commissions.reduce((sum, c) => sum + c.amount, 0);
+
+        // Allow slight float difference
+        if (Math.abs(totalAmount - data.amount) > 0.01) {
+            // Use calculated amount for safety
+        }
+
+        // Create Withdrawal Request
+        const withdrawal = await prisma.commissionWithdrawal.create({
+            data: {
+                consultant_id: consultantId,
+                amount: totalAmount,
+                payment_method: data.paymentMethod,
+                payment_details: data.paymentDetails || {},
+                commission_ids: data.commissionIds,
+                notes: data.notes,
+                status: 'PENDING'
+            }
+        });
+
+        return withdrawal;
+    }
+
+    async getWithdrawals(consultantId: string, status?: string) {
+        return prisma.commissionWithdrawal.findMany({
+            where: {
+                consultant_id: consultantId,
+                ...(status ? { status: status as WithdrawalStatus } : {})
+            },
+            orderBy: { created_at: 'desc' }
+        });
+    }
+
+    async cancelWithdrawal(withdrawalId: string, consultantId: string) {
+        const withdrawal = await prisma.commissionWithdrawal.findUnique({
+            where: { id: withdrawalId }
+        });
+
+        if (!withdrawal) throw new HttpException(404, 'Withdrawal not found');
+        if (withdrawal.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
+        if (withdrawal.status !== 'PENDING') throw new HttpException(400, 'Cannot cancel non-pending withdrawal');
+
+        return prisma.commissionWithdrawal.update({
+            where: { id: withdrawalId },
+            data: { status: 'CANCELLED' }
+        });
+    }
+
+    async executeWithdrawal(withdrawalId: string, consultantId: string) {
+        const withdrawal = await prisma.commissionWithdrawal.findUnique({
+            where: { id: withdrawalId },
+            include: { consultant: true }
+        });
+
+        if (!withdrawal) throw new HttpException(404, 'Withdrawal not found');
+        if (withdrawal.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
+        if (withdrawal.status !== 'APPROVED') throw new HttpException(400, 'Withdrawal must be approved before execution');
+
+        const result = await prisma.commissionWithdrawal.update({
+            where: { id: withdrawalId },
+            data: {
+                status: 'PROCESSING',
+                processed_at: new Date()
+            }
+        });
+
+        // TODO: Integrate with actual payment processor (Stripe, bank transfer, etc.)
+
+        return result;
+    }
+
+    async getStripeStatus(consultantId: string) {
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: {
+                id: true,
+                email: true,
+                stripe_account_id: true,
+                stripe_account_status: true,
+                stripe_onboarded_at: true,
+                updated_at: true
+            }
+        });
+
+        if (!consultant) throw new HttpException(404, 'Consultant not found');
+
+        return {
+            isConnected: !!consultant.stripe_account_id && consultant.stripe_account_status === 'active',
+            stripeAccountId: consultant.stripe_account_id,
+            accountStatus: consultant.stripe_account_status,
+            onboardedAt: consultant.stripe_onboarded_at,
+            email: consultant.email,
+            lastUpdated: consultant.updated_at
+        };
+    }
+
+    async initiateStripeOnboarding(consultantId: string) {
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId }
+        });
+
+        if (!consultant) throw new HttpException(404, 'Consultant not found');
+        if (consultant.stripe_account_id) {
+            throw new HttpException(400, 'Consultant already has a Stripe account connected');
+        }
+
+        // TODO: Implement actual Stripe Connect onboarding flow
+        const onboardingUrl = `https://connect.stripe.com/onboarding?stripe_user[email]=${consultant.email}&stripe_user[country]=US`;
+
+        return {
+            message: 'Stripe onboarding initiated',
+            onboardingUrl: onboardingUrl,
+            redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/consultant/stripe/callback`
+        };
+    }
+
+    async getStripeLoginLink(consultantId: string) {
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId }
+        });
+
+        if (!consultant) throw new HttpException(404, 'Consultant not found');
+        if (!consultant.stripe_account_id) {
+            throw new HttpException(400, 'Consultant does not have a Stripe account connected');
+        }
+
+        // TODO: Implement actual Stripe login link generation using Stripe API
+
+        return {
+            message: 'Login link generated',
+            loginLink: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
+            expiresIn: 15 * 60 // 15 minutes in seconds
+        };
+    }
+}

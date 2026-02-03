@@ -325,7 +325,7 @@ export class ApplicationController extends BaseController {
 
   updateManualScreening = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const result = await this.applicationService.updateManualScreening(id, req.body);
       return this.sendSuccess(res, { application: result });
     } catch (error) {

@@ -1,22 +1,199 @@
 import { BaseService } from '../../core/service';
+import { JobAllocationRepository } from './job-allocation.repository';
+import { HttpException } from '../../core/http-exception';
+import { AssignmentSource, PipelineStage } from '@prisma/client';
+import { prisma } from '../../utils/prisma';
 
 export class JobAllocationService extends BaseService {
-  async autoAssignJob(jobId: string): Promise<void> {
-    // Stub
+  constructor(private jobAllocationRepository: JobAllocationRepository) {
+    super();
   }
 
-  async getPipelineForJob(jobId: string, consultantId?: string | null): Promise<any> {
-    // Stub
-    return null;
+  async allocate(data: {
+    jobId: string;
+    consultantId: string;
+    assignedBy: string;
+    source?: AssignmentSource;
+  }) {
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: data.consultantId },
+      select: { region_id: true },
+    });
+
+    if (!consultant || !consultant.region_id) {
+      throw new HttpException(404, 'Consultant not found or not assigned to a region');
+    }
+
+    return this.jobAllocationRepository.assignToConsultant({
+      ...data,
+      regionId: consultant.region_id,
+    });
+  }
+
+  async assignRegion(jobId: string, regionId: string, assignedBy: string) {
+    const consultant = await prisma.consultant.findFirst({
+      where: { region_id: regionId, status: 'ACTIVE' },
+    });
+
+    if (!consultant) {
+      throw new HttpException(404, 'No active consultant found in this region');
+    }
+
+    return this.jobAllocationRepository.assignToConsultant({
+      jobId,
+      consultantId: consultant.id,
+      assignedBy,
+      regionId,
+      source: AssignmentSource.MANUAL_HRM8,
+    });
+  }
+
+  async unassign(jobId: string) {
+    return this.jobAllocationRepository.unassign(jobId);
+  }
+
+  async getJobConsultants(jobId: string) {
+    const assignments = await this.jobAllocationRepository.findConsultantsByJob(jobId);
+    return assignments.map(a => ({
+      id: a.consultant.id,
+      firstName: a.consultant.first_name,
+      lastName: a.consultant.last_name,
+      email: a.consultant.email,
+    }));
+  }
+
+  async getJobsForAllocation(filters: any) {
+    const { limit = 10, offset = 0, search, regionId } = filters;
+    const where: any = {
+      status: { in: ['OPEN', 'PENDING'] },
+    };
+
+    if (regionId) {
+      where.region_id = regionId;
+    }
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { company: { name: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    return prisma.job.findMany({
+      where,
+      take: limit,
+      skip: offset,
+      orderBy: { created_at: 'desc' },
+      include: {
+        assigned_consultant: {
+          select: { id: true, first_name: true, last_name: true, email: true }
+        },
+        company: {
+          select: { id: true, name: true }
+        }
+      }
+    });
+  }
+
+  async getStats() {
+    return this.jobAllocationRepository.getStats();
+  }
+
+  async getConsultantsForAssignment(filters: { regionId: string; search?: string }) {
+    const { regionId, search } = filters;
+    const where: any = {
+      region_id: regionId,
+      status: 'ACTIVE',
+    };
+
+    if (search) {
+      where.OR = [
+        { first_name: { contains: search, mode: 'insensitive' } },
+        { last_name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    return prisma.consultant.findMany({
+      where,
+      select: {
+        id: true,
+        first_name: true,
+        last_name: true,
+        email: true,
+        current_jobs: true,
+        max_jobs: true,
+      },
+    });
+  }
+
+  async autoAssignJob(jobId: string): Promise<any> {
+    // Logic for auto-assignment would go here (e.g. finding best consultant)
+    // For now, finding least busy consultant in the job's region or any region
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) throw new HttpException(404, 'Job not found');
+
+    const regionId = job.region_id;
+    if (!regionId) throw new HttpException(400, 'Job has no region assigned');
+
+    const bestConsultant = await prisma.consultant.findFirst({
+      where: { region_id: regionId, status: 'ACTIVE' },
+      orderBy: { current_jobs: 'asc' },
+    });
+
+    if (!bestConsultant) throw new HttpException(404, 'No suitable consultant for auto-assignment');
+
+    return this.allocate({
+      jobId,
+      consultantId: bestConsultant.id,
+      assignedBy: 'system',
+      source: AssignmentSource.AUTO_RULES,
+    });
+  }
+
+  async getPipelineForJob(jobId: string, preferredConsultantId?: string | null): Promise<any> {
+    const assignment = await prisma.consultantJobAssignment.findFirst({
+      where: {
+        job_id: jobId,
+        status: 'ACTIVE',
+        ...(preferredConsultantId ? { consultant_id: preferredConsultantId } : {}),
+      },
+      orderBy: { assigned_at: 'desc' },
+    });
+
+    if (!assignment) return null;
+
+    return {
+      consultantId: assignment.consultant_id,
+      jobId: assignment.job_id,
+      stage: assignment.pipeline_stage,
+      progress: assignment.pipeline_progress,
+      note: assignment.pipeline_note,
+      updatedAt: assignment.pipeline_updated_at,
+      updatedBy: assignment.pipeline_updated_by,
+    };
   }
 
   async getPipelineForConsultantJob(consultantId: string, jobId: string) {
-    return { stage: 'SOURCING', progress: 0 };
+    return this.getPipelineForJob(jobId, consultantId);
   }
 
   async updatePipelineForConsultantJob(consultantId: string, jobId: string, data: any) {
-    return { success: true, pipeline: { ...data } };
+    const assignment = await prisma.consultantJobAssignment.findFirst({
+      where: { consultant_id: consultantId, job_id: jobId, status: 'ACTIVE' },
+    });
+
+    if (!assignment) throw new HttpException(404, 'Assignment not found');
+
+    return prisma.consultantJobAssignment.update({
+      where: { id: assignment.id },
+      data: {
+        pipeline_stage: data.stage as PipelineStage,
+        pipeline_progress: data.progress ?? assignment.pipeline_progress,
+        pipeline_note: data.note ?? assignment.pipeline_note,
+        pipeline_updated_at: new Date(),
+        pipeline_updated_by: data.updatedBy || consultantId,
+      },
+    });
   }
 }
-
-export const jobAllocationService = new JobAllocationService();

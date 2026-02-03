@@ -24,6 +24,16 @@ router.put('/:id/job-assignment-mode', authenticate, companyController.updateJob
 
 // Stats
 router.get('/:id/stats', authenticate, companyController.getStats);
-router.get('/:id/subscription/active', authenticate, subscriptionController.getActive); // Proxy to SubscriptionController
+router.get('/:id/subscription/active', authenticate, subscriptionController.getActive);
+
+// Transactions
+router.get('/transactions', authenticate, companyController.getTransactions);
+router.get('/transactions/stats', authenticate, companyController.getTransactionStats);
+
+// Refund Requests
+router.post('/refund-requests', authenticate, companyController.createRefundRequest);
+router.get('/refund-requests', authenticate, companyController.getRefundRequests);
+router.delete('/refund-requests/:id', authenticate, companyController.cancelRefundRequest);
+router.put('/refund-requests/:id/withdraw', authenticate, companyController.withdrawRefundRequest);
 
 export default router;

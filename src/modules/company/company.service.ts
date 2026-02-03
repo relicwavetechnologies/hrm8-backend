@@ -119,4 +119,93 @@ export class CompanyService extends BaseService {
   async updateJobAssignmentMode(id: string, mode: JobAssignmentMode) {
     return this.companyRepository.update(id, { job_assignment_mode: mode });
   }
+
+  // --- Transactions ---
+
+  async getTransactions(companyId: string, limit?: number, offset?: number) {
+    const company = await this.companyRepository.findById(companyId);
+    if (!company) throw new HttpException(404, 'Company not found');
+
+    return this.companyRepository.findTransactions(companyId, limit, offset);
+  }
+
+  async getTransactionStats(companyId: string) {
+    const company = await this.companyRepository.findById(companyId);
+    if (!company) throw new HttpException(404, 'Company not found');
+
+    return this.companyRepository.getTransactionStats(companyId);
+  }
+
+  // --- Refund Requests ---
+
+  async createRefundRequest(companyId: string, data: {
+    amount: number;
+    reason: string;
+    description?: string;
+    invoiceNumber?: string;
+  }) {
+    const company = await this.companyRepository.findById(companyId);
+    if (!company) throw new HttpException(404, 'Company not found');
+
+    if (!data.amount || data.amount <= 0) {
+      throw new HttpException(400, 'Amount must be greater than 0');
+    }
+
+    if (!data.reason) {
+      throw new HttpException(400, 'Reason is required');
+    }
+
+    return this.companyRepository.createRefundRequest({
+      company: { connect: { id: companyId } },
+      amount: data.amount,
+      reason: data.reason,
+      description: data.description,
+      invoice_number: data.invoiceNumber,
+      status: 'PENDING'
+    });
+  }
+
+  async getRefundRequests(companyId: string, limit?: number, offset?: number) {
+    const company = await this.companyRepository.findById(companyId);
+    if (!company) throw new HttpException(404, 'Company not found');
+
+    return this.companyRepository.findRefundRequests(
+      { company_id: companyId },
+      limit,
+      offset
+    );
+  }
+
+  async cancelRefundRequest(requestId: string, companyId: string) {
+    const request = await this.companyRepository.findRefundRequestById(requestId);
+    if (!request) throw new HttpException(404, 'Refund request not found');
+
+    if (request.company_id !== companyId) {
+      throw new HttpException(403, 'Unauthorized');
+    }
+
+    if (request.status !== 'PENDING') {
+      throw new HttpException(400, `Cannot cancel a ${request.status} refund request`);
+    }
+
+    return this.companyRepository.deleteRefundRequest(requestId);
+  }
+
+  async withdrawRefundRequest(requestId: string, companyId: string) {
+    const request = await this.companyRepository.findRefundRequestById(requestId);
+    if (!request) throw new HttpException(404, 'Refund request not found');
+
+    if (request.company_id !== companyId) {
+      throw new HttpException(403, 'Unauthorized');
+    }
+
+    if (request.status !== 'PENDING') {
+      throw new HttpException(400, `Cannot withdraw a ${request.status} refund request`);
+    }
+
+    return this.companyRepository.updateRefundRequest(requestId, {
+      status: 'WITHDRAWN',
+      withdrawn_at: new Date()
+    });
+  }
 }

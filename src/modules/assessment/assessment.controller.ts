@@ -31,6 +31,20 @@ export class AssessmentController extends BaseController {
     }
   };
 
+  saveResponse = async (req: Request, res: Response) => {
+    try {
+      const { token } = req.params as { token: string };
+      const { questionId, response } = req.body;
+      if (!questionId) {
+        return this.sendError(res, new Error('questionId is required'), 400);
+      }
+      await this.assessmentService.saveResponse(token, questionId, response);
+      return this.sendSuccess(res, { message: 'Response saved' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   submitAssessment = async (req: Request, res: Response) => {
     try {
       const { token } = req.params as { token: string };
@@ -92,6 +106,26 @@ export class AssessmentController extends BaseController {
       const { id } = req.params as { id: string };
       await this.assessmentService.resendInvitation(id);
       return this.sendSuccess(res, { message: 'Invitation resent' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  inviteCandidate = async (req: Request, res: Response) => {
+    try {
+      const { applicationId, jobRoundId } = req.body;
+      if (!applicationId || !jobRoundId) {
+        return this.sendError(res, new Error('applicationId and jobRoundId are required'), 400);
+      }
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return this.sendError(res, new Error('User not authenticated'), 401);
+      }
+      const result = await this.assessmentService.manualInviteToAssessment(applicationId, jobRoundId, userId);
+      if (!result.success) {
+        return this.sendError(res, new Error(result.error || 'Failed to invite'), 400);
+      }
+      return this.sendSuccess(res, { message: 'Invitation sent successfully', assessmentId: result.assessmentId });
     } catch (error) {
       return this.sendError(res, error);
     }

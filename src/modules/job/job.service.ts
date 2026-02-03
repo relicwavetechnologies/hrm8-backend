@@ -1,9 +1,13 @@
 import { BaseService } from '../../core/service';
 import { JobRepository } from './job.repository';
 import { ApplicationRepository } from '../application/application.repository';
-import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType, InvitationStatus } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
+import { prisma } from '../../utils/prisma';
+import { emailService } from '../email/email.service';
+import crypto from 'crypto';
+import { env } from '../../config/env';
 
 export class JobService extends BaseService {
   constructor(
@@ -207,6 +211,144 @@ export class JobService extends BaseService {
     });
 
     return this.mapToResponse(updatedJob);
+  }
+
+  async inviteTeamMember(jobId: string, companyId: string, data: { email: string; name: string; role: string; permissions?: any }) {
+    // 0. Validate Input
+    if (!['admin', 'member'].includes(data.role)) {
+      throw new HttpException(400, 'Invalid role. Must be admin or member.');
+    }
+
+    // 1. Validate Job ownership
+    const job = await this.getJob(jobId, companyId);
+    if (!job) throw new HttpException(404, 'Job not found');
+
+    // 2. Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email: data.email },
+    });
+
+    // 3. Prepare Member Data (Persist to Job)
+    const isRegistered = !!existingUser;
+    const status = isRegistered ? 'active' : 'pending_invite';
+    const userId = existingUser ? existingUser.id : `pending_user_${Date.now()}`;
+
+    // Default permissions if not provided
+    const permissions = data.permissions || {
+      canViewApplications: true,
+      canShortlist: data.role === 'admin',
+      canScheduleInterviews: true,
+      canMakeOffers: data.role === 'admin',
+    };
+
+    const newMember = {
+      id: `member_${Date.now()}`,
+      userId,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      permissions,
+      status,
+      addedAt: new Date().toISOString(),
+      invitedAt: new Date().toISOString()
+    };
+
+    // Update Job's hiring_team array
+    const jobRecord = await prisma.job.findUnique({ where: { id: jobId } });
+    let currentTeam: any[] = [];
+    if (jobRecord?.hiring_team && Array.isArray(jobRecord.hiring_team)) {
+      currentTeam = jobRecord.hiring_team as any[];
+    }
+
+    // Check duplicate email to update or append
+    const existingMemberIndex = currentTeam.findIndex((m: any) => m.email === data.email);
+
+    if (existingMemberIndex >= 0) {
+      currentTeam[existingMemberIndex] = { ...currentTeam[existingMemberIndex], ...newMember, id: currentTeam[existingMemberIndex].id };
+    } else {
+      currentTeam.push(newMember);
+    }
+
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { hiring_team: currentTeam }
+    });
+
+    if (existingUser) {
+      // User exists and is now added/updated in the team.
+      return true;
+    }
+
+    // 3. User does not exist, check for existing pending invitation
+    const existingInvitation = await prisma.invitation.findFirst({
+      where: {
+        email: data.email,
+        company_id: companyId,
+        status: InvitationStatus.PENDING,
+      },
+    });
+
+    if (existingInvitation) {
+      // Resend invitation email
+      // Get inviter name
+      const inviter = await prisma.user.findFirst({ where: { company_id: companyId } }); // Fallback
+
+      const inviteLink = `${env.FRONTEND_URL || 'http://localhost:3000'}/auth/accept-invite?token=${existingInvitation.token}`;
+
+      await emailService.sendHiringTeamInvitation({
+        to: data.email,
+        inviterName: inviter?.name || 'Admin',
+        jobTitle: job.title,
+        companyName: job.company?.name || 'Company',
+        role: data.role,
+        inviteLink,
+      });
+      return true;
+    }
+
+    // 4. Create new invitation
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
+
+    // We need an inviter ID. 
+    const inviterId = job.createdBy;
+
+    // Create invitation record
+    try {
+      await prisma.invitation.create({
+        data: {
+          company_id: companyId,
+          invited_by: inviterId,
+          email: data.email,
+          token,
+          status: InvitationStatus.PENDING,
+          expires_at: expiresAt,
+        },
+      });
+    } catch (e) {
+      console.error('Failed to create invitation', e);
+      throw new HttpException(500, 'Failed to create invitation');
+    }
+
+    // 5. Send Email
+    const jobWithCompany = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { company: true, creator: true }
+    });
+
+    const inviteLink = `${env.FRONTEND_URL || 'http://localhost:3000'}/auth/accept-invite?token=${token}`;
+
+    await emailService.sendHiringTeamInvitation({
+      to: data.email,
+      inviterName: jobWithCompany?.creator?.name || 'Hiring Team',
+      jobTitle: job.title,
+      companyName: jobWithCompany?.company?.name || 'Company',
+      role: data.role,
+      inviteLink,
+    }); /*End of invite logic*/
+
+    return true;
   }
 
   private async generateJobCode(companyId: string): Promise<string> {

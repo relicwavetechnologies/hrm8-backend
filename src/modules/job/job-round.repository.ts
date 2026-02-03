@@ -144,6 +144,9 @@ export class JobRoundRepository extends BaseRepository {
                 provider_config: data.providerConfig,
                 questions: data.questions,
                 instructions: data.instructions,
+                auto_move_on_pass: data.auto_move_on_pass ?? data.autoMoveOnPass ?? false,
+                auto_reject_on_fail: data.auto_reject_on_fail ?? data.autoRejectOnFail ?? false,
+                auto_reject_on_deadline: data.auto_reject_on_deadline ?? data.autoRejectOnDeadline ?? false,
             },
             update: {
                 enabled: data.enabled,
@@ -155,6 +158,9 @@ export class JobRoundRepository extends BaseRepository {
                 provider_config: data.providerConfig,
                 questions: data.questions,
                 instructions: data.instructions,
+                auto_move_on_pass: data.auto_move_on_pass ?? data.autoMoveOnPass,
+                auto_reject_on_fail: data.auto_reject_on_fail ?? data.autoRejectOnFail,
+                auto_reject_on_deadline: data.auto_reject_on_deadline ?? data.autoRejectOnDeadline,
             },
         });
     }

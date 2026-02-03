@@ -16,18 +16,25 @@ export class AuthController extends BaseController {
   login = async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
+      console.log(`[AuthController.login] Login attempt for email: ${email}`);
+
       const { user, sessionId } = await this.authService.login({ email, password });
-      
-      res.cookie('sessionId', sessionId, getSessionCookieOptions());
-      
+
+      console.log(`[AuthController.login] Login successful, setting sessionId: ${sessionId}`);
+      const cookieOptions = getSessionCookieOptions();
+      console.log(`[AuthController.login] Cookie options:`, cookieOptions);
+
+      res.cookie('sessionId', sessionId, cookieOptions);
+
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { 
-        user: { 
-          ...userData, 
-          companyId: user.company_id 
-        } 
+      return this.sendSuccess(res, {
+        user: {
+          ...userData,
+          companyId: user.company_id
+        }
       });
     } catch (error) {
+      console.error(`[AuthController.login] Login error:`, error);
       return this.sendError(res, error);
     }
   };

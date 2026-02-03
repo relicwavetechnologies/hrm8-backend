@@ -14,9 +14,9 @@ export class NotificationRepository extends BaseRepository {
   }
 
   async findByRecipient(
-    recipientType: NotificationRecipientType, 
-    recipientId: string, 
-    limit: number = 20, 
+    recipientType: NotificationRecipientType,
+    recipientId: string,
+    limit: number = 20,
     offset: number = 0
   ): Promise<{ notifications: UniversalNotification[], total: number }> {
     const where: Prisma.UniversalNotificationWhereInput = {
@@ -24,6 +24,8 @@ export class NotificationRepository extends BaseRepository {
       recipient_id: recipientId,
       expires_at: { gte: new Date() }
     };
+
+    console.log(`[NotificationRepository] Querying notifications for ${recipientType}:${recipientId}, limit=${limit}, offset=${offset}`);
 
     const [notifications, total] = await Promise.all([
       this.prisma.universalNotification.findMany({
@@ -34,6 +36,21 @@ export class NotificationRepository extends BaseRepository {
       }),
       this.prisma.universalNotification.count({ where })
     ]);
+
+    console.log(`[NotificationRepository] Found ${notifications.length} notifications, total=${total}`);
+
+    // Also log if no notifications found to help debug
+    if (notifications.length === 0) {
+      const allCount = await this.prisma.universalNotification.count();
+      console.log(`[NotificationRepository] No matching notifications. Total in DB: ${allCount}`);
+
+      // List all notification recipients to help debug
+      const recipients = await this.prisma.universalNotification.findMany({
+        distinct: ['recipient_type', 'recipient_id'],
+        select: { recipient_type: true, recipient_id: true }
+      });
+      console.log(`[NotificationRepository] Available recipients:`, recipients);
+    }
 
     return { notifications, total };
   }

@@ -1,14 +1,181 @@
 import { Router } from 'express';
 import { Hrm8Controller } from './hrm8.controller';
+import { AuditLogController } from './audit-log.controller';
+import { CommissionController } from './commission.controller';
+import { ComplianceController } from './compliance.controller';
+import { JobAllocationController } from './job-allocation.controller';
+import { RegionalLicenseeController } from './regional-licensee.controller';
+import { LeadConversionController } from './lead-conversion.controller';
+import { RefundController } from './refund.controller';
+import { PricingController } from './pricing.controller';
+import { RegionController } from './region.controller';
+import { StaffController } from './staff.controller';
+import { AnalyticsController } from './analytics.controller';
+import { RegionalSalesController } from './regional-sales.controller';
+import { RevenueController } from './revenue.controller';
+import { WithdrawalController } from './withdrawal.controller';
+import { SettlementController } from './settlement.controller';
+import { SettingsController } from './settings.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
 
 const router = Router();
 const hrm8Controller = new Hrm8Controller();
+const auditLogController = new AuditLogController();
+const commissionController = new CommissionController();
+const complianceController = new ComplianceController();
+const jobAllocationController = new JobAllocationController();
+const regionalLicenseeController = new RegionalLicenseeController();
+const leadConversionController = new LeadConversionController();
+const refundController = new RefundController();
+const pricingController = new PricingController();
+const regionController = new RegionController();
+const staffController = new StaffController();
+const analyticsController = new AnalyticsController();
+const regionalSalesController = new RegionalSalesController();
+const revenueController = new RevenueController();
+const withdrawalController = new WithdrawalController();
+const settlementController = new SettlementController();
+const settingsController = new SettingsController();
 
 // Auth Routes
 router.post('/auth/login', hrm8Controller.login);
 router.post('/auth/logout', hrm8Controller.logout);
 router.get('/auth/me', authenticateHrm8, hrm8Controller.getCurrentUser);
 router.put('/auth/change-password', authenticateHrm8, hrm8Controller.changePassword);
+
+// Audit Log Routes
+router.get('/audit-logs', authenticateHrm8, auditLogController.getRecent);
+router.get('/audit-logs/stats', authenticateHrm8, auditLogController.getStats);
+router.get('/audit-logs/:entityType/:entityId', authenticateHrm8, auditLogController.getByEntity);
+
+// Commission Routes
+router.get('/commissions', authenticateHrm8, commissionController.getAll);
+router.post('/commissions', authenticateHrm8, commissionController.create);
+router.post('/commissions/pay', authenticateHrm8, commissionController.processPayments);
+router.get('/commissions/regional', authenticateHrm8, commissionController.getRegional);
+router.get('/commissions/:id', authenticateHrm8, commissionController.getById);
+router.put('/commissions/:id/confirm', authenticateHrm8, commissionController.confirm);
+router.put('/commissions/:id/pay', authenticateHrm8, commissionController.markAsPaid);
+
+// Compliance Routes
+router.get('/compliance/alerts', authenticateHrm8, complianceController.getAlerts);
+router.get('/compliance/summary', authenticateHrm8, complianceController.getAlertSummary);
+router.get('/compliance/audit/recent', authenticateHrm8, complianceController.getRecentAudit);
+router.get('/compliance/audit/:entityType/:entityId', authenticateHrm8, complianceController.getAuditHistory);
+
+// Job Allocation Routes
+router.get('/job-allocation/stats', authenticateHrm8, jobAllocationController.getStats);
+router.post('/job-allocation', authenticateHrm8, jobAllocationController.allocate);
+router.get('/job-allocation/licensee/:id', authenticateHrm8, jobAllocationController.getByLicensee);
+router.delete('/job-allocation/:id', authenticateHrm8, jobAllocationController.deallocate);
+
+router.post('/jobs/:jobId/assign-consultant', authenticateHrm8, jobAllocationController.assignConsultant);
+router.post('/jobs/:jobId/assign-region', authenticateHrm8, jobAllocationController.assignRegion);
+router.post('/jobs/:jobId/unassign', authenticateHrm8, jobAllocationController.unassign);
+router.get('/jobs/:jobId/consultants', authenticateHrm8, jobAllocationController.getJobConsultants);
+router.get('/jobs/allocation', authenticateHrm8, jobAllocationController.getJobsForAllocation);
+router.get('/jobs/:jobId/assignment-info', authenticateHrm8, jobAllocationController.getAssignmentInfo);
+router.post('/jobs/:jobId/auto-assign', authenticateHrm8, jobAllocationController.autoAssign);
+router.get('/consultants/for-assignment', authenticateHrm8, jobAllocationController.getConsultantsForAssignment);
+
+// Regional Licensee Routes
+router.get('/regional-licensee', authenticateHrm8, regionalLicenseeController.getAll);
+router.get('/regional-licensee/stats', authenticateHrm8, regionalLicenseeController.getStats);
+router.get('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.getById);
+router.post('/regional-licensee', authenticateHrm8, regionalLicenseeController.create);
+router.put('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.update);
+router.delete('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.delete);
+router.put('/regional-licensee/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
+router.get('/regional-licensee/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+
+// Legacy Alias for Frontend Compatibility
+router.get('/licensees', authenticateHrm8, regionalLicenseeController.getAll);
+router.get('/licensees/stats', authenticateHrm8, regionalLicenseeController.getStats);
+router.get('/licensees/:id', authenticateHrm8, regionalLicenseeController.getById);
+router.post('/licensees', authenticateHrm8, regionalLicenseeController.create);
+router.put('/licensees/:id', authenticateHrm8, regionalLicenseeController.update);
+router.delete('/licensees/:id', authenticateHrm8, regionalLicenseeController.delete);
+router.put('/licensees/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
+router.get('/licensees/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+
+// Lead Conversion Routes
+router.get('/conversion-requests', authenticateHrm8, leadConversionController.getAll);
+router.get('/conversion-requests/:id', authenticateHrm8, leadConversionController.getOne);
+router.put('/conversion-requests/:id/approve', authenticateHrm8, leadConversionController.approve);
+router.put('/conversion-requests/:id/decline', authenticateHrm8, leadConversionController.decline);
+
+// Refund Routes
+router.get('/refund-requests', authenticateHrm8, refundController.getAll);
+router.put('/refund-requests/:id/approve', authenticateHrm8, refundController.approve);
+router.put('/refund-requests/:id/reject', authenticateHrm8, refundController.reject);
+router.put('/refund-requests/:id/complete', authenticateHrm8, refundController.complete);
+
+// Pricing Routes
+router.get('/pricing/products', authenticateHrm8, pricingController.getProducts);
+router.get('/pricing/price-books', authenticateHrm8, pricingController.getPriceBooks);
+
+// Region Routes
+router.get('/regions', authenticateHrm8, regionController.getAll);
+router.get('/regions/:id', authenticateHrm8, regionController.getById);
+router.post('/regions', authenticateHrm8, regionController.create);
+router.put('/regions/:id', authenticateHrm8, regionController.update);
+router.delete('/regions/:id', authenticateHrm8, regionController.delete);
+router.post('/regions/:regionId/assign-licensee', authenticateHrm8, regionController.assignLicensee);
+router.post('/regions/:regionId/unassign-licensee', authenticateHrm8, regionController.unassignLicensee);
+router.get('/regions/:regionId/transfer-impact', authenticateHrm8, regionController.getTransferImpact);
+router.post('/regions/:regionId/transfer-ownership', authenticateHrm8, regionController.transferOwnership);
+
+// Staff Management Routes
+router.get('/consultants', authenticateHrm8, staffController.getAll);
+router.get('/consultants/:id', authenticateHrm8, staffController.getById);
+router.post('/consultants', authenticateHrm8, staffController.create);
+router.put('/consultants/:id', authenticateHrm8, staffController.update);
+router.post('/consultants/:id/assign-region', authenticateHrm8, staffController.assignRegion);
+router.post('/consultants/:id/suspend', authenticateHrm8, staffController.suspend);
+router.post('/consultants/:id/reactivate', authenticateHrm8, staffController.reactivate);
+router.delete('/consultants/:id', authenticateHrm8, staffController.delete);
+router.post('/consultants/generate-email', authenticateHrm8, staffController.generateEmail);
+router.post('/consultants/:id/reassign-jobs', authenticateHrm8, staffController.reassignJobs);
+router.get('/consultants/:id/pending-tasks', authenticateHrm8, staffController.getPendingTasks);
+router.get('/consultants/:id/reassignment-options', authenticateHrm8, staffController.getReassignmentOptions);
+router.put('/consultants/:id/change-role', authenticateHrm8, staffController.changeRole);
+router.post('/consultants/:id/invite', authenticateHrm8, staffController.invite);
+
+// Analytics Routes
+router.get('/analytics/overview', authenticateHrm8, analyticsController.getPlatformOverview);
+router.get('/analytics/trends', authenticateHrm8, analyticsController.getPlatformTrends);
+router.get('/analytics/top-companies', authenticateHrm8, analyticsController.getTopCompanies);
+router.get('/analytics/regional/:regionId/operational', authenticateHrm8, analyticsController.getOperationalStats);
+router.get('/analytics/regional/:regionId/companies', authenticateHrm8, analyticsController.getRegionalCompanies);
+
+// Regional Sales Routes
+router.get('/sales/regional/opportunities', authenticateHrm8, regionalSalesController.getOpportunities);
+router.get('/sales/regional/stats', authenticateHrm8, regionalSalesController.getStats);
+router.get('/sales/regional/activities', authenticateHrm8, regionalSalesController.getActivities);
+router.get('/leads/regional', authenticateHrm8, regionalSalesController.getOpportunities); // Mapping to same for now
+router.post('/leads/:leadId/reassign', authenticateHrm8, regionalSalesController.reassignLead);
+
+// Revenue Routes
+router.get('/revenue/regional', authenticateHrm8, revenueController.getAll);
+router.get('/revenue/regional/:id', authenticateHrm8, revenueController.getById);
+router.put('/revenue/regional/:id/confirm', authenticateHrm8, revenueController.confirm);
+router.put('/revenue/regional/:id/pay', authenticateHrm8, revenueController.markAsPaid);
+router.get('/revenue/analytics/company-breakdown', authenticateHrm8, revenueController.getCompanyBreakdown);
+router.get('/revenue/dashboard', authenticateHrm8, revenueController.getDashboard);
+router.get('/revenue/summary', authenticateHrm8, revenueController.getSummary);
+
+// Withdrawal Routes
+router.get('/admin/billing/withdrawals', authenticateHrm8, withdrawalController.getPendingWithdrawals);
+router.put('/admin/billing/withdrawals/:id/approve', authenticateHrm8, withdrawalController.approve);
+router.put('/admin/billing/withdrawals/:id/reject', authenticateHrm8, withdrawalController.reject);
+router.put('/admin/billing/withdrawals/:id/process', authenticateHrm8, withdrawalController.processPayment);
+
+// Settlement Routes
+router.get('/admin/billing/settlements', authenticateHrm8, settlementController.getAll);
+router.get('/admin/billing/settlements/stats', authenticateHrm8, settlementController.getStats);
+
+// Settings Routes
+router.get('/settings', authenticateHrm8, settingsController.getSettings);
+router.put('/settings/:key', authenticateHrm8, settingsController.updateSetting);
 
 export default router;
