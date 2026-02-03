@@ -174,9 +174,7 @@ export class Consultant360Service extends BaseService {
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
     // Fetch all commissions
-    console.log(`[Consultant360Service.getEarnings] Fetching earnings for consultantId: ${consultantId}`);
     const allCommissions = await this.repository.findCommissions({ consultant_id: consultantId });
-    console.log(`[Consultant360Service.getEarnings] Found ${allCommissions.length} commissions`);
 
     // Helper to calculate totals
     const calculateStats = (commissions: any[]) => {

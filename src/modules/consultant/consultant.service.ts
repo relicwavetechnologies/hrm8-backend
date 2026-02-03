@@ -150,12 +150,9 @@ export class ConsultantService extends BaseService {
     let cleanJobId = jobId;
     if (jobId.includes(' ') && !jobId.includes('-') && jobId.length === 36) { // 32 chars + 4 spaces = 36
       cleanJobId = jobId.replace(/\s/g, '-');
-      console.log(`[ConsultantService] Sanitized jobId: "${jobId}" -> "${cleanJobId}"`);
     } else if (jobId.length > 36 && jobId.includes('%20')) {
       cleanJobId = decodeURIComponent(jobId);
     }
-
-    console.log(`[ConsultantService.getJobDetails] Fetching details for job: "${cleanJobId}"`);
 
     // 1. Verify availability/assignment
     const assignment = await prisma.consultantJobAssignment.findFirst({
@@ -163,7 +160,6 @@ export class ConsultantService extends BaseService {
     });
 
     if (!assignment) {
-      console.warn(`[ConsultantService] Assignment not found for job: ${cleanJobId}`);
       throw new HttpException(403, 'Consultant is not assigned to this job');
     }
 
@@ -258,7 +254,6 @@ export class ConsultantService extends BaseService {
     const performance = await this.getPerformanceMetrics(consultantId);
 
     // 2. Get active jobs (recent assignments)
-    console.log(`[ConsultantService.getDashboardAnalytics] Fetching assignments for consultant: ${consultantId}`);
     const assignments = await prisma.consultantJobAssignment.findMany({
       where: { consultant_id: consultantId, status: 'ACTIVE' },
       take: 5,
@@ -277,10 +272,6 @@ export class ConsultantService extends BaseService {
       }
     });
 
-    console.log(`[ConsultantService.getDashboardAnalytics] Found ${assignments.length} assignments.`);
-    assignments.forEach(a => {
-      console.log(`[ConsultantService] Job: ${a.job.title} (${a.job.id}), Applications: ${a.job.applications.length}`);
-    });
 
     const activeJobs = assignments.map(a => ({
       id: a.job.id,

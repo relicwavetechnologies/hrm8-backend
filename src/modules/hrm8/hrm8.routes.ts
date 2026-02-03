@@ -21,6 +21,7 @@ import { FinanceController } from './finance.controller';
 import { CapacityController } from './capacity.controller';
 import { AlertController } from './alert.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
+import { Hrm8ProfileController } from './profile.controller';
 
 import { CareersRequestController } from './careers-request.controller';
 
@@ -47,12 +48,17 @@ const financeController = new FinanceController();
 const capacityController = new CapacityController();
 const alertController = new AlertController();
 const careersRequestController = new CareersRequestController();
+const profileController = new Hrm8ProfileController();
 
 // Auth Routes
 router.post('/auth/login', hrm8Controller.login);
 router.post('/auth/logout', hrm8Controller.logout);
 router.get('/auth/me', authenticateHrm8, hrm8Controller.getCurrentUser);
 router.put('/auth/change-password', authenticateHrm8, hrm8Controller.changePassword);
+
+// Profile Routes
+router.get('/profile', authenticateHrm8, profileController.getProfile);
+router.put('/profile', authenticateHrm8, profileController.updateProfile);
 
 // Audit Log Routes
 router.get('/audit-logs', authenticateHrm8, auditLogController.getRecent);
