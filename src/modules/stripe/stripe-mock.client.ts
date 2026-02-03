@@ -102,9 +102,24 @@ export class MockStripeClient implements IStripeClient {
      * Retrieve a mock Stripe account
      */
     retrieve: async (accountId: string): Promise<StripeAccount> => {
-      const account = mockAccounts.get(accountId);
+      let account = mockAccounts.get(accountId);
+
+      // If not in memory (e.g. server restarted), create a mock one to match the ID
       if (!account) {
-        throw new Error(`Account not found: ${accountId}`);
+        logger.info('Mock account not found in memory, recreating from ID', { accountId });
+        account = {
+          id: accountId,
+          object: 'account',
+          type: 'express',
+          country: 'US',
+          email: 'recovered@mock.com',
+          details_submitted: true, // Assume submitted if we are looking it up (it was saved in DB)
+          payouts_enabled: true,   // Assume enabled
+          charges_enabled: true,
+          capabilities: { transfers: 'active' },
+          created: Math.floor(Date.now() / 1000),
+        };
+        mockAccounts.set(accountId, account);
       }
       return account;
     },
@@ -206,7 +221,9 @@ export class MockStripeClient implements IStripeClient {
 export async function completeMockPayment(sessionId: string): Promise<void> {
   const session = mockSessions.get(sessionId);
   if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
+    logger.warn('Mock session not found for payment, ignoring', { sessionId });
+    // Don't throw, just ignore to prevent crashes if session lost
+    return;
   }
 
   // Update session to completed
@@ -242,13 +259,27 @@ export function getAllMockSessions(): Map<string, StripeCheckoutSession> {
  * Manually approve a mock account (for testing)
  */
 export function approveMockAccount(accountId: string): void {
-  const account = mockAccounts.get(accountId);
-  if (account) {
-    account.details_submitted = true;
-    account.payouts_enabled = true;
-    account.charges_enabled = true;
+  let account = mockAccounts.get(accountId);
+  if (!account) {
+    // Create if missing so approval works
+    account = {
+      id: accountId,
+      object: 'account',
+      type: 'express',
+      country: 'US',
+      email: 'recovered@mock.com',
+      details_submitted: false,
+      payouts_enabled: false,
+      charges_enabled: false,
+      created: Math.floor(Date.now() / 1000),
+    };
     mockAccounts.set(accountId, account);
   }
+
+  account.details_submitted = true;
+  account.payouts_enabled = true;
+  account.charges_enabled = true;
+  mockAccounts.set(accountId, account);
 }
 
 /**

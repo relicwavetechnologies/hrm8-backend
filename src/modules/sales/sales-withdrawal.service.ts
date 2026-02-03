@@ -214,22 +214,58 @@ export class SalesWithdrawalService {
     }
 
     async initiateStripeOnboarding(consultantId: string) {
+        const { StripeFactory } = await import('../stripe/stripe.factory');
+
         const consultant = await prisma.consultant.findUnique({
             where: { id: consultantId }
         });
 
         if (!consultant) throw new HttpException(404, 'Consultant not found');
-        if (consultant.stripe_account_id) {
-            throw new HttpException(400, 'Consultant already has a Stripe account connected');
+
+        let accountId = consultant.stripe_account_id;
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+        const returnPath = '/consultant360/earnings'; // Sales agents use consultant360
+
+        // Create account if doesn't exist
+        if (!accountId) {
+            const stripe = StripeFactory.getClient();
+            const account = await stripe.accounts.create({
+                type: 'express',
+                country: 'US',
+                email: consultant.email,
+                capabilities: { transfers: { requested: true } },
+                metadata: {
+                    consultant_id: consultantId,
+                    role: consultant.role
+                }
+            });
+
+            accountId = account.id;
+
+            // Update DB - mock accounts auto-approve, real accounts stay pending
+            await prisma.consultant.update({
+                where: { id: consultantId },
+                data: {
+                    stripe_account_id: accountId,
+                    stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
+                    payout_enabled: StripeFactory.isUsingMock() ? true : false
+                }
+            });
         }
 
-        // TODO: Implement actual Stripe Connect onboarding flow
-        const onboardingUrl = `https://connect.stripe.com/onboarding?stripe_user[email]=${consultant.email}&stripe_user[country]=US`;
+        // Generate onboarding link
+        const stripe = StripeFactory.getClient();
+        const accountLink = await stripe.accountLinks.create({
+            account: accountId,
+            refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
+            return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
+            type: 'account_onboarding'
+        });
 
         return {
-            message: 'Stripe onboarding initiated',
-            onboardingUrl: onboardingUrl,
-            redirectUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/consultant/stripe/callback`
+            accountId,
+            onboardingUrl: accountLink.url,
+            accountLink: { url: accountLink.url }
         };
     }
 
