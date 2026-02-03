@@ -303,8 +303,7 @@ export class Consultant360Service extends BaseService {
       payment_details: paymentDetails,
       commission_ids: commissionIds,
       notes,
-      status: 'PENDING',
-      requested_at: new Date()
+      status: 'PENDING'
     });
   }
 
@@ -374,18 +373,52 @@ export class Consultant360Service extends BaseService {
 
   // --- Stripe ---
   async initiateStripeOnboarding(consultantId: string) {
+    const { StripeFactory } = await import('../stripe/stripe.factory');
+
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    // Generate Stripe Connect OAuth URL
-    const clientId = process.env.STRIPE_CLIENT_ID;
-    const redirectUri = `${process.env.API_URL || 'http://localhost:3000'}/api/consultant360/stripe/callback`;
+    let accountId = consultant.stripe_account_id;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const returnPath = '/consultant360/earnings';
 
-    const stripeUrl = `https://connect.stripe.com/oauth/authorize?client_id=${clientId}&state=${consultantId}&redirect_uri=${redirectUri}&stripe_user[business_type]=individual&stripe_user[email]=${consultant.email}`;
+    // Create account if doesn't exist
+    if (!accountId) {
+      const stripe = StripeFactory.getClient();
+      const account = await stripe.accounts.create({
+        type: 'express',
+        country: 'US',
+        email: consultant.email,
+        capabilities: { transfers: { requested: true } },
+        metadata: {
+          consultant_id: consultantId,
+          role: consultant.role
+        }
+      });
+
+      accountId = account.id;
+
+      // Update DB - mock accounts auto-approve, real accounts stay pending
+      await this.repository.updateConsultant(consultantId, {
+        stripe_account_id: accountId,
+        stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
+        payout_enabled: StripeFactory.isUsingMock() ? true : false
+      });
+    }
+
+    // Generate onboarding link
+    const stripe = StripeFactory.getClient();
+    const accountLink = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
+      return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
+      type: 'account_onboarding'
+    });
 
     return {
-      onboardingUrl: stripeUrl,
-      message: 'Redirect to this URL to complete Stripe onboarding'
+      accountId,
+      onboardingUrl: accountLink.url,
+      accountLink: { url: accountLink.url }
     };
   }
 
@@ -393,10 +426,24 @@ export class Consultant360Service extends BaseService {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
+    const hasAccount = !!consultant.stripe_account_id;
+    // For mock/simple logic, we assume if status is 'active' or 'completed', it's good.
+    // In production this might need a live fetch to Stripe.
+    const isMock = process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') || !process.env.STRIPE_SECRET_KEY;
+
+    // If we have an account and it's marked active/payout_enabled in DB
+    const isEnabled = hasAccount && (
+      consultant.stripe_account_status === 'active' ||
+      consultant.payout_enabled === true
+    );
+
     return {
-      accountId: consultant.stripe_account_id || null,
-      status: consultant.stripe_account_status || 'NOT_CONNECTED',
-      onboardedAt: consultant.stripe_onboarded_at || null
+      hasAccount,
+      accountId: consultant.stripe_account_id || undefined,
+      payoutsEnabled: isEnabled,
+      chargesEnabled: isEnabled,
+      detailsSubmitted: isEnabled, // specific to this flow simplification
+      requiresAction: hasAccount && !isEnabled
     };
   }
 

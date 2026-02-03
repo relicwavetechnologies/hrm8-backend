@@ -6,6 +6,8 @@
 import { Router } from 'express';
 import { StripeController } from './stripe.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticateConsultant } from '../../middlewares/consultant-auth.middleware';
+
 
 const router = Router();
 const stripeController = new StripeController();
@@ -27,6 +29,25 @@ router.post(
 router.post(
   '/mock-payment-success',
   stripeController.mockPaymentSuccess
+);
+
+/**
+ * Mock payment success (dev only)
+ * Simulates successful payment and triggers webhook
+ */
+router.post(
+  '/mock-payment-success',
+  stripeController.mockPaymentSuccess
+);
+
+/**
+ * Approve mock account (dev only)
+ * Manually approve a mock Stripe Connect account for testing
+ */
+router.post(
+  '/approve-mock-account',
+  authenticateConsultant,
+  stripeController.approveMockAccount
 );
 
 /**

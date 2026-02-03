@@ -156,6 +156,35 @@ export class StripeController extends BaseController {
   };
 
   /**
+   * Approve mock Stripe account (DEV only)
+   * POST /api/integrations/stripe/approve-mock-account
+   */
+  approveMockAccount = async (req: Request, res: Response) => {
+    try {
+      if (!StripeFactory.isUsingMock()) {
+        return this.sendError(res, new Error('Only available in mock mode'), 403);
+      }
+
+      const { accountId } = req.body;
+      if (!accountId) {
+        return this.sendError(res, new Error('accountId required'), 400);
+      }
+
+      const { approveMockAccount } = await import('./stripe-mock.client');
+      approveMockAccount(accountId);
+
+      this.logger.info('Mock account approved', { accountId });
+
+      return this.sendSuccess(res, {
+        message: 'Mock account approved',
+        accountId
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  /**
    * Get Stripe connection status
    * GET /api/integrations/stripe/status
    */
