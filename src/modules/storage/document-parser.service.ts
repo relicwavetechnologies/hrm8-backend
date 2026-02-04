@@ -81,15 +81,22 @@ export class DocumentParserService {
       throw new Error('File buffer is empty');
     }
 
-    if (mimeType === 'application/pdf') {
+    // Helper to check magic bytes
+    const isPDF = (buf: Buffer) => buf.length > 4 && buf.slice(0, 4).toString() === '%PDF';
+    const isDOCX = (buf: Buffer) => buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4B;
+
+    if (mimeType === 'application/pdf' || isPDF(buffer)) {
       return this.parsePDF(buffer);
     } else if (
       mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      mimeType === 'application/msword'
+      mimeType === 'application/msword' ||
+      isDOCX(buffer)
     ) {
       return this.parseDOCX(buffer);
     } else if (mimeType === 'text/plain') {
       return this.parseTXT(buffer);
+    } else if (mimeType === 'application/octet-stream') {
+      throw new Error(`Unsupported file type: ${mimeType} (signature unknown). Supported types: PDF, DOCX, DOC, TXT`);
     } else {
       throw new Error(`Unsupported file type: ${mimeType}. Supported types: PDF, DOCX, DOC, TXT`);
     }

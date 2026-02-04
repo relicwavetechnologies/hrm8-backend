@@ -8,6 +8,7 @@ const applicationController = new ApplicationController();
 
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', authenticate, applicationController.bulkScoreCandidates);
+router.post('/bulk-analyze', authenticate, applicationController.bulkAiAnalysis);
 
 // Check if candidate has applied
 router.get('/check', authenticateUnified, applicationController.checkApplication);
@@ -43,5 +44,9 @@ router.put('/:id/notes', authenticate, applicationController.updateNotes);
 router.post('/:id/withdraw', authenticateUnified, applicationController.withdrawApplication);
 router.delete('/:id', authenticate, applicationController.deleteApplication);
 router.put('/:id/read', authenticate, applicationController.markAsRead);
+
+// Evaluation Routes
+router.post('/:id/evaluate', authenticate, applicationController.addEvaluation);
+router.get('/:id/evaluations', authenticate, applicationController.getEvaluations);
 
 export default router;

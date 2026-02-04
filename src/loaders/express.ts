@@ -23,8 +23,8 @@ import subscriptionRoutes from '../modules/subscription/subscription.routes';
 import resumeRoutes from '../modules/resume/resume.routes';
 import consultant360Routes from '../modules/consultant360/consultant360.routes';
 import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
-import adminRoutes from '../modules/admin/admin.routes';
-import emailTemplateRoutes from '../modules/email-template/email-template.routes';
+import aiRoutes from '../modules/ai/ai.routes';
+import emailTemplateRoutes from '../modules/email/email-template.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -59,6 +59,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/jobs', jobRoutes);
   app.use('/api/applications', applicationRoutes);
   app.use('/api/assessment', assessmentRoutes);
+  app.use('/api/assessments', assessmentRoutes); // Plural alias for consistency
   app.use('/api/communication', communicationRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/integration', integrationRoutes);
@@ -76,19 +77,8 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/resumes', resumeRoutes);
   app.use('/api/consultant360', consultant360Routes);
   app.use('/api/admin/billing', adminBillingRoutes);
-  app.use('/api/admin', adminRoutes);
+  app.use('/api/ai', aiRoutes);
   app.use('/api/email-templates', emailTemplateRoutes);
-
-  // Diagnostic endpoints
-  app.use('/api/dev/session-info', (req, res) => {
-    res.json({
-      cookies: Object.keys(req.cookies || {}),
-      sessionId: !!req.cookies?.sessionId,
-      candidateSessionId: !!req.cookies?.candidateSessionId,
-      hrm8SessionId: !!req.cookies?.hrm8SessionId,
-      consultantToken: !!req.cookies?.consultantToken,
-    });
-  });
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

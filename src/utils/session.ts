@@ -41,12 +41,13 @@ export function isSessionExpired(expiresAt: Date): boolean {
 export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
 
-  // For localhost development (different ports), 'lax' works because they're same-site
-  // In production with different domains, use 'none' with secure flag
-  let sameSite: 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
-  let secure = isProduction; // Only require HTTPS in production
+  // Determine sameSite setting:
+  // - If explicitly set via env var, use that
+  // - Default to 'lax' which works for localhost development (ports don't affect SameSite)
+  // - sameSite: 'none' requires Secure: true, which is fine on localhost but strict in browsers
+  let sameSite: 'lax' | 'strict' | 'none' = 'lax';
+  let secure = false;
 
-  // Allow override via environment variable
   if (process.env.COOKIE_SAME_SITE) {
     const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
     if (envValue === 'none' || envValue === 'strict' || envValue === 'lax') {
@@ -54,8 +55,8 @@ export function getSessionCookieOptions(maxAge?: number) {
     }
   }
 
-  // If sameSite is 'none', secure MUST be true (browser requirement)
-  if (sameSite === 'none') {
+  // In production, or if SameSite=None, we MUST use Secure
+  if (isProduction || sameSite === 'none') {
     secure = true;
   }
 

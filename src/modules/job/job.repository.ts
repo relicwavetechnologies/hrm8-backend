@@ -277,4 +277,59 @@ export class JobRepository extends BaseRepository {
       hiringModes: aggregate(jobs.map(j => j.hiring_mode)),
     };
   }
+
+  // Team Management Methods
+
+  async addTeamMember(jobId: string, data: any): Promise<any> {
+    return this.prisma.jobHiringTeamMember.create({
+      data: {
+        ...data,
+        job: { connect: { id: jobId } },
+      }
+    });
+  }
+
+  async getTeamMembers(jobId: string): Promise<any[]> {
+    return this.prisma.jobHiringTeamMember.findMany({
+      where: { job_id: jobId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+  }
+
+  async updateTeamMember(id: string, data: any): Promise<any> {
+    return this.prisma.jobHiringTeamMember.update({
+      where: { id },
+      data
+    });
+  }
+
+  async removeTeamMember(id: string): Promise<any> {
+    return this.prisma.jobHiringTeamMember.delete({
+      where: { id }
+    });
+  }
+
+  async findTeamMemberByEmail(jobId: string, email: string): Promise<any | null> {
+    return this.prisma.jobHiringTeamMember.findFirst({
+      where: {
+        job_id: jobId,
+        email: { equals: email, mode: 'insensitive' }
+      }
+    });
+  }
+
+  async findUserByEmail(email: string): Promise<any | null> {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } }
+    });
+  }
 }

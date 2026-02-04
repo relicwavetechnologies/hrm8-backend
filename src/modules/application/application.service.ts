@@ -1,13 +1,14 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage } from '@prisma/client';
+import { Application, ApplicationStatus, ApplicationStage, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { CandidateScoringService } from '../ai/candidate-scoring.service';
 import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
 import { DocumentParser } from '../../utils/document-parser';
+import { prisma } from '../../utils/prisma';
+import { emailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
-import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 
 export class ApplicationService extends BaseService {
   constructor(
@@ -58,16 +59,50 @@ export class ApplicationService extends BaseService {
       console.error('Failed to trigger AI analysis:', err);
     });
 
-    // Notify Candidate of successful submission
-    await this.notificationService.createNotification({
-      recipientType: NotificationRecipientType.CANDIDATE,
-      recipientId: data.candidateId,
-      type: UniversalNotificationType.NEW_APPLICATION,
-      title: 'Application Received',
-      message: 'Your application has been successfully submitted.',
-      data: { applicationId: application.id, jobId: data.jobId },
-      actionUrl: `/candidate/applications/${application.id}`,
-    });
+    // Handle Auto-Email for NEW round
+    // Non-blocking catch-all to prevent application failure if email fails
+    (async () => {
+      try {
+        const newRound = await prisma.jobRound.findFirst({
+          where: {
+            job_id: data.jobId,
+            is_fixed: true,
+            fixed_key: 'NEW'
+          }
+        });
+
+        if (newRound?.email_config) {
+          const config = newRound.email_config as any;
+          if (config.enabled && config.templateId) {
+            // Fetch candidate to get email if not in request
+            // Ideally we use the application's candidate relation but we just created it. 
+            // We have data.candidateId.
+            const candidate = await this.candidateRepository.findById(data.candidateId);
+
+            // Fetch job to get companyId
+            const job = await prisma.job.findUnique({
+              where: { id: data.jobId },
+              select: { company_id: true }
+            });
+
+            if (candidate && candidate.email && job?.company_id) {
+              await emailService.sendTemplateEmail({
+                to: candidate.email,
+                templateId: config.templateId,
+                contextIds: {
+                  candidateId: candidate.id,
+                  jobId: data.jobId,
+                  companyId: job.company_id
+                }
+              });
+              console.log(`[Auto-Email] Sent 'New Application' email to ${candidate.email}`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Auto-Email] Failed to process auto-email for new application:', err);
+      }
+    })();
 
     return application;
   }
@@ -115,7 +150,6 @@ export class ApplicationService extends BaseService {
         status: result.recommendation === 'strong_no_hire' ? 'FAILED' : 'PASSED',
         score: result.scores.overall,
         criteriaMatched: result, // Save full analysis JSON
-        reviewedBy: 'AI_SYSTEM'
       });
 
       // Update application score
@@ -125,6 +159,23 @@ export class ApplicationService extends BaseService {
       console.error('Error in triggerAiAnalysis:', error);
       // Log but don't fail the request
     }
+  }
+
+  async bulkAiAnalysis(applicationIds: string[], jobId: string): Promise<{ success: number; failed: number }> {
+    let success = 0;
+    let failed = 0;
+
+    await Promise.all(applicationIds.map(async (id) => {
+      try {
+        await this.triggerAiAnalysis(id, jobId);
+        success++;
+      } catch (error) {
+        console.error(`Failed to analyze application ${id}`, error);
+        failed++;
+      }
+    }));
+
+    return { success, failed };
   }
 
   private mapApplication(app: any): Application {
@@ -176,12 +227,7 @@ export class ApplicationService extends BaseService {
 
     return {
       ...app,
-      // Map document URLs to camelCase for frontend
-      resumeUrl: app.resume_url,
-      coverLetterUrl: app.cover_letter_url,
-      portfolioUrl: app.portfolio_url,
-      linkedInUrl: app.linked_in_url,
-      websiteUrl: app.website_url,
+      recruiterNotes: app.recruiter_notes,
       // Map screening_result to aiAnalysis property expected by frontend
       aiAnalysis,
       // Map candidate details to parsedResume property expected by frontend
@@ -572,5 +618,29 @@ export class ApplicationService extends BaseService {
     // Trigger Emails (Omitted/Placeholder as EmailAutomationService might not exist or be different)
 
     return updatedApp;
+  }
+
+  async addEvaluation(data: {
+    applicationId: string;
+    userId: string;
+    score?: number;
+    comment?: string;
+    decision?: 'APPROVE' | 'REJECT' | 'PENDING';
+  }) {
+    const evaluation = await this.applicationRepository.addEvaluation(data);
+
+    // If decision provided, handle application status update
+    // Only 'APPROVE' or 'REJECT' should trigger status changes AND only if user has permission (handled in Controller/Middleware)
+    // Assuming Permission Check is done before calling this service or within the controller.
+
+    // Note: The prompt implies: "if shortlisting type user or admin approve or reject candidate it will be marked as shortlisted and rejected"
+    // We'll handle the status update logic in the controller to keep service focused, OR here if we pass user role.
+    // For now, simpler to return evaluation and let controller decide on status update based on role.
+
+    return evaluation;
+  }
+
+  async getEvaluations(applicationId: string) {
+    return this.applicationRepository.getEvaluations(applicationId);
   }
 }

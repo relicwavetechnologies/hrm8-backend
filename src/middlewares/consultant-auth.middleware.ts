@@ -146,6 +146,7 @@ export async function authenticateConsultant(
       error: 'Not authenticated. Please login.',
     });
     return;
+
   } catch (error) {
     console.error('[authenticateConsultant] Error:', error);
     res.status(401).json({

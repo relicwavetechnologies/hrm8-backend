@@ -410,4 +410,74 @@ export class JobController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  inviteHiringTeamMember = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const { email, name, role, permissions } = req.body;
+
+      if (!email || !role) {
+        return this.sendError(res, new Error('Email and role are required'), 400);
+      }
+
+      // Verify job access
+      await this.jobService.getJob(id, req.user.companyId);
+
+      await this.jobService.inviteTeamMember(id, req.user.companyId, { email, name, role, permissions });
+
+      return this.sendSuccess(res, { message: 'Invitation sent successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getHiringTeam = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+
+      const members = await this.jobService.getTeamMembers(id, req.user.companyId);
+      return this.sendSuccess(res, members);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateHiringTeamMemberRole = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id, memberId } = req.params as { id: string; memberId: string };
+      const { role } = req.body;
+
+      await this.jobService.updateTeamMemberRole(id, memberId, req.user.companyId, role);
+      return this.sendSuccess(res, { message: 'Role updated successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  removeHiringTeamMember = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id, memberId } = req.params as { id: string; memberId: string };
+
+      await this.jobService.removeTeamMember(id, memberId, req.user.companyId);
+      return this.sendSuccess(res, { message: 'Member removed successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resendHiringTeamInvite = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id, memberId } = req.params as { id: string; memberId: string };
+
+      await this.jobService.resendInvite(id, memberId, req.user.companyId);
+      return this.sendSuccess(res, { message: 'Invitation resent successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

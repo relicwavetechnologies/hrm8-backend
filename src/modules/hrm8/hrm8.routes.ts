@@ -24,6 +24,7 @@ import { RegionalCompanyController } from './regional-company.controller';
 import { FinanceController } from './finance.controller';
 import { CapacityController } from './capacity.controller';
 import { AlertController } from './alert.controller';
+import { MessagingController } from './messaging.controller';
 import { authenticateHrm8, requireHrm8Role } from '../../middlewares/hrm8-auth.middleware';
 import { Hrm8ProfileController } from './profile.controller';
 
@@ -53,6 +54,7 @@ const companyIntegrationController = new CompanyIntegrationController();
 const financeController = new FinanceController();
 const capacityController = new CapacityController();
 const alertController = new AlertController();
+const messagingController = new MessagingController();
 const careersRequestController = new CareersRequestController();
 const profileController = new Hrm8ProfileController();
 
@@ -269,6 +271,9 @@ router.get('/consultants/capacity-warnings', authenticateHrm8, capacityControlle
 
 // System Alerts Routes
 router.get('/alerts', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), alertController.getActiveAlerts);
+
+// Messaging providers (email only)
+router.get('/messaging/providers', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), messagingController.getProviders);
 
 // Aliases for Frontend Compatibility
 router.get('/finance/settlements', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), settlementController.getAll);
