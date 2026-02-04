@@ -14,11 +14,30 @@ export class CommissionController extends BaseController {
 
     getAll = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const { limit, offset, consultantId } = req.query;
+            const {
+                limit,
+                offset,
+                consultantId,
+                regionId,
+                jobId,
+                companyId,
+                status,
+                commissionType,
+                consultant_id,
+                region_id,
+                job_id,
+                company_id,
+                commission_type,
+            } = req.query as Record<string, string | undefined>;
             const result = await this.commissionService.getAll({
                 limit: limit ? Number(limit) : undefined,
                 offset: offset ? Number(offset) : undefined,
-                consultantId: consultantId as string,
+                consultantId: consultantId || consultant_id,
+                regionId: regionId || region_id,
+                jobId: jobId || job_id,
+                companyId: companyId || company_id,
+                status: status as string,
+                commissionType: commissionType || commission_type,
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -38,7 +57,16 @@ export class CommissionController extends BaseController {
 
     create = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.commissionService.create(req.body);
+            const body = req.body || {};
+            const result = await this.commissionService.create({
+                consultantId: body.consultantId || body.consultant_id,
+                jobId: body.jobId || body.job_id,
+                subscriptionId: body.subscriptionId || body.subscription_id,
+                type: body.commissionType || body.commission_type || body.type,
+                amount: body.amount,
+                rate: body.rate,
+                description: body.description,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -58,7 +86,11 @@ export class CommissionController extends BaseController {
     markAsPaid = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.commissionService.markAsPaid(id as string);
+            const { paymentReference, payment_reference } = req.body;
+            const result = await this.commissionService.markAsPaid(
+                id as string,
+                (paymentReference || payment_reference) as string | undefined
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -67,8 +99,11 @@ export class CommissionController extends BaseController {
 
     processPayments = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const { ids } = req.body;
-            await this.commissionService.processPayments(ids);
+            const { commissionIds, paymentReference, commission_ids, payment_reference } = req.body;
+            await this.commissionService.processPayments(
+                commissionIds || commission_ids,
+                paymentReference || payment_reference
+            );
             return this.sendSuccess(res, { message: 'Payments processed successfully' });
         } catch (error) {
             return this.sendError(res, error);
@@ -78,8 +113,8 @@ export class CommissionController extends BaseController {
     getRegional = async (req: AuthenticatedRequest, res: Response) => {
         try {
             // We might need to get region from user or query
-            const { regionId } = req.query;
-            const result = await this.commissionService.getRegional(regionId as string);
+            const { regionId, region_id } = req.query as Record<string, string | undefined>;
+            const result = await this.commissionService.getRegional((regionId || region_id) as string);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

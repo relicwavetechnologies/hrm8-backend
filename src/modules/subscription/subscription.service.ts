@@ -1,4 +1,5 @@
 import { prisma } from '../../utils/prisma';
+import type { Prisma } from '@prisma/client';
 import { WalletService } from '../wallet/wallet.service';
 import { 
   SubscriptionPlanType, 
@@ -14,6 +15,7 @@ export interface CreateSubscriptionInput {
   billingCycle: 'MONTHLY' | 'ANNUAL';
   jobQuota?: number | null;
   discountPercent?: number;
+  promoCode?: string;
   salesAgentId?: string;
   referredBy?: string;
   autoRenew?: boolean;
@@ -33,6 +35,7 @@ export class SubscriptionService {
       billingCycle,
       jobQuota,
       discountPercent = 0,
+      promoCode,
       salesAgentId,
       referredBy,
       autoRenew = true,
@@ -40,6 +43,56 @@ export class SubscriptionService {
     } = input;
 
     return await prisma.$transaction(async (tx) => {
+      let appliedDiscountPercent = discountPercent;
+      let finalBasePrice = basePrice;
+      let promoMetadata: Record<string, unknown> | null = null;
+
+      if (promoCode) {
+        const code = promoCode.trim().toUpperCase();
+        const promo = await tx.promoCode.findUnique({ where: { code } });
+
+        if (!promo) {
+          throw new Error('Invalid promo code');
+        }
+
+        if (!promo.is_active) {
+          throw new Error('Promo code is inactive');
+        }
+
+        const now = new Date();
+        if (promo.start_date > now) {
+          throw new Error('Promo code is not active yet');
+        }
+        if (promo.end_date && promo.end_date < now) {
+          throw new Error('Promo code has expired');
+        }
+        if (promo.max_uses && promo.used_count >= promo.max_uses) {
+          throw new Error('Promo code usage limit reached');
+        }
+
+        if (promo.discount_type === 'PERCENT') {
+          appliedDiscountPercent = promo.discount_value;
+          finalBasePrice = Math.max(0, basePrice - (basePrice * (promo.discount_value / 100)));
+        } else {
+          appliedDiscountPercent = 0;
+          finalBasePrice = Math.max(0, basePrice - promo.discount_value);
+        }
+
+        promoMetadata = {
+          promo_code_id: promo.id,
+          promo_code: promo.code,
+          discount_type: promo.discount_type,
+          discount_value: promo.discount_value,
+          original_base_price: basePrice,
+          discounted_base_price: finalBasePrice,
+        };
+
+        await tx.promoCode.update({
+          where: { id: promo.id },
+          data: { used_count: { increment: 1 } },
+        });
+      }
+
       // Calculate end date
       const endDate = new Date(startDate);
       if (billingCycle === 'MONTHLY') {
@@ -56,19 +109,20 @@ export class SubscriptionService {
           name,
           plan_type: planType,
           status: SubscriptionStatus.ACTIVE,
-          base_price: basePrice,
+          base_price: finalBasePrice,
           currency: 'USD',
           billing_cycle: billingCycle,
-          discount_percent: discountPercent,
+          discount_percent: appliedDiscountPercent,
           start_date: startDate,
           end_date: endDate,
           renewal_date: renewalDate,
           job_quota: jobQuota,
           jobs_used: 0,
-          prepaid_balance: basePrice,
+          prepaid_balance: finalBasePrice,
           auto_renew: autoRenew,
           sales_agent_id: salesAgentId,
           referred_by: referredBy,
+          custom_pricing: promoMetadata ? (promoMetadata as Prisma.InputJsonValue) : undefined,
         },
       });
 
@@ -82,7 +136,7 @@ export class SubscriptionService {
       
       await WalletService.creditAccount({
         accountId: account.id,
-        amount: basePrice,
+        amount: finalBasePrice,
         type: VirtualTransactionType.SUBSCRIPTION_PURCHASE,
         description: `${name} subscription purchase`,
         referenceType: 'SUBSCRIPTION',

@@ -14,9 +14,10 @@ export class SettlementController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { regionId, status } = req.query;
+            const { regionId, status, region_id } = req.query as Record<string, string | undefined>;
+            const regionIdValue = (regionId || region_id) ? String(regionId || region_id) : undefined;
             const result = await this.settlementService.getAll({
-                regionId: regionId as string,
+                regionId: regionIdValue,
                 regionIds: req.assignedRegionIds,
                 status: status as string,
             });
@@ -28,9 +29,10 @@ export class SettlementController extends BaseController {
 
     getStats = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { regionId } = req.query;
+            const { regionId, region_id } = req.query as Record<string, string | undefined>;
+            const regionIdValue = (regionId || region_id) ? String(regionId || region_id) : undefined;
             const result = await this.settlementService.getStats({
-                regionId: regionId as string,
+                regionId: regionIdValue,
                 regionIds: req.assignedRegionIds,
             });
             return this.sendSuccess(res, result);
@@ -40,11 +42,11 @@ export class SettlementController extends BaseController {
     };
     markAsPaid = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { id } = req.params;
-            const { paymentDate, paymentReference } = req.body;
+            const id = String((req.params as any).id);
+            const { paymentDate, paymentReference, payment_date, payment_reference } = req.body;
             const result = await this.settlementService.markAsPaid(id, {
-                paymentDate: new Date(paymentDate),
-                paymentReference,
+                paymentDate: new Date((paymentDate || payment_date) as string),
+                paymentReference: (paymentReference || payment_reference) as string,
             });
             return this.sendSuccess(res, result);
         } catch (error) {

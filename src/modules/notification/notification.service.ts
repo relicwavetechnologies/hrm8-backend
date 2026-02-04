@@ -125,4 +125,9 @@ export class NotificationService extends BaseService {
   async markAllAsRead(recipientType: NotificationRecipientType, recipientId: string) {
     return this.notificationRepository.markAllAsRead(recipientType, recipientId);
   }
+
+  async deleteNotification(id: string, recipientType: NotificationRecipientType, recipientId: string): Promise<boolean> {
+    console.log('🔧 [Service] deleteNotification called:', { id, recipientType, recipientId });
+    return this.notificationRepository.delete(id, recipientType, recipientId);
+  }
 }

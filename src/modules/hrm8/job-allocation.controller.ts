@@ -14,7 +14,64 @@ export class JobAllocationController extends BaseController {
     getJobDetail = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { jobId } = req.params;
-            const result = await this.jobAllocationService.getJobDetail(jobId as string);
+            const result = await this.jobAllocationService.getJobDetail(jobId as string, req.assignedRegionIds);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    getJobBoardCompanies = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { page, limit, search, region } = req.query as Record<string, string | undefined>;
+            const result = await this.jobAllocationService.getJobBoardCompanies({
+                page: page ? parseInt(page) : undefined,
+                limit: limit ? parseInt(limit) : undefined,
+                search: search || undefined,
+                regionId: region || undefined,
+                allowedRegionIds: req.assignedRegionIds,
+            });
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    updateJobVisibility = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { jobId } = req.params;
+            const { hidden } = req.body as { hidden: boolean };
+            const result = await this.jobAllocationService.updateJobVisibility({
+                jobId: jobId as string,
+                hidden: !!hidden,
+                performedBy: req.hrm8User?.id || 'system',
+                performedByEmail: req.hrm8User?.email,
+                performedByRole: req.hrm8User?.role,
+                allowedRegionIds: req.assignedRegionIds,
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'] as string | undefined,
+            });
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    updateJobStatus = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { jobId } = req.params;
+            const { status, notes } = req.body as { status: string; notes?: string };
+            const result = await this.jobAllocationService.updateJobStatus({
+                jobId: jobId as string,
+                status,
+                notes,
+                performedBy: req.hrm8User?.id || 'system',
+                performedByEmail: req.hrm8User?.email,
+                performedByRole: req.hrm8User?.role,
+                allowedRegionIds: req.assignedRegionIds,
+                ipAddress: req.ip,
+                userAgent: req.headers['user-agent'] as string | undefined,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -38,12 +95,12 @@ export class JobAllocationController extends BaseController {
     assignConsultant = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { jobId } = req.params;
-            const { consultantId, source } = req.body;
+            const { consultantId, source, assignmentSource } = req.body;
             const result = await this.jobAllocationService.allocate({
                 jobId: jobId as string,
                 consultantId: consultantId as string,
                 assignedBy: req.hrm8User?.id || 'unknown',
-                source,
+                source: (assignmentSource || source) as any,
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -124,7 +181,7 @@ export class JobAllocationController extends BaseController {
     getAssignmentInfo = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { jobId } = req.params;
-            const result = await this.jobAllocationService.getPipelineForJob(jobId as string);
+            const result = await this.jobAllocationService.getAssignmentInfo(jobId as string);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -164,11 +221,15 @@ export class JobAllocationController extends BaseController {
 
     getConsultantsForAssignment = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { regionId, search } = req.query;
+            const { regionId, search, role, availability, industry, language } = req.query;
             if (!regionId) return this.sendError(res, new Error('Region ID is required'), 400);
             const result = await this.jobAllocationService.getConsultantsForAssignment({
                 regionId: regionId as string,
                 search: search as string,
+                role: role as string,
+                availability: availability as string,
+                industry: industry as string,
+                language: language as string,
             });
             return this.sendSuccess(res, result);
         } catch (error) {

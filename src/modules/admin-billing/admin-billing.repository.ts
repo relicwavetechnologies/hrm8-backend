@@ -2,9 +2,8 @@ import type { Prisma } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class AdminBillingRepository extends BaseRepository {
-
   // --- Commissions ---
-  async findCommissions(filters?: any, limit?: number, offset?: number) {
+  async findCommissions(filters?: Prisma.CommissionWhereInput, limit?: number, offset?: number) {
     return this.prisma.commission.findMany({
       where: filters,
       orderBy: { created_at: 'desc' },
@@ -14,18 +13,19 @@ export class AdminBillingRepository extends BaseRepository {
         consultant: {
           select: {
             id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
+            first_name: true,
+            last_name: true,
+            email: true,
+          },
+        },
+      },
     });
   }
 
   async findCommissionsByConsultant(consultantId: string) {
     return this.prisma.commission.findMany({
       where: { consultant_id: consultantId },
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
     });
   }
 
@@ -36,187 +36,103 @@ export class AdminBillingRepository extends BaseRepository {
         consultant: {
           select: {
             id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
+            first_name: true,
+            last_name: true,
+            email: true,
+          },
+        },
+      },
     });
   }
 
-  async updateCommission(id: string, data: any) {
+  async updateCommission(id: string, data: Prisma.CommissionUpdateInput) {
     return this.prisma.commission.update({
       where: { id },
       data,
-      include: {
-        consultant: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
     });
   }
 
-  async updateManyCommissions(ids: string[], data: any) {
+  async updateManyCommissions(ids: string[], data: Prisma.CommissionUpdateManyMutationInput) {
     return this.prisma.commission.updateMany({
       where: { id: { in: ids } },
-      data
+      data,
     });
   }
 
-  // --- Revenue ---
-  async findRevenue(filters?: any) {
-    return this.prisma.revenueEntry.findMany({
-      where: filters,
-      orderBy: { created_at: 'desc' }
+  // --- Revenue (RegionalRevenue) ---
+  async findRegionalRevenue(where?: Prisma.RegionalRevenueWhereInput) {
+    return this.prisma.regionalRevenue.findMany({
+      where,
+      include: { region: true, licensee: true },
+      orderBy: { period_start: 'desc' },
     });
   }
 
-  async createRevenue(data: any) {
-    return this.prisma.revenueEntry.create({ data });
-  }
-
-  async findRevenueByRegion(regionId: string) {
-    return this.prisma.revenueEntry.findMany({
-      where: {
-        region_id: regionId,
-        status: 'PENDING'
-      }
-    });
+  async createRegionalRevenue(data: Prisma.RegionalRevenueCreateInput) {
+    return this.prisma.regionalRevenue.create({ data });
   }
 
   // --- Settlements ---
-  async findSettlements(filters?: any, limit?: number, offset?: number) {
+  async findSettlements(filters?: Prisma.SettlementWhereInput, limit?: number, offset?: number) {
     return this.prisma.settlement.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' },
+      orderBy: { generated_at: 'desc' },
       take: limit,
       skip: offset,
-      include: {
-        licensee: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
+      include: { licensee: true },
     });
   }
 
   async findSettlementById(id: string) {
     return this.prisma.settlement.findUnique({
       where: { id },
-      include: {
-        licensee: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
+      include: { licensee: true },
     });
   }
 
-  async createSettlement(data: any) {
-    return this.prisma.settlement.create({
-      data,
-      include: {
-        licensee: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
-    });
+  async createSettlement(data: Prisma.SettlementCreateInput) {
+    return this.prisma.settlement.create({ data });
   }
 
-  async updateSettlement(id: string, data: any) {
-    return this.prisma.settlement.update({
-      where: { id },
-      data,
-      include: {
-        licensee: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        }
-      }
-    });
+  async updateSettlement(id: string, data: Prisma.SettlementUpdateInput) {
+    return this.prisma.settlement.update({ where: { id }, data });
   }
 
   async findSettlementsByStatus(status: string) {
     return this.prisma.settlement.findMany({
       where: { status },
-      orderBy: { created_at: 'desc' }
+      orderBy: { generated_at: 'desc' },
     });
   }
 
-  // --- Attribution ---
-  async findAttribution(companyId: string) {
-    return this.prisma.attribution.findUnique({
-      where: { company_id: companyId }
-    });
-  }
-
-  async createAttribution(data: any) {
-    return this.prisma.attribution.create({ data });
-  }
-
-  async updateAttribution(companyId: string, data: any) {
-    return this.prisma.attribution.update({
-      where: { company_id: companyId },
-      data
-    });
-  }
-
-  async findAttributionHistory(companyId: string) {
-    return this.prisma.attributionHistory.findMany({
-      where: { company_id: companyId },
-      orderBy: { created_at: 'desc' }
-    });
-  }
-
-  async createAttributionHistory(data: any) {
-    return this.prisma.attributionHistory.create({ data });
-  }
-
-  // --- Region ---
+  // --- Region/Company/Licensee ---
   async findRegion(id: string) {
     return this.prisma.region.findUnique({ where: { id } });
   }
 
-  // --- Company ---
   async findCompany(id: string) {
     return this.prisma.company.findUnique({
       where: { id },
       include: {
-        region: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
+        region: true,
+        sales_agent: { select: { id: true, first_name: true, last_name: true, email: true } },
+      },
     });
   }
 
-  // --- Licensee ---
+  async updateCompany(id: string, data: Prisma.CompanyUpdateInput) {
+    return this.prisma.company.update({ where: { id }, data });
+  }
+
   async findLicensee(id: string) {
     return this.prisma.regionalLicensee.findUnique({
-      where: { id }
+      where: { id },
+      include: { regions: true },
     });
   }
 
   async findAllLicensees() {
-    return this.prisma.regionalLicensee.findMany();
+    return this.prisma.regionalLicensee.findMany({ include: { regions: true } });
   }
 }
+

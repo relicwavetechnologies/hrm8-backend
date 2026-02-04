@@ -340,10 +340,12 @@ export class CandidateController extends BaseController {
     }
   };
 
-  deleteWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
+      deleteWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
     try {
       if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = req.params.id;
+      const idRaw = (req.params as any).id as string | string[] | undefined;
+      const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+      if (!id) return this.sendError(res, new Error('id is required'), 400);
       await this.candidateService.deleteWorkExperience(id);
       return this.sendSuccess(res, { message: 'Experience deleted' });
     } catch (error) {

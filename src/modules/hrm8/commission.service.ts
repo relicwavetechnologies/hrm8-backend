@@ -39,30 +39,55 @@ export class CommissionService extends BaseService {
     private mapToDTO(commission: any) {
         return {
             id: commission.id,
-            consultantId: commission.consultant_id,
-            regionId: commission.region_id,
-            jobId: commission.job_id,
-            subscriptionId: commission.subscription_id,
+            consultant_id: commission.consultant_id,
+            region_id: commission.region_id,
+            job_id: commission.job_id,
+            subscription_id: commission.subscription_id,
             type: commission.type,
             amount: commission.amount,
+            currency: 'USD',
             description: commission.description,
             status: commission.status,
-            createdAt: commission.created_at,
-            confirmedAt: commission.confirmed_at,
-            paidAt: commission.paid_at,
+            created_at: commission.created_at,
+            confirmed_at: commission.confirmed_at,
+            paid_at: commission.paid_at,
+            payment_reference: commission.payment_reference,
             consultant: commission.consultant ? {
                 id: commission.consultant.id,
-                firstName: commission.consultant.first_name,
-                lastName: commission.consultant.last_name,
+                first_name: commission.consultant.first_name,
+                last_name: commission.consultant.last_name,
                 email: commission.consultant.email
             } : undefined
         };
     }
 
-    async getAll(params: { limit?: number; offset?: number; consultantId?: string }) {
-        const { limit = 50, offset = 0, consultantId } = params;
+    async getAll(params: {
+        limit?: number;
+        offset?: number;
+        consultantId?: string;
+        regionId?: string;
+        jobId?: string;
+        companyId?: string;
+        status?: string;
+        commissionType?: string;
+    }) {
+        const {
+            limit = 50,
+            offset = 0,
+            consultantId,
+            regionId,
+            jobId,
+            companyId,
+            status,
+            commissionType
+        } = params;
         const where: any = {};
         if (consultantId) where.consultant_id = consultantId;
+        if (regionId) where.region_id = regionId;
+        if (jobId) where.job_id = jobId;
+        if (companyId) where.subscription = { company_id: companyId };
+        if (status) where.status = status;
+        if (commissionType) where.type = commissionType;
 
         const [commissions, total] = await Promise.all([
             this.commissionRepository.findMany({
@@ -70,7 +95,7 @@ export class CommissionService extends BaseService {
                 take: limit,
                 skip: offset,
                 orderBy: { created_at: 'desc' },
-                include: { consultant: true }
+                include: { consultant: true, subscription: true }
             }),
             this.commissionRepository.count(where),
         ]);
@@ -151,39 +176,44 @@ export class CommissionService extends BaseService {
                 data: { balance: { increment: amount }, total_credits: { increment: amount } }
             });
 
-            return commission;
+            return this.mapToDTO(commission);
         });
     }
 
     async confirm(id: string) {
         // Typically used if status was PENDING. 
-        return this.commissionRepository.update(id, {
+        const updated = await this.commissionRepository.update(id, {
             status: CommissionStatus.CONFIRMED,
             confirmed_at: new Date()
         });
+        return this.mapToDTO(updated);
     }
 
-    async markAsPaid(id: string) {
-        return this.commissionRepository.update(id, {
+    async markAsPaid(id: string, paymentReference?: string) {
+        const updated = await this.commissionRepository.update(id, {
             status: CommissionStatus.PAID,
-            paid_at: new Date()
+            paid_at: new Date(),
+            ...(paymentReference ? { payment_reference: paymentReference } : {})
         });
+        return this.mapToDTO(updated);
     }
 
-    async processPayments(ids: string[]) {
+    async processPayments(ids: string[], paymentReference?: string) {
         // Bulk pay
         await prisma.commission.updateMany({
             where: { id: { in: ids } },
             data: {
                 status: CommissionStatus.PAID,
-                paid_at: new Date()
+                paid_at: new Date(),
+                ...(paymentReference ? { payment_reference: paymentReference } : {})
             }
         });
     }
 
     async getRegional(regionId: string) {
-        return this.commissionRepository.findMany({
+        const commissions = await this.commissionRepository.findMany({
             where: { region_id: regionId }
         });
+        return commissions.map(c => this.mapToDTO(c));
     }
 }

@@ -38,7 +38,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { consultantId } = req.params;
+      const consultantIdRaw = (req.params as any).consultantId as string | string[] | undefined;
+      const consultantId = Array.isArray(consultantIdRaw) ? consultantIdRaw[0] : consultantIdRaw;
+      if (!consultantId) throw new HttpException(400, 'consultantId is required');
       const result = await this.service.getConsultantCommissions(consultantId);
       return this.sendSuccess(res, result);
     } catch (error) {
@@ -50,7 +52,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { commissionId } = req.params;
+      const commissionIdRaw = (req.params as any).commissionId as string | string[] | undefined;
+      const commissionId = Array.isArray(commissionIdRaw) ? commissionIdRaw[0] : commissionIdRaw;
+      if (!commissionId) throw new HttpException(400, 'commissionId is required');
       const commission = await this.service.payCommission(commissionId);
       return this.sendSuccess(res, { commission });
     } catch (error) {
@@ -62,8 +66,13 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { commissionIds } = req.body;
-      const result = await this.service.bulkPayCommissions(commissionIds);
+      const commissionIds = (req.body as any)?.commissionIds as string[] | string | undefined;
+      const normalized = Array.isArray(commissionIds)
+        ? commissionIds
+        : typeof commissionIds === 'string'
+          ? [commissionIds]
+          : [];
+      const result = await this.service.bulkPayCommissions(normalized);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -86,7 +95,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { regionId } = req.params;
+      const regionIdRaw = (req.params as any).regionId as string | string[] | undefined;
+      const regionId = Array.isArray(regionIdRaw) ? regionIdRaw[0] : regionIdRaw;
+      if (!regionId) throw new HttpException(400, 'regionId is required');
       const result = await this.service.getRegionalRevenue(regionId);
       return this.sendSuccess(res, result);
     } catch (error) {
@@ -98,7 +109,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { regionId } = req.params;
+      const regionIdRaw = (req.params as any).regionId as string | string[] | undefined;
+      const regionId = Array.isArray(regionIdRaw) ? regionIdRaw[0] : regionIdRaw;
+      if (!regionId) throw new HttpException(400, 'regionId is required');
       const result = await this.service.calculateMonthlyRevenue(regionId);
       return this.sendSuccess(res, { result });
     } catch (error) {
@@ -136,7 +149,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { settlementId } = req.params;
+      const settlementIdRaw = (req.params as any).settlementId as string | string[] | undefined;
+      const settlementId = Array.isArray(settlementIdRaw) ? settlementIdRaw[0] : settlementIdRaw;
+      if (!settlementId) throw new HttpException(400, 'settlementId is required');
       const settlement = await this.service.getSettlementById(settlementId);
       return this.sendSuccess(res, { settlement });
     } catch (error) {
@@ -159,9 +174,12 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { licenseeId } = req.params;
+      const licenseeIdRaw = (req.params as any).licenseeId as string | string[] | undefined;
+      const licenseeId = Array.isArray(licenseeIdRaw) ? licenseeIdRaw[0] : licenseeIdRaw;
+      if (!licenseeId) throw new HttpException(400, 'licenseeId is required');
       const settlement = await this.service.generateSettlement(licenseeId);
-      return this.sendSuccess(res, { settlement }, 201);
+      res.status(201);
+      return this.sendSuccess(res, { settlement });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -182,7 +200,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { settlementId } = req.params;
+      const settlementIdRaw = (req.params as any).settlementId as string | string[] | undefined;
+      const settlementId = Array.isArray(settlementIdRaw) ? settlementIdRaw[0] : settlementIdRaw;
+      if (!settlementId) throw new HttpException(400, 'settlementId is required');
       const settlement = await this.service.markSettlementPaid(settlementId);
       return this.sendSuccess(res, { settlement });
     } catch (error) {
@@ -195,7 +215,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyIdRaw = (req.params as any).companyId as string | string[] | undefined;
+      const companyId = Array.isArray(companyIdRaw) ? companyIdRaw[0] : companyIdRaw;
+      if (!companyId) throw new HttpException(400, 'companyId is required');
       const attribution = await this.service.getAttribution(companyId);
       return this.sendSuccess(res, { attribution });
     } catch (error) {
@@ -207,7 +229,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyIdRaw = (req.params as any).companyId as string | string[] | undefined;
+      const companyId = Array.isArray(companyIdRaw) ? companyIdRaw[0] : companyIdRaw;
+      if (!companyId) throw new HttpException(400, 'companyId is required');
       const history = await this.service.getAttributionHistory(companyId);
       return this.sendSuccess(res, { history });
     } catch (error) {
@@ -219,7 +243,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyIdRaw = (req.params as any).companyId as string | string[] | undefined;
+      const companyId = Array.isArray(companyIdRaw) ? companyIdRaw[0] : companyIdRaw;
+      if (!companyId) throw new HttpException(400, 'companyId is required');
       const attribution = await this.service.lockAttribution(companyId);
       return this.sendSuccess(res, { attribution });
     } catch (error) {
@@ -231,7 +257,9 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyIdRaw = (req.params as any).companyId as string | string[] | undefined;
+      const companyId = Array.isArray(companyIdRaw) ? companyIdRaw[0] : companyIdRaw;
+      if (!companyId) throw new HttpException(400, 'companyId is required');
       const attribution = await this.service.overrideAttribution(companyId, req.body);
       return this.sendSuccess(res, { attribution });
     } catch (error) {

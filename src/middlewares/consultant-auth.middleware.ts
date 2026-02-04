@@ -146,23 +146,6 @@ export async function authenticateConsultant(
       error: 'Not authenticated. Please login.',
     });
     return;
-
-    const consultant = session.consultant;
-
-    if (!consultant || consultant.status !== 'ACTIVE') {
-      res.status(401).json({ success: false, error: 'Consultant not active or found' });
-      return;
-    }
-
-    req.consultant = {
-      id: consultant.id,
-      email: consultant.email,
-      firstName: consultant.first_name,
-      lastName: consultant.last_name,
-      role: consultant.role
-    };
-
-    next();
   } catch (error) {
     console.error('[authenticateConsultant] Error:', error);
     res.status(401).json({

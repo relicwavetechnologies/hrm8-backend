@@ -4,13 +4,33 @@ import { RegionalLicenseeService } from './regional-licensee.service';
 import { RegionalLicenseeRepository } from './regional-licensee.repository';
 import { Hrm8AuthenticatedRequest } from '../../types';
 import { LicenseeStatus } from '@prisma/client';
+import { AuditLogService } from './audit-log.service';
+import { AuditLogRepository } from './audit-log.repository';
 
 export class RegionalLicenseeController extends BaseController {
     private regionalLicenseeService: RegionalLicenseeService;
+    private auditLogService: AuditLogService;
 
     constructor() {
         super();
         this.regionalLicenseeService = new RegionalLicenseeService(new RegionalLicenseeRepository());
+        this.auditLogService = new AuditLogService(new AuditLogRepository());
+    }
+
+    private async logAction(req: Hrm8AuthenticatedRequest, entityId: string, action: string, changes?: Record<string, unknown>, description?: string) {
+        const actor = req.hrm8User;
+        await this.auditLogService.log({
+            entityType: 'LICENSEE',
+            entityId,
+            action,
+            performedBy: actor?.id || 'system',
+            performedByEmail: actor?.email || 'unknown',
+            performedByRole: actor?.role || 'SYSTEM',
+            changes,
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent'] as string | undefined,
+            description,
+        });
     }
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
@@ -40,6 +60,7 @@ export class RegionalLicenseeController extends BaseController {
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.regionalLicenseeService.create(req.body, req.hrm8User?.id);
+            await this.logAction(req, result.licensee.id, 'CREATE', req.body, 'Licensee created');
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -50,6 +71,7 @@ export class RegionalLicenseeController extends BaseController {
         try {
             const { id } = req.params;
             const result = await this.regionalLicenseeService.update(id as string, req.body);
+            await this.logAction(req, id as string, 'UPDATE', req.body, 'Licensee updated');
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -60,6 +82,7 @@ export class RegionalLicenseeController extends BaseController {
         try {
             const { id } = req.params;
             await this.regionalLicenseeService.delete(id as string);
+            await this.logAction(req, id as string, 'DELETE', undefined, 'Licensee deleted');
             return this.sendSuccess(res, { message: 'Licensee deleted successfully' });
         } catch (error) {
             return this.sendError(res, error);
@@ -80,6 +103,7 @@ export class RegionalLicenseeController extends BaseController {
             const { id } = req.params;
             const { status } = req.body;
             const result = await this.regionalLicenseeService.updateStatus(id as string, status as LicenseeStatus);
+            await this.logAction(req, id as string, 'STATUS_UPDATE', { status }, 'Licensee status updated');
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -90,6 +114,7 @@ export class RegionalLicenseeController extends BaseController {
         try {
             const { id } = req.params;
             const result = await this.regionalLicenseeService.terminate(id as string);
+            await this.logAction(req, id as string, 'TERMINATE', undefined, 'Licensee terminated');
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

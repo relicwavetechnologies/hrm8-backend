@@ -178,16 +178,20 @@ export class RegionalLicenseeService extends BaseService {
         });
         const regionIds = regions.map(r => r.id);
 
-        const [activeJobs, consultants] = await Promise.all([
+        const [activeJobs, consultants, pendingRevenue] = await Promise.all([
             prisma.job.count({ where: { region_id: { in: regionIds }, status: 'OPEN' } }),
             prisma.consultant.count({ where: { region_id: { in: regionIds }, status: 'ACTIVE' } }),
+            prisma.regionalRevenue.aggregate({
+                where: { licensee_id: id, status: 'PENDING' },
+                _sum: { total_revenue: true },
+            }),
         ]);
 
         return {
             regions: regionIds.length,
             activeJobs,
             consultants,
-            pendingRevenue: 0, // Placeholder
+            pendingRevenue: pendingRevenue._sum.total_revenue || 0,
         };
     }
 }

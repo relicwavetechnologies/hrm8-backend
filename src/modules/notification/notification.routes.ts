@@ -9,8 +9,14 @@ import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 const router = Router();
 const notificationController = new NotificationController();
 
+console.log('✅ [Routes] Notification routes being registered');
+
 router.get('/', authenticateUnified, notificationController.list);
 router.patch('/:id/read', authenticateUnified, notificationController.markRead);
 router.patch('/read-all', authenticateUnified, notificationController.markAllRead);
+router.delete('/:id', authenticateUnified, (req, res) => {
+  console.log('🗑️  [Route] DELETE /:id hit for notification:', req.params.id);
+  notificationController.delete(req, res);
+});
 
 export default router;

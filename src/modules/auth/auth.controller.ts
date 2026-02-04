@@ -2,15 +2,18 @@ import { Response, Request } from 'express';
 import { BaseController } from '../../core/controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
-import { getSessionCookieOptions } from '../../utils/session';
+import { getSessionCookieOptions, generateSessionId, getSessionExpiration } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
+import { verificationService } from '../verification/verification.service';
 
 export class AuthController extends BaseController {
   private authService: AuthService;
+  private authRepository: AuthRepository;
 
   constructor() {
     super();
     this.authService = new AuthService(new AuthRepository());
+    this.authRepository = new AuthRepository();
   }
 
   login = async (req: Request, res: Response) => {
@@ -62,6 +65,74 @@ export class AuthController extends BaseController {
           ...userData, 
           companyId: user.company_id 
         } 
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  verifyCompany = async (req: Request, res: Response) => {
+    try {
+      const { token, companyId } = req.body as { token?: string; companyId?: string };
+      if (!token || !companyId) {
+        return this.sendError(res, new Error('Token and companyId are required'));
+      }
+
+      const result = await verificationService.verifyByEmailToken(companyId, token);
+      if (!result.verified) {
+        return this.sendError(res, new Error(result.error || 'Invalid or expired verification token'));
+      }
+
+      if (result.email) {
+        const user = await this.authRepository.findByEmail(result.email);
+        if (user && user.status === 'ACTIVE') {
+          const sessionId = generateSessionId();
+          const expiresAt = getSessionExpiration(24);
+
+          await this.authRepository.createSession({
+            session_id: sessionId,
+            user: { connect: { id: user.id } },
+            email: user.email,
+            expires_at: expiresAt,
+            company_id: user.company_id,
+            user_role: user.role,
+          });
+
+          await this.authRepository.updateLastLogin(user.id);
+
+          res.cookie('sessionId', sessionId, getSessionCookieOptions());
+
+          const { password_hash, ...userData } = user;
+          return this.sendSuccess(res, {
+            message: 'Company verified successfully. You have been automatically logged in.',
+            email: result.email,
+            user: {
+              ...userData,
+              companyId: user.company_id,
+            },
+          });
+        }
+      }
+
+      return this.sendSuccess(res, {
+        message: 'Company verified successfully. You can now login.',
+        email: result.email,
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resendVerification = async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body as { email?: string };
+      if (!email) {
+        return this.sendError(res, new Error('Email is required'));
+      }
+      const result = await verificationService.resendVerificationEmail(email);
+      return this.sendSuccess(res, {
+        message: 'Verification email sent. Please check your inbox.',
+        ...result,
       });
     } catch (error) {
       return this.sendError(res, error);

@@ -2,8 +2,11 @@ import { BaseService } from '../../core/service';
 import { LeadConversionRepository } from './lead-conversion.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
-import { ConversionRequestStatus, LeadStatus } from '@prisma/client';
+import { ConversionRequestStatus } from '@prisma/client';
 import { hashPassword } from '../../utils/password';
+import { normalizeEmail } from '../../utils/email';
+import { generateVerificationToken, generateToken } from '../../utils/token';
+import { emailService } from '../email/email.service';
 
 export class LeadConversionService extends BaseService {
     constructor(private leadConversionRepository: LeadConversionRepository) {
@@ -33,17 +36,19 @@ export class LeadConversionService extends BaseService {
             throw new HttpException(400, `Request cannot be approved in ${request.status} status`);
         }
 
-        // Logic to convert lead to company
-        // 1. Create company
-        // 2. Create employer user
-        // 3. Update lead status
-        // 4. Update request status
+        const normalizedEmail = normalizeEmail(request.email);
+        const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+        if (existingUser) {
+            throw new HttpException(400, 'A user with this email already exists');
+        }
 
         return prisma.$transaction(async (tx) => {
-            const tempPassword = request.temp_password || 'vAbhi2678';
-            // const passwordHash = await hashPassword(tempPassword); // If needed for creating user
+            const tempPassword = request.temp_password || generateToken(8);
+            const passwordHash = await hashPassword(tempPassword);
 
-            const domain = request.website ? request.website.replace(/^https?:\/\//, '').split('/')[0] : `company-${request.id}.local`;
+            const domain = request.website
+                ? request.website.replace(/^https?:\/\//, '').split('/')[0]
+                : `company-${request.id}.local`;
 
             // Create Company
             const company = await tx.company.create({
@@ -53,20 +58,51 @@ export class LeadConversionService extends BaseService {
                     website: request.website || '',
                     region_id: request.region_id,
                     country_or_region: request.country,
+                    verification_status: 'PENDING',
+                },
+            });
+
+            // Create Company Admin User
+            const user = await tx.user.create({
+                data: {
+                    email: normalizedEmail,
+                    name: `${request.company_name} Admin`,
+                    password_hash: passwordHash,
+                    role: 'ADMIN',
+                    status: 'INVITED',
+                    company: { connect: { id: company.id } },
+                },
+            });
+
+            // Create Verification Token
+            const verificationToken = generateVerificationToken();
+            const expiresAt = new Date();
+            expiresAt.setHours(expiresAt.getHours() + 24);
+
+            await tx.verificationToken.create({
+                data: {
+                    company: { connect: { id: company.id } },
+                    email: user.email,
+                    token: verificationToken,
+                    expires_at: expiresAt,
                 },
             });
 
             // Update Lead
             await tx.lead.update({
                 where: { id: request.lead_id },
-                data: { status: 'CONVERTED' },
+                data: {
+                    status: 'CONVERTED',
+                    converted_to_company_id: company.id,
+                    converted_at: new Date(),
+                },
             });
 
             // Update Request
             const updatedRequest = await tx.leadConversionRequest.update({
                 where: { id },
                 data: {
-                    status: 'APPROVED',
+                    status: 'CONVERTED',
                     reviewed_by: adminId,
                     reviewed_at: new Date(),
                     admin_notes: adminNotes,
@@ -75,7 +111,22 @@ export class LeadConversionService extends BaseService {
                 },
             });
 
-            return { request: updatedRequest, company, tempPassword };
+            return { request: updatedRequest, company, tempPassword, verificationToken };
+        }).then(async (result) => {
+            const baseUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+            const invitationUrl = `${baseUrl}/verify-company?token=${result.verificationToken}&companyId=${result.company.id}`;
+
+            await emailService.sendInvitationEmail({
+                to: normalizeEmail(request.email),
+                companyName: result.company.name,
+                invitationUrl,
+            });
+
+            return {
+                request: result.request,
+                company: result.company,
+                tempPassword: result.tempPassword,
+            };
         });
     }
 

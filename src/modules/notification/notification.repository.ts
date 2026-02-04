@@ -112,4 +112,30 @@ export class NotificationRepository extends BaseRepository {
 
     return null;
   }
+
+  async delete(id: string, recipientType: NotificationRecipientType, recipientId: string): Promise<boolean> {
+    console.log('🗑️  [Repository] Attempting to delete notification:', { id, recipientType, recipientId });
+
+    // First verify ownership
+    const notification = await this.prisma.universalNotification.findFirst({
+      where: {
+        id,
+        recipient_type: recipientType,
+        recipient_id: recipientId
+      }
+    });
+
+    if (!notification) {
+      console.log('❌ [Repository] Notification not found or unauthorized');
+      return false;
+    }
+
+    console.log('✅ [Repository] Notification found, deleting...');
+    await this.prisma.universalNotification.delete({
+      where: { id }
+    });
+
+    console.log('✅ [Repository] Notification deleted successfully');
+    return true;
+  }
 }

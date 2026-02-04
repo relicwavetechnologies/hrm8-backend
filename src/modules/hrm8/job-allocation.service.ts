@@ -3,6 +3,8 @@ import { JobAllocationRepository } from './job-allocation.repository';
 import { HttpException } from '../../core/http-exception';
 import { AssignmentSource, PipelineStage } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { AuditLogService } from './audit-log.service';
+import { AuditLogRepository } from './audit-log.repository';
 
 export class JobAllocationService extends BaseService {
   constructor(private jobAllocationRepository: JobAllocationRepository) {
@@ -79,14 +81,27 @@ export class JobAllocationService extends BaseService {
     }
 
     if (regionId) {
-      where.region_id = regionId;
+      where.OR = [
+        { region_id: regionId },
+        { company: { region_id: regionId } }
+      ];
     }
 
     if (search) {
-      where.OR = [
+      const searchFilter = [
         { title: { contains: search, mode: 'insensitive' } },
         { company: { name: { contains: search, mode: 'insensitive' } } },
       ];
+      where.AND = where.AND || [];
+      where.AND.push({ OR: searchFilter });
+    }
+
+    if (filters.companyId) {
+      const companyFilter = this.isUuid(filters.companyId)
+        ? { company_id: filters.companyId }
+        : { company: { name: { contains: filters.companyId, mode: 'insensitive' } } };
+      where.AND = where.AND || [];
+      where.AND.push(companyFilter);
     }
 
     const [jobs, total] = await Promise.all([
@@ -103,17 +118,45 @@ export class JobAllocationService extends BaseService {
             select: { id: true, name: true, region_id: true }
           },
           region: {
-            select: { name: true }
+            select: { id: true, name: true }
           }
         }
       }),
       prisma.job.count({ where }),
     ]);
 
-    return { jobs: jobs.map(this.mapToDTO), total };
+    return { jobs: jobs.map(this.mapToAllocationDTO), total };
   }
 
-  private mapToDTO(job: any) {
+  private mapToAllocationDTO(job: any) {
+    return {
+      id: job.id,
+      title: job.title,
+      location: job.location,
+      category: job.category,
+      status: job.status,
+      companyId: job.company?.id,
+      companyName: job.company?.name,
+      regionId: job.region_id || job.company?.region_id || job.region?.id,
+      createdAt: job.created_at,
+      postedAt: job.posted_at,
+      assignmentMode: job.assignment_mode,
+      assignmentSource: job.assignment_source,
+      assignedConsultantId: job.assigned_consultant_id,
+      assignedConsultantName: job.assigned_consultant
+        ? `${job.assigned_consultant.first_name} ${job.assigned_consultant.last_name}`
+        : undefined,
+      assignedConsultant: job.assigned_consultant ? {
+        id: job.assigned_consultant.id,
+        firstName: job.assigned_consultant.first_name,
+        lastName: job.assigned_consultant.last_name,
+        email: job.assigned_consultant.email,
+      } : null,
+      assignedRegion: job.region ? job.region.name : 'Unassigned',
+    };
+  }
+
+  private mapToDetailDTO(job: any) {
     return {
       ...job,
       createdAt: job.created_at,
@@ -137,14 +180,30 @@ export class JobAllocationService extends BaseService {
     return this.jobAllocationRepository.getStats();
   }
 
-  async getConsultantsForAssignment(filters: { regionId: string; search?: string }) {
-    const { regionId, search } = filters;
+  async getConsultantsForAssignment(filters: { regionId: string; search?: string; role?: string; availability?: string; industry?: string; language?: string }) {
+    const { regionId, search, role, availability, industry, language } = filters;
     const where: any = {
       status: 'ACTIVE',
     };
 
     if (regionId && regionId !== 'all') {
       where.region_id = regionId;
+    }
+
+    if (role) {
+      where.role = role;
+    }
+
+    if (availability) {
+      where.availability = availability;
+    }
+
+    if (industry) {
+      where.industry_expertise = { has: industry };
+    }
+
+    if (language) {
+      where.languages = { contains: language };
     }
 
     if (search) {
@@ -162,6 +221,12 @@ export class JobAllocationService extends BaseService {
         first_name: true,
         last_name: true,
         email: true,
+        role: true,
+        status: true,
+        availability: true,
+        region_id: true,
+        industry_expertise: true,
+        languages: true,
         current_jobs: true,
         max_jobs: true,
       },
@@ -172,9 +237,52 @@ export class JobAllocationService extends BaseService {
       firstName: c.first_name,
       lastName: c.last_name,
       email: c.email,
+      role: c.role,
+      status: c.status,
+      availability: c.availability,
+      regionId: c.region_id,
+      industryExpertise: c.industry_expertise,
+      languages: c.languages as any,
       currentJobs: c.current_jobs,
       maxJobs: c.max_jobs
     }));
+  }
+
+  async getAssignmentInfo(jobId: string) {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        title: true,
+        assigned_consultant_id: true,
+        assignment_mode: true,
+        assignment_source: true,
+        region_id: true,
+        company: { select: { region_id: true } }
+      }
+    });
+
+    if (!job) throw new HttpException(404, 'Job not found');
+
+    const consultants = await this.getJobConsultants(jobId);
+    const pipeline = await this.getPipelineForJob(jobId);
+
+    return {
+      job: {
+        id: job.id,
+        title: job.title,
+        assignedConsultantId: job.assigned_consultant_id || undefined,
+        assignmentMode: job.assignment_mode || undefined,
+        assignmentSource: job.assignment_source || undefined,
+        regionId: job.region_id || job.company?.region_id || undefined
+      },
+      consultants,
+      pipeline
+    };
+  }
+
+  private isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   async autoAssignJob(jobId: string) {
@@ -204,7 +312,7 @@ export class JobAllocationService extends BaseService {
     return result;
   }
 
-  async getJobDetail(jobId: string) {
+  async getJobDetail(jobId: string, allowedRegionIds?: string[]) {
     const job = await prisma.job.findUnique({
       where: { id: jobId },
       include: {
@@ -221,29 +329,220 @@ export class JobAllocationService extends BaseService {
     });
 
     if (!job) throw new HttpException(404, 'Job not found');
+    const effectiveRegionId = job.region_id || job.company?.region_id;
+    if (allowedRegionIds && allowedRegionIds.length > 0 && (!effectiveRegionId || !allowedRegionIds.includes(effectiveRegionId))) {
+      throw new HttpException(403, 'Access denied for job');
+    }
 
+    const hrm8Status = job.hrm8_status || job.status;
+    const hrm8Hidden = job.hrm8_hidden ?? job.stealth;
     const jobDTO = {
-      ...this.mapToDTO(job),
-      hrm8Notes: '',
-      hrm8Hidden: job.stealth,
-      hrm8Status: job.status,
+      id: job.id,
+      title: job.title,
+      company: {
+        id: job.company?.id,
+        name: job.company?.name,
+      },
+      department: job.department,
+      location: job.location,
       description: job.description || '',
-      location: job.location || '',
       status: job.status,
+      hrm8_hidden: hrm8Hidden,
+      hrm8_status: hrm8Status,
+      hrm8_notes: job.hrm8_notes || '',
+      posted_at: job.posted_at,
+      expires_at: job.expires_at,
     };
 
+    const totalApplications = await prisma.application.count({ where: { job_id: job.id } });
+    const totalViews = job.views_count || 0;
+    const totalClicks = job.clicks_count || 0;
+    const conversionRate = totalViews > 0 ? Math.round((totalApplications / totalViews) * 100) : 0;
+
     const analytics = {
-      totalViews: job.views_count || 0,
-      totalClicks: job.clicks_count || 0,
-      totalApplications: 0,
-      conversionRate: 0,
-      viewsOverTime: [],
-      sourceBreakdown: []
+      total_views: totalViews,
+      total_clicks: totalClicks,
+      total_applications: totalApplications,
+      conversion_rate: conversionRate,
+      views_over_time: [],
+      source_breakdown: [],
     };
 
     const activities: any[] = [];
 
     return { job: jobDTO, analytics, activities };
+  }
+
+  async getJobBoardCompanies(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    regionId?: string;
+    allowedRegionIds?: string[];
+  }) {
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const limit = params.limit && params.limit > 0 ? params.limit : 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (params.search) {
+      where.OR = [
+        { name: { contains: params.search, mode: 'insensitive' } },
+        { domain: { contains: params.search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (params.regionId && params.regionId !== 'all') {
+      where.region_id = params.regionId;
+    }
+
+    if (params.allowedRegionIds && params.allowedRegionIds.length > 0) {
+      where.region_id = { in: params.allowedRegionIds };
+    }
+
+    const [companies, total] = await Promise.all([
+      prisma.company.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          domain: true,
+          jobs: {
+            select: {
+              status: true,
+              hrm8_status: true,
+              views_count: true,
+              clicks_count: true,
+            },
+          },
+        },
+      }),
+      prisma.company.count({ where }),
+    ]);
+
+    const mapped = companies.map(company => {
+      const jobs = company.jobs || [];
+      let totalViews = 0;
+      let totalClicks = 0;
+      let activeJobs = 0;
+      let onHoldJobs = 0;
+      for (const job of jobs) {
+        const effectiveStatus = job.hrm8_status || job.status;
+        if (effectiveStatus === 'OPEN') activeJobs += 1;
+        if (effectiveStatus === 'ON_HOLD') onHoldJobs += 1;
+        totalViews += job.views_count || 0;
+        totalClicks += job.clicks_count || 0;
+      }
+
+      return {
+        id: company.id,
+        name: company.name,
+        domain: company.domain,
+        total_jobs: jobs.length,
+        active_jobs: activeJobs,
+        on_hold_jobs: onHoldJobs,
+        total_views: totalViews,
+        total_clicks: totalClicks,
+      };
+    });
+
+    return {
+      companies: mapped,
+      total,
+      page,
+      page_size: limit,
+    };
+  }
+
+  async updateJobVisibility(params: {
+    jobId: string;
+    hidden: boolean;
+    performedBy: string;
+    performedByEmail?: string;
+    performedByRole?: string;
+    allowedRegionIds?: string[];
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    const job = await prisma.job.findUnique({
+      where: { id: params.jobId },
+      include: { company: { select: { region_id: true } } },
+    });
+    if (!job) throw new HttpException(404, 'Job not found');
+    const effectiveRegionId = job.region_id || job.company?.region_id;
+    if (params.allowedRegionIds && params.allowedRegionIds.length > 0 && (!effectiveRegionId || !params.allowedRegionIds.includes(effectiveRegionId))) {
+      throw new HttpException(403, 'Access denied for job');
+    }
+
+    const updated = await prisma.job.update({
+      where: { id: params.jobId },
+      data: { hrm8_hidden: params.hidden },
+    });
+
+    const auditLogService = new AuditLogService(new AuditLogRepository());
+    await auditLogService.log({
+      entityType: 'job',
+      entityId: params.jobId,
+      action: 'UPDATE',
+      performedBy: params.performedBy,
+      performedByEmail: params.performedByEmail || 'unknown',
+      performedByRole: params.performedByRole || 'SYSTEM',
+      changes: { hrm8_hidden: params.hidden },
+      ipAddress: params.ipAddress,
+      userAgent: params.userAgent,
+      description: `Updated HRM8 job visibility to ${params.hidden ? 'hidden' : 'visible'}`,
+    });
+
+    return updated;
+  }
+
+  async updateJobStatus(params: {
+    jobId: string;
+    status: string;
+    notes?: string;
+    performedBy: string;
+    performedByEmail?: string;
+    performedByRole?: string;
+    allowedRegionIds?: string[];
+    ipAddress?: string;
+    userAgent?: string;
+  }) {
+    const job = await prisma.job.findUnique({
+      where: { id: params.jobId },
+      include: { company: { select: { region_id: true } } },
+    });
+    if (!job) throw new HttpException(404, 'Job not found');
+    const effectiveRegionId = job.region_id || job.company?.region_id;
+    if (params.allowedRegionIds && params.allowedRegionIds.length > 0 && (!effectiveRegionId || !params.allowedRegionIds.includes(effectiveRegionId))) {
+      throw new HttpException(403, 'Access denied for job');
+    }
+
+    const updated = await prisma.job.update({
+      where: { id: params.jobId },
+      data: {
+        hrm8_status: params.status as any,
+        hrm8_notes: params.notes || null,
+      },
+    });
+
+    const auditLogService = new AuditLogService(new AuditLogRepository());
+    await auditLogService.log({
+      entityType: 'job',
+      entityId: params.jobId,
+      action: 'UPDATE',
+      performedBy: params.performedBy,
+      performedByEmail: params.performedByEmail || 'unknown',
+      performedByRole: params.performedByRole || 'SYSTEM',
+      changes: { hrm8_status: params.status, hrm8_notes: params.notes || null },
+      ipAddress: params.ipAddress,
+      userAgent: params.userAgent,
+      description: `Updated HRM8 job status to ${params.status}`,
+    });
+
+    return updated;
   }
 
   async getPipelineForJob(jobId: string, preferredConsultantId?: string | null): Promise<any> {

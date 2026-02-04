@@ -9,37 +9,37 @@ export class CareersRequestService extends BaseService {
         super();
     }
 
-    async getRequests() {
+    async getRequests(regionIds?: string[]) {
         const companies = await this.careersRequestRepository.findMany({
             where: {
                 careers_page_status: 'PENDING',
+                ...(regionIds && regionIds.length > 0 ? { region_id: { in: regionIds } } : {}),
             },
             orderBy: { updated_at: 'desc' },
         });
 
-        // Map Company to CareersRequest interface
         const requests = companies.map(company => {
             const pendingChanges = company.careers_pending_changes as any || {};
 
             return {
-                id: company.id, // Using Company ID as Request ID since it's 1-to-1
-                companyName: company.name,
+                id: company.id,
+                company_name: company.name,
                 domain: company.domain,
-                type: pendingChanges.type || 'SECTION_UPDATE', // Default or derived
+                type: pendingChanges.type || 'SECTION_UPDATE',
                 status: company.careers_page_status,
                 pending: {
-                    logoUrl: pendingChanges.logoUrl ?? company.careers_page_logo, // Fallback logic or exact mapping
-                    bannerUrl: pendingChanges.bannerUrl ?? company.careers_page_banner,
+                    logo_url: pendingChanges.logo_url ?? pendingChanges.logoUrl ?? company.careers_page_logo,
+                    banner_url: pendingChanges.banner_url ?? pendingChanges.bannerUrl ?? company.careers_page_banner,
                     about: pendingChanges.about ?? company.careers_page_about,
                     social: pendingChanges.social ?? company.careers_page_social,
                 },
                 current: {
-                    logoUrl: company.careers_page_logo,
-                    bannerUrl: company.careers_page_banner,
+                    logo_url: company.careers_page_logo,
+                    banner_url: company.careers_page_banner,
                     about: company.careers_page_about,
                     social: company.careers_page_social,
                 },
-                submittedAt: company.updated_at.toISOString(),
+                submitted_at: company.updated_at.toISOString(),
             };
         });
 

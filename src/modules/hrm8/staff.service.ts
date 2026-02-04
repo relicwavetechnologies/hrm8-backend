@@ -150,7 +150,7 @@ export class StaffService extends BaseService {
             mappedData.region_id = data.regionId;
             delete mappedData.regionId;
         }
-        if (data.defaultCommissionRate) {
+        if (data.defaultCommissionRate !== undefined) {
             mappedData.default_commission_rate = data.defaultCommissionRate;
             delete mappedData.defaultCommissionRate;
         }
@@ -185,20 +185,73 @@ export class StaffService extends BaseService {
     }
 
     async generateEmail(firstName: string, lastName: string, consultantId?: string) {
-        const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@hrm8.email`;
+        const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@hrm8.com`;
         // In real app, we would check for uniqueness and add suffix if needed
         return { email };
     }
 
     async getPendingTasks(id: string) {
-        const activeAssignments = await prisma.consultantJobAssignment.findMany({
-            where: { consultant_id: id, status: 'ACTIVE' },
-            include: { job: true }
-        });
+        const [activeAssignments, leads, conversionRequests, pendingCommissions] = await Promise.all([
+            prisma.consultantJobAssignment.findMany({
+                where: { consultant_id: id, status: 'ACTIVE' },
+                include: {
+                    job: {
+                        select: {
+                            id: true,
+                            title: true,
+                            status: true,
+                            company: { select: { name: true } },
+                        }
+                    }
+                }
+            }),
+            prisma.lead.findMany({
+                where: { assigned_consultant_id: id, status: { not: 'CONVERTED' } },
+                select: { id: true, company_name: true, status: true }
+            }),
+            prisma.leadConversionRequest.findMany({
+                where: { consultant_id: id, status: 'PENDING' },
+                select: { id: true, company_name: true, status: true }
+            }),
+            prisma.commission.findMany({
+                where: { consultant_id: id, status: 'PENDING' },
+                select: { id: true, amount: true, status: true }
+            })
+        ]);
+
+        const jobs = activeAssignments.map(a => ({
+            id: a.job.id,
+            title: a.job.title,
+            companyName: a.job.company?.name || 'Unknown',
+            status: a.job.status
+        }));
+
+        const leadItems = leads.map(l => ({
+            id: l.id,
+            companyName: l.company_name,
+            status: l.status
+        }));
+
+        const conversionItems = conversionRequests.map(r => ({
+            id: r.id,
+            companyName: r.company_name,
+            status: r.status
+        }));
+
+        const commissionItems = pendingCommissions.map(c => ({
+            id: c.id,
+            amount: c.amount,
+            status: c.status
+        }));
+
+        const totalCount = jobs.length + leadItems.length + conversionItems.length + commissionItems.length;
 
         return {
-            assignments: activeAssignments,
-            count: activeAssignments.length
+            jobs,
+            leads: leadItems,
+            conversionRequests: conversionItems,
+            pendingCommissions: commissionItems,
+            totalCount
         };
     }
 
@@ -248,32 +301,189 @@ export class StaffService extends BaseService {
                 data: { current_jobs: { increment: assignments.length } }
             });
 
-            return { count: assignments.length };
+            return { jobs: assignments.length };
         });
+    }
+
+    async reassignLeads(id: string, targetConsultantId: string) {
+        return prisma.$transaction(async (tx) => {
+            const leads = await tx.lead.findMany({
+                where: { assigned_consultant_id: id, status: { not: 'CONVERTED' } },
+                select: { id: true }
+            });
+
+            if (leads.length === 0) return { leads: 0 };
+
+            await tx.lead.updateMany({
+                where: { id: { in: leads.map(l => l.id) } },
+                data: {
+                    assigned_consultant_id: targetConsultantId,
+                    assigned_at: new Date(),
+                    assigned_by: 'system_reassignment',
+                    assignment_mode: 'MANUAL'
+                }
+            });
+
+            await tx.consultantLeadAssignment.updateMany({
+                where: { consultant_id: id, status: 'ACTIVE' },
+                data: { status: 'INACTIVE' }
+            });
+
+            await tx.consultantLeadAssignment.createMany({
+                data: leads.map(l => ({
+                    lead_id: l.id,
+                    consultant_id: targetConsultantId,
+                    assigned_by: 'system_reassignment',
+                    status: 'ACTIVE'
+                }))
+            });
+
+            await tx.consultant.update({
+                where: { id },
+                data: { current_leads: { decrement: leads.length } }
+            });
+
+            await tx.consultant.update({
+                where: { id: targetConsultantId },
+                data: { current_leads: { increment: leads.length } }
+            });
+
+            return { leads: leads.length };
+        });
+    }
+
+    async reassignConversionRequests(id: string, targetConsultantId: string) {
+        const result = await prisma.leadConversionRequest.updateMany({
+            where: { consultant_id: id, status: 'PENDING' },
+            data: {
+                consultant_id: targetConsultantId,
+                updated_at: new Date()
+            }
+        });
+
+        return { conversionRequests: result.count };
+    }
+
+    async terminateAssignments(id: string) {
+        const [jobs, leads, conversions] = await prisma.$transaction(async (tx) => {
+            const jobResult = await tx.consultantJobAssignment.updateMany({
+                where: { consultant_id: id, status: 'ACTIVE' },
+                data: { status: 'INACTIVE', pipeline_stage: 'CLOSED' }
+            });
+
+            await tx.consultant.update({
+                where: { id },
+                data: { current_jobs: 0 }
+            });
+
+            const leadIds = await tx.lead.findMany({
+                where: { assigned_consultant_id: id, status: { not: 'CONVERTED' } },
+                select: { id: true }
+            });
+
+            if (leadIds.length > 0) {
+                await tx.lead.updateMany({
+                    where: { id: { in: leadIds.map(l => l.id) } },
+                    data: { assigned_consultant_id: null }
+                });
+
+                await tx.consultantLeadAssignment.updateMany({
+                    where: { consultant_id: id, status: 'ACTIVE' },
+                    data: { status: 'INACTIVE' }
+                });
+            }
+
+            await tx.consultant.update({
+                where: { id },
+                data: { current_leads: 0 }
+            });
+
+            const conversionResult = await tx.leadConversionRequest.updateMany({
+                where: { consultant_id: id, status: 'PENDING' },
+                data: {
+                    status: 'CANCELLED',
+                    admin_notes: 'Cancelled due to consultant role change',
+                    updated_at: new Date()
+                }
+            });
+
+            return [
+                jobResult.count,
+                leadIds.length,
+                conversionResult.count
+            ];
+        });
+
+        return { jobs, leads, conversionRequests: conversions };
     }
 
     async changeRoleWithTaskHandling(id: string, role: ConsultantRole, taskAction: string, targetConsultantId?: string) {
         const pending = await this.getPendingTasks(id);
         let taskResult = null;
 
-        if (pending.count > 0) {
+        if (pending.totalCount > 0) {
             if (taskAction === 'REASSIGN' && targetConsultantId) {
-                taskResult = await this.reassignJobs(id, targetConsultantId);
+                const [jobs, leads, conversions] = await Promise.all([
+                    this.reassignJobs(id, targetConsultantId),
+                    this.reassignLeads(id, targetConsultantId),
+                    this.reassignConversionRequests(id, targetConsultantId)
+                ]);
+                taskResult = {
+                    reassigned: {
+                        jobs: jobs.jobs,
+                        leads: leads.leads,
+                        conversionRequests: conversions.conversionRequests
+                    }
+                };
             } else if (taskAction === 'TERMINATE') {
-                await prisma.consultantJobAssignment.updateMany({
-                    where: { consultant_id: id, status: 'ACTIVE' },
-                    data: { status: 'INACTIVE', pipeline_stage: 'CLOSED' }
-                });
-                await prisma.consultant.update({
-                    where: { id },
-                    data: { current_jobs: 0 }
-                });
-                taskResult = { terminated: pending.count };
+                const terminated = await this.terminateAssignments(id);
+                taskResult = { terminated };
             }
         }
 
         const updated = await this.staffRepository.update(id, { role });
 
         return { success: true, consultant: updated, taskResult };
+    }
+
+    async getStats(id: string) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) throw new HttpException(404, 'Consultant not found');
+
+        const [jobsCount, activeAssignments, leadsCount, convertedLeads, lastJob, lastLead] = await Promise.all([
+            prisma.consultantJobAssignment.count({ where: { consultant_id: id } }),
+            prisma.consultantJobAssignment.count({ where: { consultant_id: id, status: 'ACTIVE' } }),
+            prisma.lead.count({ where: { assigned_consultant_id: id } }),
+            prisma.lead.count({ where: { assigned_consultant_id: id, status: 'CONVERTED' } }),
+            prisma.consultantJobAssignment.findFirst({
+                where: { consultant_id: id },
+                orderBy: { assigned_at: 'desc' },
+                select: { assigned_at: true, pipeline_updated_at: true }
+            }),
+            prisma.lead.findFirst({
+                where: { assigned_consultant_id: id },
+                orderBy: { assigned_at: 'desc' },
+                select: { assigned_at: true }
+            })
+        ]);
+
+        const conversionRate = leadsCount > 0 ? Math.round((convertedLeads / leadsCount) * 1000) / 10 : 0;
+
+        const jobActivity = lastJob?.pipeline_updated_at || lastJob?.assigned_at || null;
+        const leadActivity = lastLead?.assigned_at || null;
+        const lastActivityDate = jobActivity && leadActivity
+            ? (jobActivity > leadActivity ? jobActivity : leadActivity)
+            : jobActivity || leadActivity || null;
+
+        return {
+            jobsCount,
+            activeAssignments,
+            leadsCount,
+            conversionRate,
+            totalPlacements: consultant.total_placements,
+            revenue: consultant.total_revenue,
+            hireSuccessRate: consultant.success_rate,
+            lastActivityDate
+        };
     }
 }

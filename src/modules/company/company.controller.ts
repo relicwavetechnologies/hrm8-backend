@@ -163,7 +163,8 @@ export class CompanyController extends BaseController {
         invoiceNumber
       });
 
-      return this.sendSuccess(res, { refundRequest }, 201);
+      res.status(201);
+      return this.sendSuccess(res, { refundRequest });
     } catch (error) {
       return this.sendError(res, error);
     }

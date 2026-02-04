@@ -289,6 +289,9 @@ model Job {
   stripe_session_id                   String?
   clicks_count                        Int                         @default(0)
   views_count                         Int                         @default(0)
+  hrm8_hidden                         Boolean                     @default(false) @map("hrm8_hidden")
+  hrm8_status                         JobStatus?                  @map("hrm8_status")
+  hrm8_notes                          String?                     @map("hrm8_notes")
   auto_archive_on_expiry              Boolean                     @default(true) @map("auto_archive_on_expiry")
   posted_at                           DateTime                    @default(now()) @map("posted_at")
   benefits                            String?
@@ -2955,4 +2958,3 @@ model UserAlertRule {
   @@index([event_type])
   @@map("user_alert_rules")
 }
-

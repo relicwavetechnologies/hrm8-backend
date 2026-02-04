@@ -7,13 +7,19 @@ import { AuthenticatedRequest, CandidateAuthenticatedRequest } from '../../types
 type UnifiedRequest = AuthenticatedRequest & CandidateAuthenticatedRequest;
 import { ApplicationStage } from '@prisma/client';
 import { CandidateRepository } from '../candidate/candidate.repository';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationRepository } from '../notification/notification.repository';
 
 export class ApplicationController extends BaseController {
   private applicationService: ApplicationService;
 
   constructor() {
     super();
-    this.applicationService = new ApplicationService(new ApplicationRepository(), new CandidateRepository());
+    this.applicationService = new ApplicationService(
+      new ApplicationRepository(),
+      new CandidateRepository(),
+      new NotificationService(new NotificationRepository())
+    );
   }
 
   // Submit a new application

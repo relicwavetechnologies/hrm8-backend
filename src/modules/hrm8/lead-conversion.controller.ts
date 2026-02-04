@@ -29,7 +29,7 @@ export class LeadConversionController extends BaseController {
         try {
             const { id } = req.params;
             const result = await this.leadConversionService.getOne(id as string);
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { request: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -59,7 +59,7 @@ export class LeadConversionController extends BaseController {
                 req.hrm8User?.id || 'unknown',
                 declineReason
             );
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { request: result });
         } catch (error) {
             return this.sendError(res, error);
         }

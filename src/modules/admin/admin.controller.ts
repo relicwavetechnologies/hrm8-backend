@@ -22,7 +22,9 @@ export class AdminController {
 
     getCategoryById = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             const category = await this.service.getCategoryById(id);
             res.json({ success: true, data: category });
         } catch (error: any) {
@@ -41,7 +43,9 @@ export class AdminController {
 
     updateCategory = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             const category = await this.service.updateCategory(id, req.body);
             res.json({ success: true, data: category });
         } catch (error: any) {
@@ -51,7 +55,9 @@ export class AdminController {
 
     deleteCategory = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             await this.service.deleteCategory(id);
             res.json({ success: true, message: 'Category deleted successfully' });
         } catch (error: any) {
@@ -83,7 +89,9 @@ export class AdminController {
 
     getTagById = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             const tag = await this.service.getTagById(id);
             res.json({ success: true, data: tag });
         } catch (error: any) {
@@ -102,7 +110,9 @@ export class AdminController {
 
     updateTag = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             const tag = await this.service.updateTag(id, req.body);
             res.json({ success: true, data: tag });
         } catch (error: any) {
@@ -112,7 +122,9 @@ export class AdminController {
 
     deleteTag = async (req: Request, res: Response): Promise<void> => {
         try {
-            const { id } = req.params;
+            const idRaw = (req.params as any).id as string | string[] | undefined;
+            const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
+            if (!id) throw new Error('id is required');
             await this.service.deleteTag(id);
             res.json({ success: true, message: 'Tag deleted successfully' });
         } catch (error: any) {

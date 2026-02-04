@@ -38,6 +38,16 @@ export class StaffController extends BaseController {
         }
     };
 
+    getStats = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const result = await this.staffService.getStats(id as string);
+            return this.sendSuccess(res, { stats: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.staffService.create(req.body);

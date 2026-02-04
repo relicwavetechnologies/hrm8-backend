@@ -66,44 +66,61 @@ export class AdminBillingService extends BaseService {
 
   // --- Revenue ---
   async getPendingRevenue() {
-    return this.repository.findRevenue({ status: 'PENDING' });
+    return this.repository.findRegionalRevenue({ status: 'PENDING' as any });
   }
 
   async getRegionalRevenue(regionId: string) {
     const region = await this.repository.findRegion(regionId);
     if (!region) throw new HttpException(404, 'Region not found');
 
-    const revenue = await this.repository.findRevenueByRegion(regionId);
-    const total = revenue.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const revenue = await this.repository.findRegionalRevenue({ region_id: regionId });
+    const total = revenue.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
 
-    return { region, revenue, totalPendingRevenue: total };
+    return { region, revenue, total_revenue: total };
   }
 
   async calculateMonthlyRevenue(regionId: string) {
     const region = await this.repository.findRegion(regionId);
     if (!region) throw new HttpException(404, 'Region not found');
 
-    const revenue = await this.repository.findRevenueByRegion(regionId);
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
 
-    const monthlyRevenue = {
-      regionId,
-      period: new Date().toISOString().slice(0, 7),
-      totalAmount: revenue.reduce((sum, r) => sum + (r.amount || 0), 0),
-      transactionCount: revenue.length,
-      timestamp: new Date()
-    };
+    const bills = await prisma.bill.findMany({
+      where: {
+        status: 'PAID',
+        paid_at: { gte: start, lt: end },
+        region_id: regionId,
+      },
+      select: { total_amount: true },
+    });
 
-    return this.repository.createRevenue(monthlyRevenue);
+    const totalRevenue = bills.reduce((sum, b) => sum + Number(b.total_amount || 0), 0);
+
+    const licenseeId = region.licensee_id || null;
+    const licensee = licenseeId ? await this.repository.findLicensee(licenseeId) : null;
+    const pct = Number(licensee?.revenue_share_percent || 0);
+    const licenseeShare = (totalRevenue * pct) / 100;
+    const hrm8Share = totalRevenue - licenseeShare;
+
+    return this.repository.createRegionalRevenue({
+      region: { connect: { id: regionId } },
+      ...(licenseeId ? { licensee: { connect: { id: licenseeId } } } : {}),
+      period_start: start,
+      period_end: end,
+      total_revenue: totalRevenue,
+      licensee_share: licenseeShare,
+      hrm8_share: hrm8Share,
+      status: 'PENDING' as any,
+    });
   }
 
   async processAllRegionsRevenue() {
-    const regions = await this.repository.findAllLicensees();
-
-    const results = await Promise.all(
-      regions.map(region =>
-        this.calculateMonthlyRevenue(region.region_id)
-      )
-    );
+    const regions = await prisma.region.findMany({ select: { id: true } });
+    const results = await Promise.all(regions.map(r => this.calculateMonthlyRevenue(r.id)));
 
     return {
       processedRegions: results.length,
@@ -126,11 +143,11 @@ export class AdminBillingService extends BaseService {
     const [total, pending, completed, failed] = await Promise.all([
       this.repository.findSettlements({}),
       this.repository.findSettlementsByStatus('PENDING'),
-      this.repository.findSettlementsByStatus('COMPLETED'),
+      this.repository.findSettlementsByStatus('PAID'),
       this.repository.findSettlementsByStatus('FAILED')
     ]);
 
-    const totalAmount = total.reduce((sum, s) => sum + (s.amount || 0), 0);
+    const totalAmount = total.reduce((sum, s) => sum + Number(s.total_revenue || 0), 0);
 
     return {
       totalSettlements: total.length,
@@ -145,17 +162,35 @@ export class AdminBillingService extends BaseService {
     const licensee = await this.repository.findLicensee(licenseeId);
     if (!licensee) throw new HttpException(404, 'Licensee not found');
 
-    // Calculate settlement amount based on revenue/commission data
-    const revenues = await this.repository.findRevenueByRegion(licensee.region_id);
-    const settlementAmount = revenues.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setMonth(end.getMonth() + 1);
+
+    const regionIds = licensee.regions.map(r => r.id);
+    const bills = await prisma.bill.findMany({
+      where: {
+        status: 'PAID',
+        paid_at: { gte: start, lt: end },
+        company: { region_id: { in: regionIds } },
+      },
+      select: { total_amount: true },
+    });
+    const totalRevenue = bills.reduce((sum, b) => sum + Number(b.total_amount || 0), 0);
+    const pct = Number(licensee.revenue_share_percent || 0);
+    const licenseeShare = (totalRevenue * pct) / 100;
+    const hrm8Share = totalRevenue - licenseeShare;
 
     return this.repository.createSettlement({
       licensee: { connect: { id: licenseeId } },
-      amount: settlementAmount,
-      currency: 'USD',
-      period: new Date().toISOString().slice(0, 7),
+      period_start: start,
+      period_end: end,
+      total_revenue: totalRevenue,
+      licensee_share: licenseeShare,
+      hrm8_share: hrm8Share,
       status: 'PENDING',
-      generated_at: new Date()
+      generated_at: new Date(),
     });
   }
 
@@ -168,7 +203,7 @@ export class AdminBillingService extends BaseService {
       )
     );
 
-    const totalAmount = results.reduce((sum, s) => sum + (s.amount || 0), 0);
+    const totalAmount = results.reduce((sum, s) => sum + Number(s.total_revenue || 0), 0);
 
     return {
       generatedSettlements: results.length,
@@ -181,13 +216,13 @@ export class AdminBillingService extends BaseService {
     const settlement = await this.repository.findSettlementById(settlementId);
     if (!settlement) throw new HttpException(404, 'Settlement not found');
 
-    if (settlement.status === 'COMPLETED') {
+    if (settlement.status === 'PAID') {
       throw new HttpException(400, 'Settlement already marked as paid');
     }
 
     return this.repository.updateSettlement(settlementId, {
-      status: 'COMPLETED',
-      paid_at: new Date()
+      status: 'PAID',
+      payment_date: new Date()
     });
   }
 
@@ -196,46 +231,51 @@ export class AdminBillingService extends BaseService {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
 
-    let attribution = await this.repository.findAttribution(companyId);
-
-    if (!attribution) {
-      attribution = await this.repository.createAttribution({
-        company: { connect: { id: companyId } },
-        source: company.sales_agent_id ? 'SALES_AGENT' : 'DIRECT',
-        sales_agent_id: company.sales_agent_id,
-        region_id: company.region_id,
-        status: 'ACTIVE'
-      });
-    }
-
-    return attribution;
+    return {
+      company_id: company.id,
+      region_id: company.region_id,
+      sales_agent_id: company.sales_agent_id,
+      referred_by: company.referred_by,
+      attribution_locked: company.attribution_locked,
+      attribution_locked_at: company.attribution_locked_at,
+      source: company.sales_agent_id ? 'SALES_AGENT' : 'DIRECT',
+    };
   }
 
   async getAttributionHistory(companyId: string) {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
 
-    return this.repository.findAttributionHistory(companyId);
+    return prisma.auditLog.findMany({
+      where: { entity_type: 'company_attribution', entity_id: companyId },
+      orderBy: { performed_at: 'desc' },
+    });
   }
 
   async lockAttribution(companyId: string) {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
+    const previous = await this.getAttribution(companyId);
 
-    const attribution = await this.getAttribution(companyId);
-
-    await this.repository.createAttributionHistory({
-      company: { connect: { id: companyId } },
-      previous_source: attribution.source,
-      new_source: attribution.source,
-      reason: 'LOCKED_BY_ADMIN',
-      changed_by: 'ADMIN',
-      changed_at: new Date()
+    const updated = await this.repository.updateCompany(companyId, {
+      attribution_locked: true,
+      attribution_locked_at: new Date(),
     });
 
-    return this.repository.updateAttribution(companyId, {
-      status: 'LOCKED'
+    await prisma.auditLog.create({
+      data: {
+        entity_type: 'company_attribution',
+        entity_id: companyId,
+        action: 'LOCK',
+        performed_by: 'SUPER_ADMIN',
+        performed_by_email: 'unknown',
+        performed_by_role: 'SUPER_ADMIN',
+        changes: previous as any,
+        description: 'Attribution locked by super admin',
+      },
     });
+
+    return updated;
   }
 
   async overrideAttribution(companyId: string, data: {
@@ -245,22 +285,28 @@ export class AdminBillingService extends BaseService {
   }) {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
+    const previous = await this.getAttribution(companyId);
 
-    const attribution = await this.getAttribution(companyId);
-
-    await this.repository.createAttributionHistory({
-      company: { connect: { id: companyId } },
-      previous_source: attribution.source,
-      new_source: data.source,
-      reason: data.reason,
-      changed_by: 'ADMIN',
-      changed_at: new Date()
+    const updated = await this.repository.updateCompany(companyId, {
+      ...(data.salesAgentId
+        ? { sales_agent: { connect: { id: data.salesAgentId } } }
+        : { sales_agent: { disconnect: true } }),
+      attribution_locked: false,
     });
 
-    return this.repository.updateAttribution(companyId, {
-      source: data.source,
-      sales_agent_id: data.salesAgentId,
-      status: 'OVERRIDDEN'
+    await prisma.auditLog.create({
+      data: {
+        entity_type: 'company_attribution',
+        entity_id: companyId,
+        action: 'OVERRIDE',
+        performed_by: 'SUPER_ADMIN',
+        performed_by_email: 'unknown',
+        performed_by_role: 'SUPER_ADMIN',
+        changes: { previous, next: data } as any,
+        description: data.reason || 'Attribution overridden by super admin',
+      },
     });
+
+    return updated;
   }
 }

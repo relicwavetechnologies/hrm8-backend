@@ -15,10 +15,10 @@ export class RevenueController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { regionId, licenseeId, status } = req.query;
+            const { regionId, licenseeId, status, region_id, licensee_id } = req.query as Record<string, string | undefined>;
             const result = await this.revenueService.getAll({
-                regionId: regionId as string,
-                licenseeId: licenseeId as string,
+                regionId: regionId || region_id,
+                licenseeId: licenseeId || licensee_id,
                 status: status as RevenueStatus,
             });
             return this.sendSuccess(res, result);
@@ -68,11 +68,11 @@ export class RevenueController extends BaseController {
 
     getDashboard = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { startDate, endDate } = req.query;
+            const { startDate, endDate, start_date, end_date } = req.query as Record<string, string | undefined>;
             const result = await this.revenueService.getDashboard(
                 req.assignedRegionIds,
-                startDate as string,
-                endDate as string
+                (startDate || start_date) as string,
+                (endDate || end_date) as string
             );
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -82,11 +82,11 @@ export class RevenueController extends BaseController {
 
     getSummary = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { startDate, endDate } = req.query;
+            const { startDate, endDate, start_date, end_date } = req.query as Record<string, string | undefined>;
             const result = await this.revenueService.getSummary(
                 req.assignedRegionIds,
-                startDate as string,
-                endDate as string
+                (startDate || start_date) as string,
+                (endDate || end_date) as string
             );
             return this.sendSuccess(res, result);
         } catch (error) {

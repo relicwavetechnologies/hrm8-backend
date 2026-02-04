@@ -15,7 +15,7 @@ export class CareersRequestController extends BaseController {
 
     getRequests = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.careersRequestService.getRequests();
+            const result = await this.careersRequestService.getRequests(req.assignedRegionIds);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

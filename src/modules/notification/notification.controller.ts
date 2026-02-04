@@ -4,6 +4,7 @@ import { NotificationService } from './notification.service';
 import { NotificationRepository } from './notification.repository';
 import { AuthenticatedRequest, Hrm8AuthenticatedRequest } from '../../types';
 import { NotificationRecipientType } from '@prisma/client';
+import { HttpException } from '../../core/http-exception';
 
 export class NotificationController extends BaseController {
   private notificationService: NotificationService;
@@ -80,6 +81,31 @@ export class NotificationController extends BaseController {
       const count = await this.notificationService.markAllAsRead(type, id);
       return this.sendSuccess(res, { message: 'All notifications marked as read', count });
     } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Delete a notification
+  delete = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+    console.log('🎯 [Controller] delete method called');
+    try {
+      const { type, id: userId } = this.getRecipientInfo(req);
+      const { id } = req.params as { id: string };
+
+      console.log('👤 [Controller] User info:', { type, userId });
+      console.log('🔍 [Controller] Deleting notification:', id);
+
+      const deleted = await this.notificationService.deleteNotification(id, type, userId);
+
+      if (!deleted) {
+        console.log('❌ [Controller] Notification not found');
+        return this.sendError(res, new HttpException(404, 'Notification not found or unauthorized'), 404);
+      }
+
+      console.log('✅ [Controller] Notification deleted successfully');
+      return this.sendSuccess(res, { message: 'Notification deleted successfully' });
+    } catch (error) {
+      console.error('💥 [Controller] Error:', error);
       return this.sendError(res, error);
     }
   };

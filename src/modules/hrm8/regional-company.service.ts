@@ -16,35 +16,42 @@ export class RegionalCompanyService extends BaseService {
         return { company };
     }
 
-    async getCompanyJobs(companyId: string) {
-        // defined in Hrm8CompanyJobsPage as CompanyJob[]
-        const jobs = await prisma.job.findMany({
-            where: { company_id: companyId },
-            include: {
-                _count: {
-                    select: {
-                        applications: true
+    async getCompanyJobs(companyId: string, page: number = 1, limit: number = 10) {
+        const pageSafe = page && page > 0 ? page : 1;
+        const limitSafe = limit && limit > 0 ? limit : 10;
+        const skip = (pageSafe - 1) * limitSafe;
+
+        const [jobs, total] = await Promise.all([
+            prisma.job.findMany({
+                where: { company_id: companyId },
+                include: {
+                    _count: {
+                        select: {
+                            applications: true
+                        }
                     }
-                }
-            },
-            orderBy: { created_at: 'desc' }
-        });
+                },
+                orderBy: { created_at: 'desc' },
+                skip,
+                take: limitSafe,
+            }),
+            prisma.job.count({ where: { company_id: companyId } }),
+        ]);
 
         return {
             jobs: jobs.map(job => ({
                 id: job.id,
                 title: job.title,
-                status: job.status,
-                type: job.employment_type,
+                status: job.hrm8_status || job.status,
                 location: job.location,
-                salaryMin: job.salary_min,
-                salaryMax: job.salary_max,
-                postedAt: job.posted_at || job.created_at,
+                posted_at: job.posted_at || job.created_at,
                 applicants: job._count.applications,
                 views: job.views_count || 0,
                 clicks: job.clicks_count || 0,
-                createdAt: job.created_at
-            }))
+            })),
+            total,
+            page: pageSafe,
+            page_size: limitSafe,
         };
     }
 }

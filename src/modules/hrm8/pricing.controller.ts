@@ -33,4 +33,43 @@ export class PricingController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    upsertProduct = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const result = await this.pricingService.upsertProduct({
+                id: id as string | undefined,
+                ...req.body,
+            });
+            return this.sendSuccess(res, { product: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    upsertPriceBook = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const result = await this.pricingService.upsertPriceBook({
+                id: id as string | undefined,
+                ...req.body,
+            });
+            return this.sendSuccess(res, { priceBook: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    upsertPriceTier = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const result = await this.pricingService.upsertPriceTier({
+                id: id as string | undefined,
+                ...req.body,
+            });
+            return this.sendSuccess(res, { tier: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }
