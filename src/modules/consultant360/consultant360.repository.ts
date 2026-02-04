@@ -39,7 +39,7 @@ export class Consultant360Repository extends BaseRepository {
 
   // --- Dashboard ---
   async getDashboardStats(consultantId: string) {
-    const [leads, opportunities, commissions, activities] = await Promise.all([
+    const [leads, opportunities, commissions, activities, jobAssignments] = await Promise.all([
       this.prisma.lead.findMany({
         where: {
           OR: [
@@ -48,7 +48,7 @@ export class Consultant360Repository extends BaseRepository {
             { referred_by: consultantId }
           ]
         },
-        select: { id: true, status: true }
+        select: { id: true, status: true, company_name: true, email: true, created_at: true }
       }),
       this.prisma.opportunity.findMany({
         where: { sales_agent_id: consultantId },
@@ -56,7 +56,7 @@ export class Consultant360Repository extends BaseRepository {
       }),
       this.prisma.commission.findMany({
         where: { consultant_id: consultantId },
-        select: { id: true, status: true, amount: true }
+        select: { id: true, status: true, amount: true, type: true, created_at: true }
       }),
       this.prisma.activity.findMany({
         where: { created_by: consultantId },
@@ -65,10 +65,26 @@ export class Consultant360Repository extends BaseRepository {
         include: {
           company: { select: { id: true, name: true } }
         }
+      }),
+      this.prisma.consultantJobAssignment.findMany({
+        where: { consultant_id: consultantId, status: 'ACTIVE' },
+        select: {
+          id: true,
+          assigned_at: true,
+          job: {
+            select: {
+              id: true,
+              title: true,
+              location: true,
+              company: { select: { name: true } },
+              status: true
+            }
+          }
+        }
       })
     ]);
 
-    return { leads, opportunities, commissions, activities };
+    return { leads, opportunities, commissions, activities, jobAssignments };
   }
 
   // --- Commissions ---

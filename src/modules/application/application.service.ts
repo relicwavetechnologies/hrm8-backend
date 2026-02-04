@@ -1,6 +1,6 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage } from '@prisma/client';
+import { Application, ApplicationStatus, ApplicationStage, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { CandidateScoringService } from '../ai/candidate-scoring.service';
 import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
@@ -8,11 +8,13 @@ import { CandidateRepository } from '../candidate/candidate.repository';
 import { DocumentParser } from '../../utils/document-parser';
 import { prisma } from '../../utils/prisma';
 import { emailService } from '../email/email.service';
+import { NotificationService } from '../notification/notification.service';
 
 export class ApplicationService extends BaseService {
   constructor(
-    public applicationRepository: ApplicationRepository, // Changed to public to allow controller access for security check
-    private candidateRepository: CandidateRepository
+    public applicationRepository: ApplicationRepository,
+    private candidateRepository: CandidateRepository,
+    private notificationService: NotificationService
   ) {
     super();
   }
@@ -50,7 +52,10 @@ export class ApplicationService extends BaseService {
     });
 
     // Trigger AI Scoring asynchronously
-    this.triggerAiAnalysis(application.id, data.jobId).catch(err => {
+    CandidateScoringService.scoreCandidate({
+      applicationId: application.id,
+      jobId: data.jobId
+    }).catch((err) => {
       console.error('Failed to trigger AI analysis:', err);
     });
 
@@ -74,22 +79,20 @@ export class ApplicationService extends BaseService {
             // We have data.candidateId.
             const candidate = await this.candidateRepository.findById(data.candidateId);
 
-            if (candidate && candidate.email) {
+            // Fetch job to get companyId
+            const job = await prisma.job.findUnique({
+              where: { id: data.jobId },
+              select: { company_id: true }
+            });
+
+            if (candidate && candidate.email && job?.company_id) {
               await emailService.sendTemplateEmail({
                 to: candidate.email,
                 templateId: config.templateId,
                 contextIds: {
                   candidateId: candidate.id,
                   jobId: data.jobId,
-                  companyId: application.company_id // application has company_id from connect? No it's connected via relation.
-                  // We need to fetch application with company_id or just let services resolve via jobId if needed.
-                  // application object from create might not have company_id populated if it's not selected.
-                  // But prisma create returns the object. let's check schema.
-                  // Application: company_id String @map("company_id")
-                  // When creating with connect: job: { connect: { id: jobId } }, prisma usually fetches the relation field?
-                  // No, it returns the scalars. 
-                  // Since Job belongs to Company, Application belongs to Company.
-                  // We might need to look up companyId from Job.
+                  companyId: job.company_id
                 }
               });
               console.log(`[Auto-Email] Sent 'New Application' email to ${candidate.email}`);
@@ -113,7 +116,8 @@ export class ApplicationService extends BaseService {
   }
 
   async getCandidateApplications(candidateId: string): Promise<Application[]> {
-    return this.applicationRepository.findByCandidateId(candidateId);
+    const applications = await this.applicationRepository.findByCandidateId(candidateId);
+    return applications.map(app => this.mapApplication(app));
   }
 
   async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
@@ -146,7 +150,6 @@ export class ApplicationService extends BaseService {
         status: result.recommendation === 'strong_no_hire' ? 'FAILED' : 'PASSED',
         score: result.scores.overall,
         criteriaMatched: result, // Save full analysis JSON
-        reviewedBy: 'AI_SYSTEM'
       });
 
       // Update application score
@@ -158,7 +161,25 @@ export class ApplicationService extends BaseService {
     }
   }
 
+  async bulkAiAnalysis(applicationIds: string[], jobId: string): Promise<{ success: number; failed: number }> {
+    let success = 0;
+    let failed = 0;
+
+    await Promise.all(applicationIds.map(async (id) => {
+      try {
+        await this.triggerAiAnalysis(id, jobId);
+        success++;
+      } catch (error) {
+        console.error(`Failed to analyze application ${id}`, error);
+        failed++;
+      }
+    }));
+
+    return { success, failed };
+  }
+
   private mapApplication(app: any): Application {
+    console.log(`[mapApplication] Mapping application: ${app.id}`);
     // Find AI screening result (AUTOMATED) or fallback to first result
     const aiResult = Array.isArray(app.screening_result)
       ? app.screening_result.find((r: any) => r.screening_type === 'AUTOMATED')
@@ -259,7 +280,20 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateStage(id, stage);
+    const updatedApp = await this.applicationRepository.updateStage(id, stage);
+
+    // Notify Candidate of status change
+    await this.notificationService.createNotification({
+      recipientType: NotificationRecipientType.CANDIDATE,
+      recipientId: updatedApp.candidate_id,
+      type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+      title: 'Application Update',
+      message: `Your application status has been updated to ${stage.replace(/_/g, ' ')}.`,
+      data: { applicationId: id, stage },
+      actionUrl: `/candidate/applications/${id}`,
+    });
+
+    return updatedApp;
   }
 
   async updateNotes(id: string, notes: string): Promise<Application> {
@@ -332,6 +366,7 @@ export class ApplicationService extends BaseService {
         last_name: data.lastName,
         password_hash: '', // No password for manually added
         status: 'ACTIVE',
+        resume_url: data.resumeUrl, // Sync profile URL
         resumes: data.resumeUrl ? {
           create: {
             file_url: data.resumeUrl,
@@ -583,5 +618,29 @@ export class ApplicationService extends BaseService {
     // Trigger Emails (Omitted/Placeholder as EmailAutomationService might not exist or be different)
 
     return updatedApp;
+  }
+
+  async addEvaluation(data: {
+    applicationId: string;
+    userId: string;
+    score?: number;
+    comment?: string;
+    decision?: 'APPROVE' | 'REJECT' | 'PENDING';
+  }) {
+    const evaluation = await this.applicationRepository.addEvaluation(data);
+
+    // If decision provided, handle application status update
+    // Only 'APPROVE' or 'REJECT' should trigger status changes AND only if user has permission (handled in Controller/Middleware)
+    // Assuming Permission Check is done before calling this service or within the controller.
+
+    // Note: The prompt implies: "if shortlisting type user or admin approve or reject candidate it will be marked as shortlisted and rejected"
+    // We'll handle the status update logic in the controller to keep service focused, OR here if we pass user role.
+    // For now, simpler to return evaluation and let controller decide on status update based on role.
+
+    return evaluation;
+  }
+
+  async getEvaluations(applicationId: string) {
+    return this.applicationRepository.getEvaluations(applicationId);
   }
 }

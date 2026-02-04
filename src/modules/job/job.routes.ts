@@ -9,6 +9,8 @@ const jobController = new JobController();
 router.post('/', authenticate, jobController.createJob);
 router.get('/', authenticate, jobController.getJobs);
 router.post('/bulk-delete', authenticate, jobController.bulkDeleteJobs);
+router.post('/bulk-archive', authenticate, jobController.bulkArchiveJobs);
+router.post('/bulk-unarchive', authenticate, jobController.bulkUnarchiveJobs);
 router.get('/:id', authenticate, jobController.getJob);
 router.post('/:id/publish', authenticate, jobController.publishJob);
 
@@ -18,6 +20,10 @@ router.put('/:jobId/rounds/:roundId/email-config', authenticate, RoundConfigCont
 
 router.post('/:id/save-draft', authenticate, jobController.saveDraft);
 router.post('/:id/save-template', authenticate, jobController.saveTemplate);
+router.post('/:id/save-as-template', authenticate, jobController.saveAsTemplate);
+router.post('/:id/archive', authenticate, jobController.archiveJob);
+router.post('/:id/unarchive', authenticate, jobController.unarchiveJob);
+router.put('/:id/alerts', authenticate, jobController.updateAlerts);
 router.put('/:id', authenticate, jobController.updateJob);
 router.delete('/:id', authenticate, jobController.deleteJob);
 
@@ -37,6 +43,11 @@ router.post('/:id/rounds/:roundId/assessment-config', authenticate, jobControlle
 router.get('/:id/rounds/:roundId/assessments', authenticate, jobController.getRoundAssessments);
 
 // Hiring Team
-router.post('/:id/hiring-team/invite', authenticate, jobController.inviteHiringTeamMember);
+router.post('/:id/hiring-team/invite', authenticate, jobController.inviteHiringTeamMember); // Legacy?
+router.get('/:id/team', authenticate, jobController.getHiringTeam);
+router.post('/:id/team', authenticate, jobController.inviteHiringTeamMember);
+router.patch('/:id/team/:memberId', authenticate, jobController.updateHiringTeamMemberRole);
+router.delete('/:id/team/:memberId', authenticate, jobController.removeHiringTeamMember);
+router.post('/:id/team/:memberId/resend-invite', authenticate, jobController.resendHiringTeamInvite);
 
 export default router;

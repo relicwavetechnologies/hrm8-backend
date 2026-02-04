@@ -130,6 +130,20 @@ export class ConsultantController extends BaseController {
     }
   };
 
+  updateCandidateStage = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
+
+      const { applicationId } = req.params;
+      const { stage } = req.body;
+      const result = await this.candidateService.updateStage(consultantId, applicationId as string, stage);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Messaging
   listConversations = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
@@ -299,9 +313,13 @@ export class ConsultantController extends BaseController {
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
       const { jobId } = req.params;
+      console.log(`[ConsultantController.getJobDetails] Request for jobId: "${jobId}" by consultant: ${consultantId}`);
+
       const result = await this.consultantService.getJobDetails(consultantId, jobId as string);
+      console.log(`[ConsultantController.getJobDetails] Success`);
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error(`[ConsultantController.getJobDetails] Error:`, error);
       return this.sendError(res, error);
     }
   };

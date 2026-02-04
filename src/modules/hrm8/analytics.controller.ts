@@ -80,4 +80,13 @@ export class AnalyticsController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    getJobBoardStats = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const result = await this.analyticsService.getJobBoardStats();
+            return this.sendSuccess(res, { companies: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }

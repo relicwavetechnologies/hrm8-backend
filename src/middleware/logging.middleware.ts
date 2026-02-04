@@ -12,15 +12,17 @@ export function loggingMiddleware(req: Request, res: Response, next: NextFunctio
   const startTime = Date.now();
 
   // Log request
+  /*
   logger.debug(`→ ${req.method} ${req.path}`, {
     ip: req.ip,
     userAgent: req.get('user-agent'),
   });
+  */
 
   // Capture response using event listener
   res.on('finish', () => {
-    const duration = Date.now() - startTime;
-    logger.http(req.method, req.path, res.statusCode, duration);
+    // const duration = Date.now() - startTime;
+    // logger.http(req.method, req.path, res.statusCode, duration);
   });
 
   next();

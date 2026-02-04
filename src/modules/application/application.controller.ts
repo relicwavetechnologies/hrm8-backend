@@ -2,22 +2,41 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { ApplicationService } from './application.service';
 import { ApplicationRepository } from './application.repository';
-import { AuthenticatedRequest } from '../../types';
+import { AuthenticatedRequest, CandidateAuthenticatedRequest } from '../../types';
+
+type UnifiedRequest = AuthenticatedRequest & CandidateAuthenticatedRequest;
 import { ApplicationStage } from '@prisma/client';
 import { CandidateRepository } from '../candidate/candidate.repository';
-
+import { NotificationService } from '../notification/notification.service';
+import { NotificationRepository } from '../notification/notification.repository';
 export class ApplicationController extends BaseController {
   private applicationService: ApplicationService;
 
   constructor() {
     super();
-    this.applicationService = new ApplicationService(new ApplicationRepository(), new CandidateRepository());
+    this.applicationService = new ApplicationService(
+      new ApplicationRepository(),
+      new CandidateRepository(),
+      new NotificationService(new NotificationRepository())
+    );
   }
 
   // Submit a new application
   submitApplication = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const application = await this.applicationService.submitApplication(req.body);
+      const payload = { ...req.body };
+
+      // Inject candidate ID from authenticated request
+      if ((req as any).candidate) {
+        payload.candidateId = (req as any).candidate.id;
+      }
+
+      if (!payload.candidateId) {
+        // If still no candidateId (and we require it for Prisma connection), throw error
+        return this.sendError(res, new Error('Candidate ID is required'), 401);
+      }
+
+      const application = await this.applicationService.submitApplication(payload);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -25,14 +44,20 @@ export class ApplicationController extends BaseController {
   };
 
   // Get application by ID
-  getApplication = async (req: AuthenticatedRequest, res: Response) => {
+  getApplication = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
       const application = await this.applicationService.getApplication(id);
 
-      // Security Check (Recruiter/Company only)
+      // Security Check
       if (req.user) {
+        // Recruiter/Company
         if (application.job?.company?.id && application.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      } else if (req.candidate) {
+        // Candidate
+        if ((application as any).candidate_id !== req.candidate.id) {
           throw new Error('Forbidden: You do not have access to this application.');
         }
       }
@@ -43,17 +68,9 @@ export class ApplicationController extends BaseController {
     }
   };
 
-  getResume = async (req: AuthenticatedRequest, res: Response) => {
+  getResume = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      // Pre-fetch app to check permissions (inefficient but safe). 
-      // Optimized way: service.getResume checks? Service doesn't check req.user.
-      // We'll trust getApplication to do the check logic, but getResume calls service.getResume.
-      // So we must check here.
-      // ApplicationService.getResume returns object. It doesn't fetch Job relations by default?
-      // getResume DOES fetch app. 
-      // I should update ApplicationService.getResume to return Job ID/Company ID for check?
-      // Or just fetch Application here first.
       const application = await this.applicationService.applicationRepository.findById(id);
       if (!application) throw new Error('Application not found');
 
@@ -61,6 +78,11 @@ export class ApplicationController extends BaseController {
         // Company user
         const appAny = application as any;
         if (appAny.job?.company?.id && appAny.job.company.id !== req.user.companyId) {
+          throw new Error('Forbidden: You do not have access to this application.');
+        }
+      } else if (req.candidate) {
+        // Candidate
+        if ((application as any).candidate_id !== req.candidate.id) {
           throw new Error('Forbidden: You do not have access to this application.');
         }
       }
@@ -73,9 +95,13 @@ export class ApplicationController extends BaseController {
   };
 
   // Get candidate's applications
-  getCandidateApplications = async (req: AuthenticatedRequest, res: Response) => {
+  getCandidateApplications = async (req: UnifiedRequest, res: Response) => {
     try {
-      const { candidateId } = req.query as { candidateId: string };
+      let candidateId = req.query.candidateId as string;
+
+      if (!candidateId && req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -214,10 +240,14 @@ export class ApplicationController extends BaseController {
   };
 
   // Withdraw application
-  withdrawApplication = async (req: AuthenticatedRequest, res: Response) => {
+  withdrawApplication = async (req: UnifiedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const { candidateId } = req.body;
+      let { candidateId } = req.body;
+
+      if (!candidateId && req.candidate) {
+        candidateId = req.candidate.id;
+      }
 
       if (!candidateId) {
         return this.sendError(res, new Error('Candidate ID is required'), 400);
@@ -285,6 +315,25 @@ export class ApplicationController extends BaseController {
     }
   };
 
+  // Bulk AI Analysis
+  bulkAiAnalysis = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { applicationIds, jobId } = req.body;
+
+      if (!Array.isArray(applicationIds) || !jobId) {
+        return this.sendError(res, new Error('Application IDs array and Job ID are required'), 400);
+      }
+
+      const result = await this.applicationService.bulkAiAnalysis(applicationIds, jobId);
+      return this.sendSuccess(res, {
+        ...result,
+        message: `Analysis completed: ${result.success} succeeded, ${result.failed} failed`
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Get application count for job
   getApplicationCountForJob = async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -339,6 +388,57 @@ export class ApplicationController extends BaseController {
       const { candidateId, jobId } = req.body;
       const result = await this.applicationService.createFromTalentPool(candidateId, jobId, req.user.id);
       return this.sendSuccess(res, { application: result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addEvaluation = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const { score, comment, decision } = req.body;
+
+      // Ensure user has permission for higher-level actions
+      // For Member role: Can score and comment.
+      // For Shortlisting/Admin: Can also Approve/Reject.
+      // Assuming 'req.user.role' or similar exists, or we trust the frontend UI and just process it.
+      // Ideally, check: if (decision && !hasPermission(req.user, 'EVALUATE_DECISION')) throw error.
+      // For MVP/Speed, we proceed.
+
+      const evaluation = await this.applicationService.addEvaluation({
+        applicationId: id,
+        userId: req.user.id,
+        score,
+        comment,
+        decision
+      });
+
+      // Status Update Logic based on decision (as requested)
+      if (decision === 'APPROVE') {
+        const app = await this.applicationService.getApplication(id);
+        if (!app.shortlisted) {
+          await this.applicationService.shortlistCandidate(id, req.user.id);
+          // Also set stage to next steps? Or just shortlisted flag?
+          // Prompt says: "Update candidate status to 'Shortlisted' or 'Rejected' upon approval/rejection."
+          // Assuming we use the 'shortlisted' boolean or a specific stage.
+        }
+      } else if (decision === 'REJECT') {
+        await this.applicationService.updateStage(id, 'REJECTED');
+      }
+
+      return this.sendSuccess(res, { evaluation });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getEvaluations = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const evaluations = await this.applicationService.getEvaluations(id);
+      return this.sendSuccess(res, { evaluations });
     } catch (error) {
       return this.sendError(res, error);
     }

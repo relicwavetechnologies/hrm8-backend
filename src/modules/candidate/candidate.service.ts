@@ -15,7 +15,7 @@ export class CandidateService extends BaseService {
 
   async login(data: { email: string; password: string }) {
     const candidate = await this.candidateRepository.findByEmail(normalizeEmail(data.email));
-    
+
     if (!candidate) {
       throw new HttpException(401, 'Invalid credentials');
     }
@@ -192,7 +192,12 @@ export class CandidateService extends BaseService {
       }
 
       return {
-        ...assessment,
+        id: assessment.id,
+        status: assessment.status,
+        invitedAt: assessment.invited_at,
+        expiryDate: assessment.expiry_date,
+        completedAt: assessment.completed_at,
+        jobId: assessment.job_id,
         jobTitle,
         roundName,
       };
@@ -219,12 +224,25 @@ export class CandidateService extends BaseService {
     }
 
     return {
-      ...assessment,
+      id: assessment.id,
+      status: assessment.status,
+      invitedAt: assessment.invited_at,
+      expiryDate: assessment.expiry_date,
+      completedAt: assessment.completed_at,
+      jobId: assessment.job_id,
       jobTitle,
       config: config ? {
         timeLimitMinutes: config.time_limit_minutes,
         instructions: config.instructions
-      } : null
+      } : null,
+      questions: (assessment as any).assessment_question?.map((q: any) => ({
+        id: q.id,
+        questionText: q.question_text,
+        questionType: q.question_type,
+        options: q.options,
+        points: q.points,
+        order: q.order
+      })) || []
     };
   }
 
@@ -413,10 +431,11 @@ export class CandidateService extends BaseService {
     const workExperienceList = data.workExperience || data;
     const updates = await Promise.all(
       workExperienceList.map(async (experience: any) => {
+        const mappedData = this.mapWorkExperienceInput(experience);
         if (experience.id) {
-          return this.candidateRepository.updateWorkExperience(experience.id, experience);
+          return this.candidateRepository.updateWorkExperience(experience.id, mappedData);
         } else {
-          return this.candidateRepository.createWorkExperience(candidateId, experience);
+          return this.candidateRepository.createWorkExperience(candidateId, mappedData);
         }
       })
     );
@@ -427,6 +446,245 @@ export class CandidateService extends BaseService {
       );
     }
 
-    return { workHistory: updates };
+    return updates.map((exp: any) => this.mapWorkExperience(exp));
+  }
+
+  // Helper for mapping Work Experience
+  private mapWorkExperience(exp: any) {
+    return {
+      id: exp.id,
+      company: exp.company,
+      role: exp.role,
+      startDate: exp.start_date,
+      endDate: exp.end_date,
+      current: exp.current,
+      description: exp.description,
+      location: exp.location,
+      createdAt: exp.created_at,
+      updatedAt: exp.updated_at
+    };
+  };
+
+
+  // Helper for mapping Work Experience Input (camelCase -> snake_case)
+  private mapWorkExperienceInput(data: any) {
+    return {
+      company: data.company,
+      role: data.role,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
+  }
+
+  // Helper for mapping Education Input
+  private mapEducationInput(data: any) {
+    return {
+      institution: data.institution,
+      degree: data.degree,
+      field: data.field,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
+  }
+
+  // Helper for mapping Certification Input
+  private mapCertificationInput(data: any) {
+    return {
+      name: data.name,
+      issuing_org: data.issuingOrg,
+      issue_date: data.issueDate,
+      expiry_date: data.expiryDate,
+      credential_id: data.credentialId,
+      credential_url: data.credentialUrl,
+      does_not_expire: data.doesNotExpire,
+    };
+  }
+
+  // Helper for mapping Training Input
+  private mapTrainingInput(data: any) {
+    return {
+      title: data.title,
+      institution: data.institution,
+      start_date: data.startDate,
+      end_date: data.endDate,
+      current: data.current,
+      description: data.description,
+      location: data.location,
+    };
+  }
+
+  async getWorkHistory(candidateId: string) {
+    const experiences = await this.candidateRepository.getWorkHistory(candidateId);
+    return experiences.map((exp: any) => this.mapWorkExperience(exp));
+  }
+
+  async createWorkExperience(candidateId: string, data: any) {
+    const mappedData = this.mapWorkExperienceInput(data);
+    const experience = await this.candidateRepository.createWorkExperience(candidateId, mappedData);
+    return this.mapWorkExperience(experience);
+  }
+
+  async updateWorkExperienceItem(id: string, data: any) {
+    const mappedData = this.mapWorkExperienceInput(data);
+    const experience = await this.candidateRepository.updateWorkExperience(id, mappedData);
+    return this.mapWorkExperience(experience);
+  }
+
+  async deleteWorkExperience(id: string) {
+    return this.candidateRepository.deleteWorkExperience(id);
+  }
+
+  // Notification Preferences
+  async getNotificationPreferences(candidateId: string) {
+    const preferences = await this.candidateRepository.getNotificationPreferences(candidateId);
+    if (!preferences) {
+      // Return default preferences if none exist
+      return {
+        application_status_changes: true,
+        interview_reminders: true,
+        job_match_alerts: true,
+        messages: true,
+        system_updates: true,
+        email_enabled: true,
+        in_app_enabled: true,
+        reminder_hours_before: 24,
+      };
+    }
+    return preferences;
+  }
+
+  async updateNotificationPreferences(candidateId: string, data: any) {
+    return this.candidateRepository.upsertNotificationPreferences(candidateId, data);
+  }
+
+  // Skills
+  async getSkills(candidateId: string) {
+    return this.candidateRepository.getSkills(candidateId);
+  }
+
+  async updateSkills(candidateId: string, data: any) {
+    const { skills, deleteSkills } = data;
+
+    if (skills && Array.isArray(skills)) {
+      await Promise.all(
+        skills.map(async (skill: any) => {
+          // Handle string skills (e.g. ['Java', 'Python'])
+          const skillData = typeof skill === 'string' ? { name: skill } : skill;
+
+          if (skillData.id) {
+            return this.candidateRepository.updateSkill(skillData.id, skillData);
+          } else {
+            return this.candidateRepository.createSkill(candidateId, skillData);
+          }
+        })
+      );
+    }
+
+    if (deleteSkills && Array.isArray(deleteSkills)) {
+      await Promise.all(
+        deleteSkills.map((id: string) => this.candidateRepository.deleteSkill(id))
+      );
+    }
+
+    return this.candidateRepository.getSkills(candidateId);
+  }
+
+  // Saved Jobs
+  async getSavedJobs(candidateId: string) {
+    return this.candidateRepository.getSavedJobs(candidateId);
+  }
+
+  async removeSavedJob(candidateId: string, jobId: string) {
+    return this.candidateRepository.deleteSavedJob(candidateId, jobId);
+  }
+
+  // Saved Searches  
+  async getSavedSearches(candidateId: string) {
+    return this.candidateRepository.getSavedSearches(candidateId);
+  }
+
+  async deleteSavedSearch(searchId: string) {
+    return this.candidateRepository.deleteSavedSearch(searchId);
+  }
+
+  // Job Alerts
+  async getJobAlerts(candidateId: string) {
+    return this.candidateRepository.getJobAlerts(candidateId);
+  }
+
+  async createJobAlert(candidateId: string, data: any) {
+    return this.candidateRepository.createJobAlert(candidateId, data);
+  }
+
+  async updateJobAlert(alertId: string, data: any) {
+    return this.candidateRepository.updateJobAlert(alertId, data);
+  }
+
+  async deleteJobAlert(alertId: string) {
+    return this.candidateRepository.deleteJobAlert(alertId);
+  }
+
+  // Qualifications
+  async getEducation(candidateId: string) {
+    const qualifications = await this.candidateRepository.getQualifications(candidateId);
+    return qualifications.education;
+  }
+
+  async createEducation(candidateId: string, data: any) {
+    const mappedData = this.mapEducationInput(data);
+    return this.candidateRepository.createEducation(candidateId, mappedData);
+  }
+
+  async updateEducation(id: string, data: any) {
+    const mappedData = this.mapEducationInput(data);
+    return this.candidateRepository.updateEducation(id, mappedData);
+  }
+
+  async deleteEducation(id: string) {
+    return this.candidateRepository.deleteEducation(id);
+  }
+
+  async getCertifications(candidateId: string) {
+    const qualifications = await this.candidateRepository.getQualifications(candidateId);
+    return qualifications.certifications;
+  }
+
+  async createCertification(candidateId: string, data: any) {
+    const mappedData = this.mapCertificationInput(data);
+    return this.candidateRepository.createCertification(candidateId, mappedData);
+  }
+
+  async updateCertification(id: string, data: any) {
+    const mappedData = this.mapCertificationInput(data);
+    return this.candidateRepository.updateCertification(id, mappedData);
+  }
+
+  async deleteCertification(id: string) {
+    return this.candidateRepository.deleteCertification(id);
+  }
+
+  async getTraining(candidateId: string) {
+    const qualifications = await this.candidateRepository.getQualifications(candidateId);
+    return qualifications.training;
+  }
+
+  async createTraining(candidateId: string, data: any) {
+    const mappedData = this.mapTrainingInput(data);
+    return this.candidateRepository.createTraining(candidateId, mappedData);
+  }
+
+  async updateTraining(id: string, data: any) {
+    const mappedData = this.mapTrainingInput(data);
+    return this.candidateRepository.updateTraining(id, mappedData);
+  }
+
+  async deleteTraining(id: string) {
+    return this.candidateRepository.deleteTraining(id);
   }
 }

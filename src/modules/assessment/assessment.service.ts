@@ -123,18 +123,11 @@ export class AssessmentService extends BaseService {
     if (existingAssessment) return;
 
     // Get configuration
-    // Note: We need to access prisma directly for configuration as repository might not have it exposed
-    // Assuming BaseService gives access to prisma client or we need to add it to repository
-    // For now, I'll assume AssessmentRepository has a method or I can use a raw prisma call if I had access.
-    // Since I don't have easy access to Prisma client here (it's in repository), I will add a method to repository to get config.
     const config = await this.assessmentRepository.findConfigByJobRoundId(jobRoundId);
 
     if (!config || !config.enabled) return;
 
-    // Get application details (needed for candidate/job IDs)
-    // We can fetch this via a new repository method or assume we have the IDs.
-    // Ideally we should pass candidateId and jobId to this method to avoid circular dependency with ApplicationService
-    // But for now let's query the application using a raw prisma call via repository if possible, or just add a helper in repository.
+    // Get application details
     const application = await this.assessmentRepository.findApplicationForAssignment(applicationId);
     if (!application) throw new Error('Application not found');
 
@@ -146,15 +139,13 @@ export class AssessmentService extends BaseService {
     }
 
     // Create assessment
-    // Create assessment
     const assessment = await this.assessmentRepository.create({
       user: { connect: { id: invitedBy } },
       application: { connect: { id: applicationId } },
       candidate_id: application.candidate_id,
       job_id: application.job_id,
-      // used to be job_round_id: scalar but let's try connect if easier, or keep scalar if allowed
       job_round_id: jobRoundId,
-      assessment_type: 'SKILLS_BASED', // Assuming string literal works for Enum
+      assessment_type: 'SKILLS_BASED',
       provider: config.provider || 'native',
       invited_at: new Date(),
       expiry_date: expiryDate,
@@ -274,6 +265,22 @@ export class AssessmentService extends BaseService {
 
     return { success: true, assessmentId: assessment.id };
   }
+
+  async createQuestions(assessmentId: string, questions: any[]): Promise<void> {
+    for (let i = 0; i < questions.length; i++) {
+      const question = questions[i];
+      await this.assessmentRepository.createQuestion({
+        assessment: { connect: { id: assessmentId } },
+        question_text: question.questionText || question.text || '',
+        question_type: (question.type || question.questionType || 'MULTIPLE_CHOICE') as any,
+        options: question.options || null,
+        correct_answer: question.correctAnswer || question.correct_answer || null,
+        points: question.points || 1,
+        order: question.order ?? i,
+      });
+    }
+  }
+
   async getRoundAssessments(roundId: string) {
     const currentRound = await this.assessmentRepository.findJobRound(roundId);
     if (!currentRound) throw new Error('Round not found');
@@ -291,7 +298,6 @@ export class AssessmentService extends BaseService {
         (p: any) => p.job_round && p.job_round.order > currentRound.order
       ) || false;
 
-      // Calculate Average Score
       let averageScore: number | null = null;
       if (a.assessment_response && a.assessment_response.length > 0) {
         const grades = a.assessment_response

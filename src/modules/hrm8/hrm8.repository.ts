@@ -2,7 +2,7 @@ import type { Prisma, HRM8User } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class Hrm8Repository extends BaseRepository {
-  
+
   async findByEmail(email: string): Promise<HRM8User | null> {
     return this.prisma.hRM8User.findUnique({
       where: { email },
@@ -42,18 +42,19 @@ export class Hrm8Repository extends BaseRepository {
   }
 
   async findSessionBySessionId(sessionId: string) {
-    console.log(`[Hrm8Repository.findSessionBySessionId] Looking up session: ${sessionId}`);
 
     const session = await this.prisma.hRM8Session.findUnique({
       where: { session_id: sessionId },
       include: { user: true },
     });
 
+    /*
     if (!session) {
       console.log(`[Hrm8Repository.findSessionBySessionId] Session not found for: ${sessionId}`);
     } else {
       console.log(`[Hrm8Repository.findSessionBySessionId] Session found for user: ${session.hrm8_user_id}, user object exists: ${!!session.user}`);
     }
+    */
 
     return session;
   }

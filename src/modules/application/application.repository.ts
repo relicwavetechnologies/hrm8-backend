@@ -69,7 +69,21 @@ export class ApplicationRepository extends BaseRepository {
         },
         questionnaire_response: true,
         video_interview: true,
-        screening_result: true
+        screening_result: true,
+        evaluations: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                role: true
+              }
+            }
+          },
+          orderBy: {
+            created_at: 'desc'
+          }
+        }
       },
     });
   }
@@ -334,6 +348,52 @@ export class ApplicationRepository extends BaseRepository {
     return this.prisma.candidateResume.update({
       where: { id },
       data: { content }
+    });
+  }
+
+  async addEvaluation(data: {
+    applicationId: string;
+    userId: string;
+    score?: number;
+    comment?: string;
+    decision?: 'APPROVE' | 'REJECT' | 'PENDING';
+  }) {
+    // Upsert evaluation: One user can only have one evaluation per application (or update their existing one)
+    return this.prisma.candidateEvaluation.upsert({
+      where: {
+        application_id_user_id: {
+          application_id: data.applicationId,
+          user_id: data.userId,
+        },
+      },
+      create: {
+        application_id: data.applicationId,
+        user_id: data.userId,
+        score: data.score,
+        comment: data.comment,
+        decision: data.decision,
+      },
+      update: {
+        score: data.score,
+        comment: data.comment,
+        decision: data.decision,
+      },
+    });
+  }
+
+  async getEvaluations(applicationId: string) {
+    return this.prisma.candidateEvaluation.findMany({
+      where: { application_id: applicationId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            role: true, // Helpful for frontend to distinguish Admin/Member
+          },
+        },
+      },
+      orderBy: { updated_at: 'desc' },
     });
   }
 }

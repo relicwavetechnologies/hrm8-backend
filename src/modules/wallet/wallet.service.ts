@@ -321,7 +321,7 @@ export class WalletService {
         amount: w.amount,
         status: w.status,
         createdAt: w.created_at,
-        completedAt: w.updated_at
+        completedAt: w.status === 'COMPLETED' ? w.created_at : null
       })),
       total: withdrawals.length
     };
@@ -331,26 +331,30 @@ export class WalletService {
    * Request refund
    */
   static async requestRefund(ownerType: VirtualAccountOwner, ownerId: string, data: {
-    referenceId: string;
-    referenceType: string;
-    amount: number;
+    transactionId: string;
     reason: string;
+    description?: string;
   }) {
-    if (data.amount <= 0) {
-      throw new HttpException(400, 'Refund amount must be positive');
+    // Get the transaction to find the amount
+    const transaction = await prisma.virtualTransaction.findUnique({
+      where: { id: data.transactionId }
+    });
+
+    if (!transaction) {
+      throw new HttpException(404, 'Transaction not found');
     }
 
     const account = await this.getOrCreateAccount(ownerType, ownerId);
 
+    // For TransactionRefundRequest, we need company_id, transaction_id, transaction_type
     const refundRequest = await prisma.transactionRefundRequest.create({
       data: {
-        reference_id: data.referenceId,
-        reference_type: data.referenceType,
-        amount: data.amount,
+        company_id: ownerType === 'COMPANY' ? ownerId : 'global',
+        transaction_id: data.transactionId,
+        transaction_type: transaction.type,
+        amount: transaction.amount,
         reason: data.reason,
-        status: 'PENDING',
-        requested_by: ownerId,
-        requested_at: new Date()
+        status: 'PENDING'
       }
     });
 
@@ -359,7 +363,7 @@ export class WalletService {
       amount: refundRequest.amount,
       status: refundRequest.status,
       reason: refundRequest.reason,
-      createdAt: refundRequest.requested_at
+      createdAt: refundRequest.created_at
     };
   }
 
@@ -368,21 +372,18 @@ export class WalletService {
    */
   static async getRefundHistory(ownerType: VirtualAccountOwner, ownerId: string) {
     const refunds = await prisma.transactionRefundRequest.findMany({
-      where: { requested_by: ownerId },
-      orderBy: { requested_at: 'desc' }
+      where: { company_id: ownerType === 'COMPANY' ? ownerId : 'global' },
+      orderBy: { created_at: 'desc' }
     });
 
-    return {
-      refunds: refunds.map(r => ({
-        id: r.id,
-        amount: r.amount,
-        status: r.status,
-        reason: r.reason,
-        requestedAt: r.requested_at,
-        approvedAt: r.approved_at
-      })),
-      total: refunds.length
-    };
+    return refunds.map(r => ({
+      id: r.id,
+      amount: r.amount,
+      status: r.status,
+      reason: r.reason,
+      requestedAt: r.created_at,
+      processedAt: r.processed_at
+    }));
   }
 
   /**
@@ -401,9 +402,9 @@ export class WalletService {
         id: s.id,
         name: s.name,
         status: s.status,
-        amount: s.amount,
+        amount: s.base_price,
         billingCycle: s.billing_cycle,
-        nextBillingDate: s.next_billing_date,
+        nextBillingDate: s.renewal_date,
         createdAt: s.created_at
       })),
       total: subscriptions.length
@@ -426,9 +427,9 @@ export class WalletService {
       id: subscription.id,
       name: subscription.name,
       status: subscription.status,
-      amount: subscription.amount,
+      amount: subscription.base_price,
       billingCycle: subscription.billing_cycle,
-      nextBillingDate: subscription.next_billing_date,
+      nextBillingDate: subscription.renewal_date,
       createdAt: subscription.created_at,
       updatedAt: subscription.updated_at
     };
@@ -440,8 +441,7 @@ export class WalletService {
   static async createSubscription(ownerType: VirtualAccountOwner, ownerId: string, data: {
     name: string;
     amount: number;
-    billingCycle: string;
-    priceBookId?: string;
+    billingCycle?: string;
   }) {
     if (data.amount <= 0) {
       throw new HttpException(400, 'Subscription amount must be positive');
@@ -449,13 +449,14 @@ export class WalletService {
 
     const subscription = await prisma.subscription.create({
       data: {
-        company_id: ownerType === 'COMPANY' ? ownerId : undefined,
+        company_id: ownerType === 'COMPANY' ? ownerId : 'global',
         name: data.name,
-        amount: data.amount,
-        billing_cycle: data.billingCycle,
-        price_book_id: data.priceBookId,
+        base_price: data.amount,
+        billing_cycle: (data.billingCycle as any) || 'MONTHLY',
+        plan_type: 'BASIC',
         status: 'ACTIVE',
-        next_billing_date: new Date()
+        start_date: new Date(),
+        renewal_date: new Date()
       }
     });
 

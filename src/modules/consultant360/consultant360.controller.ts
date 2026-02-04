@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { Consultant360Service } from './consultant360.service';
 import { Consultant360Repository } from './consultant360.repository';
-import { AuthenticatedRequest } from '../../types';
+import { ConsultantAuthenticatedRequest } from '../../types';
 import { HttpException } from '../../core/http-exception';
 
 export class Consultant360Controller extends BaseController {
@@ -14,7 +14,7 @@ export class Consultant360Controller extends BaseController {
   }
 
   // Dashboard
-  getDashboard = async (req: AuthenticatedRequest, res: Response) => {
+  getDashboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -22,14 +22,14 @@ export class Consultant360Controller extends BaseController {
       }
 
       const dashboard = await this.service.getDashboard(consultantId);
-      return this.sendSuccess(res, { dashboard });
+      return this.sendSuccess(res, dashboard);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
   // Leads
-  getLeads = async (req: AuthenticatedRequest, res: Response) => {
+  getLeads = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -46,7 +46,7 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
-  createLead = async (req: AuthenticatedRequest, res: Response) => {
+  createLead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -54,13 +54,13 @@ export class Consultant360Controller extends BaseController {
       }
 
       const lead = await this.service.createLead(consultantId, req.body);
-      return this.sendSuccess(res, { lead }, 201);
+      return this.sendSuccess(res, { lead });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  submitConversionRequest = async (req: AuthenticatedRequest, res: Response) => {
+  submitConversionRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -68,15 +68,15 @@ export class Consultant360Controller extends BaseController {
       }
 
       const { leadId } = req.params;
-      const conversionRequest = await this.service.submitConversionRequest(consultantId, leadId, req.body);
-      return this.sendSuccess(res, { conversionRequest }, 201);
+      const conversionRequest = await this.service.submitConversionRequest(consultantId, leadId as string, req.body);
+      return this.sendSuccess(res, { conversionRequest });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
   // Earnings
-  getEarnings = async (req: AuthenticatedRequest, res: Response) => {
+  getEarnings = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -91,7 +91,7 @@ export class Consultant360Controller extends BaseController {
   };
 
   // Commissions
-  getCommissions = async (req: AuthenticatedRequest, res: Response) => {
+  getCommissions = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -107,7 +107,7 @@ export class Consultant360Controller extends BaseController {
   };
 
   // Balance
-  getBalance = async (req: AuthenticatedRequest, res: Response) => {
+  getBalance = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -122,7 +122,7 @@ export class Consultant360Controller extends BaseController {
   };
 
   // Withdrawals
-  requestWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
+  requestWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -130,13 +130,13 @@ export class Consultant360Controller extends BaseController {
       }
 
       const withdrawal = await this.service.requestWithdrawal(consultantId, req.body);
-      return this.sendSuccess(res, { withdrawal }, 201);
+      return this.sendSuccess(res, { withdrawal });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getWithdrawals = async (req: AuthenticatedRequest, res: Response) => {
+  getWithdrawals = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -151,7 +151,7 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
-  cancelWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
+  cancelWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -159,14 +159,14 @@ export class Consultant360Controller extends BaseController {
       }
 
       const { id } = req.params;
-      const withdrawal = await this.service.cancelWithdrawal(id, consultantId);
+      const withdrawal = await this.service.cancelWithdrawal(id as string, consultantId);
       return this.sendSuccess(res, { withdrawal });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  executeWithdrawal = async (req: AuthenticatedRequest, res: Response) => {
+  executeWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -174,7 +174,7 @@ export class Consultant360Controller extends BaseController {
       }
 
       const { id } = req.params;
-      const withdrawal = await this.service.executeWithdrawal(id, consultantId);
+      const withdrawal = await this.service.executeWithdrawal(id as string, consultantId);
       return this.sendSuccess(res, { withdrawal });
     } catch (error) {
       return this.sendError(res, error);
@@ -182,7 +182,7 @@ export class Consultant360Controller extends BaseController {
   };
 
   // Stripe
-  stripeOnboard = async (req: AuthenticatedRequest, res: Response) => {
+  stripeOnboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -196,7 +196,7 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
-  getStripeStatus = async (req: AuthenticatedRequest, res: Response) => {
+  getStripeStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
@@ -210,7 +210,7 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
-  getStripeLoginLink = async (req: AuthenticatedRequest, res: Response) => {
+  getStripeLoginLink = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {

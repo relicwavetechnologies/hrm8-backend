@@ -1,0 +1,121 @@
+
+> backend-hrm8@1.0.0 build /Users/anishsuman/Documents/hrm8/hrm8-prod/hrm8-backend
+> tsc --noEmit
+
+src/modules/admin-billing/admin-billing.controller.ts(42,66): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(54,59): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(90,60): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(102,65): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(140,63): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(163,64): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(164,52): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(186,64): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(199,61): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(211,64): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(223,62): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.controller.ts(235,66): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin-billing/admin-billing.repository.ts(17,13): error TS2353: Object literal may only specify known properties, and 'name' does not exist in type 'ConsultantSelect<DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(39,13): error TS2353: Object literal may only specify known properties, and 'name' does not exist in type 'ConsultantSelect<DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(55,13): error TS2353: Object literal may only specify known properties, and 'name' does not exist in type 'ConsultantSelect<DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(72,24): error TS2339: Property 'revenueEntry' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(79,24): error TS2339: Property 'revenueEntry' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(83,24): error TS2339: Property 'revenueEntry' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(95,18): error TS2353: Object literal may only specify known properties, and 'created_at' does not exist in type 'SettlementOrderByWithRelationInput | SettlementOrderByWithRelationInput[]'.
+src/modules/admin-billing/admin-billing.repository.ts(159,18): error TS2353: Object literal may only specify known properties, and 'created_at' does not exist in type 'SettlementOrderByWithRelationInput | SettlementOrderByWithRelationInput[]'.
+src/modules/admin-billing/admin-billing.repository.ts(165,24): error TS2339: Property 'attribution' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(171,24): error TS2339: Property 'attribution' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(175,24): error TS2339: Property 'attribution' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(182,24): error TS2339: Property 'attributionHistory' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.repository.ts(189,24): error TS2339: Property 'attributionHistory' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/admin-billing/admin-billing.service.ts(77,35): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(77,40): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(91,36): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(91,41): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(104,45): error TS2339: Property 'region_id' does not exist on type '{ name: string; id: string; email: string; status: LicenseeStatus; created_at: Date; updated_at: Date; country: string | null; city: string | null; phone: string | null; ... 11 more ...; compliance_contact: string | null; }'.
+src/modules/admin-billing/admin-billing.service.ts(133,59): error TS2339: Property 'amount' does not exist on type '{ id: string; status: string; licensee_id: string; total_revenue: number; period_start: Date; period_end: Date; licensee_share: number; hrm8_share: number; payment_date: Date | null; reference: string | null; generated_at: Date; }'.
+src/modules/admin-billing/admin-billing.service.ts(149,73): error TS2339: Property 'region_id' does not exist on type '{ name: string; id: string; email: string; status: LicenseeStatus; created_at: Date; updated_at: Date; country: string | null; city: string | null; phone: string | null; ... 11 more ...; compliance_contact: string | null; }'.
+src/modules/admin-billing/admin-billing.service.ts(150,47): error TS7006: Parameter 'sum' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(150,52): error TS7006: Parameter 'r' implicitly has an 'any' type.
+src/modules/admin-billing/admin-billing.service.ts(171,61): error TS2339: Property 'amount' does not exist on type '{ licensee: { name: string; id: string; email: string; }; } & { id: string; status: string; licensee_id: string; total_revenue: number; period_start: Date; period_end: Date; licensee_share: number; hrm8_share: number; payment_date: Date | null; reference: string | null; generated_at: Date; }'.
+src/modules/admin/admin.controller.ts(26,65): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin/admin.controller.ts(45,64): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin/admin.controller.ts(55,47): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin/admin.controller.ts(87,55): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin/admin.controller.ts(106,54): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/admin/admin.controller.ts(116,42): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/application/application.controller.ts(16,31): error TS2554: Expected 3 arguments, but got 2.
+src/modules/application/application.repository.ts(378,13): error TS2353: Object literal may only specify known properties, and 'photo' does not exist in type 'UserSelect<DefaultArgs>'.
+src/modules/assessment/assessment.service.ts(68,9): error TS2353: Object literal may only specify known properties, and 'data' does not exist in type 'AssessmentUpdateInput'.
+src/modules/candidate/candidate.controller.ts(347,56): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/candidate/job-alert.service.ts(262,41): error TS2339: Property 'sendJobAlertEmail' does not exist on type 'EmailService'.
+src/modules/company/company.controller.ts(166,55): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/modules/company/company.repository.ts(85,9): error TS2353: Object literal may only specify known properties, and 'account' does not exist in type 'VirtualTransactionWhereInput'.
+src/modules/company/company.repository.ts(94,9): error TS2353: Object literal may only specify known properties, and 'account' does not exist in type 'VirtualTransactionInclude<DefaultArgs>'.
+src/modules/company/company.repository.ts(109,9): error TS2353: Object literal may only specify known properties, and 'account' does not exist in type 'VirtualTransactionWhereInput'.
+src/modules/company/company.repository.ts(124,20): error TS2367: This comparison appears to be unintentional because the types 'VirtualTransactionType' and '"DEBIT"' have no overlap.
+src/modules/company/company.repository.ts(127,20): error TS2367: This comparison appears to be unintentional because the types 'VirtualTransactionType' and '"CREDIT"' have no overlap.
+src/modules/company/company.repository.ts(144,24): error TS2339: Property 'refundRequest' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/company/company.repository.ts(148,24): error TS2339: Property 'refundRequest' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/company/company.repository.ts(165,24): error TS2339: Property 'refundRequest' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/company/company.repository.ts(179,24): error TS2339: Property 'refundRequest' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/company/company.repository.ts(194,24): error TS2339: Property 'refundRequest' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/email-template/email-template.controller.ts(39,56): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/email-template/email-template.controller.ts(49,39): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/email-template/email-template.controller.ts(68,56): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/email/email.service.ts(62,11): error TS1117: An object literal cannot have multiple properties with the same name.
+src/modules/email/email.service.ts(66,60): error TS2339: Property 'company_name' does not exist on type '{ id: string; role: string; created_at: Date; updated_at: Date; company: string; description: string | null; location: string | null; start_date: Date; end_date: Date | null; candidate_id: string; current: boolean; }'.
+src/modules/email/email.service.ts(67,64): error TS2339: Property 'job_title' does not exist on type '{ id: string; role: string; created_at: Date; updated_at: Date; company: string; description: string | null; location: string | null; start_date: Date; end_date: Date | null; candidate_id: string; current: boolean; }'.
+src/modules/email/email.service.ts(201,18): error TS2304: Cannot find name 'getPasswordResetTemplate'.
+src/modules/email/email.service.ts(206,22): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(215,18): error TS2304: Cannot find name 'getVerificationEmailTemplate'.
+src/modules/email/email.service.ts(220,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(225,18): error TS2304: Cannot find name 'getInvitationEmailTemplate'.
+src/modules/email/email.service.ts(247,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(253,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(259,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(265,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(285,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/email/email.service.ts(301,18): error TS2304: Cannot find name 'getNotificationEmailTemplate'.
+src/modules/hrm8/careers-request.repository.ts(8,15): error TS2554: Expected 0 arguments, but got 1.
+src/modules/hrm8/finance.controller.ts(85,29): error TS2353: Object literal may only specify known properties, and 'email' does not exist in type 'CompanySelect<DefaultArgs>'.
+src/modules/hrm8/finance.controller.ts(152,45): error TS2339: Property 'commission_rate' does not exist on type '{ regions: { name: string; id: string; created_at: Date; updated_at: Date; licensee_id: string | null; code: string; country: string; state_province: string | null; city: string | null; ... 4 more ...; monthly_revenue_target: number | null; }[]; } & { ...; }'.
+src/modules/hrm8/finance.controller.ts(152,79): error TS2339: Property 'commission_rate' does not exist on type '{ regions: { name: string; id: string; created_at: Date; updated_at: Date; licensee_id: string | null; code: string; country: string; state_province: string | null; city: string | null; ... 4 more ...; monthly_revenue_target: number | null; }[]; } & { ...; }'.
+src/modules/hrm8/hrm8.routes.ts(113,55): error TS2554: Expected 2 arguments, but got 3.
+src/modules/hrm8/regional-company.controller.ts(14,70): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/hrm8/regional-company.controller.ts(23,77): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/hrm8/settlement.controller.ts(45,68): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/modules/interview/interview.service.ts(245,41): error TS2339: Property 'INTERVIEW_UPDATE' does not exist on type '{ NEW_APPLICATION: "NEW_APPLICATION"; APPLICATION_STATUS_CHANGED: "APPLICATION_STATUS_CHANGED"; APPLICATION_SHORTLISTED: "APPLICATION_SHORTLISTED"; APPLICATION_REJECTED: "APPLICATION_REJECTED"; ... 24 more ...; LEAD_CONVERSION_DECLINED: "LEAD_CONVERSION_DECLINED"; }'.
+src/modules/job/job.controller.ts(159,41): error TS2339: Property 'submitAndActivate' does not exist on type 'JobService'.
+src/modules/job/job.controller.ts(175,41): error TS2339: Property 'updateAlerts' does not exist on type 'JobService'.
+src/modules/job/job.controller.ts(197,44): error TS2551: Property 'saveAsTemplate' does not exist on type 'JobService'. Did you mean 'saveTemplate'?
+src/modules/job/job.service.ts(200,45): error TS2339: Property 'bulkArchive' does not exist on type 'JobRepository'.
+src/modules/job/job.service.ts(220,45): error TS2339: Property 'bulkUnarchive' does not exist on type 'JobRepository'.
+src/modules/job/job.service.ts(259,32): error TS2304: Cannot find name 'EmailService'.
+src/modules/job/job.service.ts(260,35): error TS2304: Cannot find name 'JobAlertService'.
+src/modules/job/job.service.ts(261,58): error TS7006: Parameter 'error' implicitly has an 'any' type.
+src/modules/sales/sales.service.ts(355,62): error TS2339: Property 'balance' does not exist on type '{ availableBalance: number; pendingBalance: number; totalEarned: number; totalWithdrawn: number; currency: string; commissionCount: number; availableCommissions: { id: string; amount: number; description: string; date: Date; }[]; }'.
+ ELIFECYCLE  Command failed with exit code 2.

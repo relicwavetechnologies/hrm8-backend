@@ -198,7 +198,7 @@ export class SalesService extends BaseService {
   // --- Leads ---
   async getLeads(consultantId: string, filters?: { status?: string; region?: string }) {
     const where: any = {
-      $or: [
+      OR: [
         { assigned_consultant_id: consultantId },
         { created_by: consultantId },
         { referred_by: consultantId }

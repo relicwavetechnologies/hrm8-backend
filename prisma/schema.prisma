@@ -119,6 +119,8 @@ model User {
   company                  Company                      @relation(fields: [company_id], references: [id], onDelete: Cascade)
   notification_preferences UserNotificationPreferences? @relation("UserNotificationPreferences")
   alert_rules              UserAlertRule[]              @relation("UserAlertRules")
+  evaluations              CandidateEvaluation[]
+  hiring_teams             JobHiringTeamMember[]
 
   @@index([email])
   @@index([company_id])
@@ -279,6 +281,7 @@ model Job {
   assigned_consultant_id              String?                     @map("assigned_consultant_id")
   assignment_mode                     AssignmentMode              @default(AUTO) @map("assignment_mode")
   assignment_source                   AssignmentSource?           @map("assignment_source")
+  team_members                        JobHiringTeamMember[]
   payment_status                      PaymentStatus?              @default(PENDING) @map("payment_status")
   service_package                     String?                     @map("service_package")
   payment_amount                      Float?
@@ -705,6 +708,7 @@ model Application {
   questionnaire_response     QuestionnaireResponse[]
   screening_result           ScreeningResult[]
   video_interview            VideoInterview[]
+  evaluations                CandidateEvaluation[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
@@ -1627,6 +1631,38 @@ model Integration {
   @@index([status])
   @@index([type])
 }
+
+model JobHiringTeamMember {
+  id         String                 @id @default(uuid())
+  job_id     String                 @map("job_id")
+  user_id    String?                @map("user_id")
+  email      String
+  name       String?
+  role       HiringTeamRole
+  status     HiringTeamMemberStatus @default(PENDING)
+  invited_at DateTime               @default(now()) @map("invited_at")
+  joined_at  DateTime?              @map("joined_at")
+
+  job  Job   @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [user_id], references: [id])
+
+  @@index([job_id])
+  @@index([user_id])
+  @@index([email])
+  @@map("job_hiring_team_member")
+}
+
+enum HiringTeamRole {
+  ADMIN
+  SHORTLISTING
+  MEMBER
+}
+
+enum HiringTeamMemberStatus {
+  ACTIVE
+  PENDING
+}
+
 
 model Lead {
   id                         String                     @id @default(uuid())
@@ -2976,3 +3012,26 @@ model UserAlertRule {
   @@map("user_alert_rules")
 }
 
+
+model CandidateEvaluation {
+  id              String             @id @default(uuid())
+  application_id  String             @map("application_id")
+  user_id         String             @map("user_id")
+  score           Float?
+  comment         String?
+  decision        EvaluationDecision?
+  created_at      DateTime           @default(now()) @map("created_at")
+  updated_at      DateTime           @default(now()) @updatedAt @map("updated_at")
+
+  application     Application        @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user            User               @relation(fields: [user_id], references: [id])
+
+  @@unique([application_id, user_id]) // One evaluation per user per application
+  @@index([application_id])
+}
+
+enum EvaluationDecision {
+  APPROVE
+  REJECT
+  PENDING
+}

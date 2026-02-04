@@ -2,7 +2,7 @@ import { Prisma, UniversalNotification, NotificationRecipientType } from '@prism
 import { BaseRepository } from '../../core/repository';
 
 export class NotificationRepository extends BaseRepository {
-  
+
   async create(data: Prisma.UniversalNotificationCreateInput): Promise<UniversalNotification> {
     return this.prisma.universalNotification.create({ data });
   }
@@ -25,7 +25,6 @@ export class NotificationRepository extends BaseRepository {
       expires_at: { gte: new Date() }
     };
 
-    console.log(`[NotificationRepository] Querying notifications for ${recipientType}:${recipientId}, limit=${limit}, offset=${offset}`);
 
     const [notifications, total] = await Promise.all([
       this.prisma.universalNotification.findMany({
@@ -37,8 +36,8 @@ export class NotificationRepository extends BaseRepository {
       this.prisma.universalNotification.count({ where })
     ]);
 
-    console.log(`[NotificationRepository] Found ${notifications.length} notifications, total=${total}`);
 
+    /*
     // Also log if no notifications found to help debug
     if (notifications.length === 0) {
       const allCount = await this.prisma.universalNotification.count();
@@ -51,6 +50,7 @@ export class NotificationRepository extends BaseRepository {
       });
       console.log(`[NotificationRepository] Available recipients:`, recipients);
     }
+    */
 
     return { notifications, total };
   }
@@ -60,10 +60,10 @@ export class NotificationRepository extends BaseRepository {
     // For single update with verification, use findFirst then update, or updateMany.
     // Let's use updateMany to be safe about ownership but fetch result is harder.
     // Or just findUnique and check ownership in service.
-    
+
     return this.prisma.universalNotification.update({
       where: { id },
-      data: { 
+      data: {
         read: true,
         read_at: new Date()
       }
@@ -83,5 +83,33 @@ export class NotificationRepository extends BaseRepository {
       }
     });
     return result.count;
+  }
+
+  async findRecipientEmail(recipientType: NotificationRecipientType, recipientId: string): Promise<string | null> {
+    if (recipientType === NotificationRecipientType.USER || recipientType === NotificationRecipientType.HRM8_USER) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: recipientId },
+        select: { email: true }
+      });
+      return user?.email || null;
+    }
+
+    if (recipientType === NotificationRecipientType.CANDIDATE) {
+      const candidate = await this.prisma.candidate.findUnique({
+        where: { id: recipientId },
+        select: { email: true }
+      });
+      return candidate?.email || null;
+    }
+
+    if (recipientType === NotificationRecipientType.CONSULTANT) {
+      const consultant = await this.prisma.consultant.findUnique({
+        where: { id: recipientId },
+        select: { email: true }
+      });
+      return consultant?.email || null;
+    }
+
+    return null;
   }
 }

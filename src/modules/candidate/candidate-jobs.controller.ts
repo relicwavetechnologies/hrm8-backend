@@ -73,4 +73,15 @@ export class CandidateJobsController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  getRecommendedJobs = async (req: CandidateAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const recommendedJobs = await this.jobService.getRecommendedJobs(req.candidate.id, limit);
+      return this.sendSuccess(res, recommendedJobs);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

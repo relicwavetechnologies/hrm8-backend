@@ -14,7 +14,31 @@ export class RegionService extends BaseService {
         if (existing) {
             throw new HttpException(409, 'Region code already exists');
         }
-        return this.regionRepository.create(data);
+
+        const mappedData = {
+            ...data,
+            state_province: data.stateProvince,
+            owner_type: data.ownerType,
+            is_active: data.isActive,
+        };
+        // Remove camelCase keys to avoid "Unknown argument" errors if strict validation is on, 
+        // though usually Prisma just ignores unknown fields if not in strict mode, 
+        // but clearly here it's complaining.
+        delete mappedData.stateProvince;
+        delete mappedData.ownerType;
+        delete mappedData.isActive;
+
+        return this.regionRepository.create(mappedData);
+    }
+
+    private mapToDTO(region: any) {
+        return {
+            ...region,
+            stateProvince: region.state_province,
+            ownerType: region.owner_type,
+            isActive: region.is_active,
+            licenseeId: region.licensee_id,
+        };
     }
 
     async getById(id: string) {
@@ -22,21 +46,22 @@ export class RegionService extends BaseService {
         if (!region) {
             throw new HttpException(404, 'Region not found');
         }
-        return region;
+        return this.mapToDTO(region);
     }
 
     async getAll(filters: any) {
         const { ownerType, licenseeId, regionIds, country } = filters;
         const where: any = {};
-        if (ownerType) where.owner_type = ownerType;
+        if (ownerType && ownerType !== 'all') where.owner_type = ownerType;
         if (licenseeId) where.licensee_id = licenseeId;
         if (regionIds) where.id = { in: regionIds };
         if (country) where.country = country;
 
-        return this.regionRepository.findMany({
+        const regions = await this.regionRepository.findMany({
             where,
             orderBy: { name: 'asc' },
         });
+        return regions.map(r => this.mapToDTO(r));
     }
 
     async update(id: string, data: any) {
@@ -46,7 +71,22 @@ export class RegionService extends BaseService {
                 throw new HttpException(409, 'Region code already exists');
             }
         }
-        return this.regionRepository.update(id, data);
+
+        const mappedData = { ...data };
+        if (data.stateProvince !== undefined) {
+            mappedData.state_province = data.stateProvince;
+            delete mappedData.stateProvince;
+        }
+        if (data.ownerType !== undefined) {
+            mappedData.owner_type = data.ownerType;
+            delete mappedData.ownerType;
+        }
+        if (data.isActive !== undefined) {
+            mappedData.is_active = data.isActive;
+            delete mappedData.isActive;
+        }
+
+        return this.regionRepository.update(id, mappedData);
     }
 
     async delete(id: string) {

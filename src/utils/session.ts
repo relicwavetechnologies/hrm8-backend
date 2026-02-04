@@ -42,10 +42,11 @@ export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
 
   // Determine sameSite setting:
-  // - In development with localhost: use 'lax' (works best for localhost:3000 vs localhost:8080)
-  // - In production: likely 'none' with secure: true if cross-site, or 'lax' if same domain
-  let sameSite: 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
-  let secure = isProduction;
+  // - If explicitly set via env var, use that
+  // - Default to 'lax' which works for localhost development (ports don't affect SameSite)
+  // - sameSite: 'none' requires Secure: true, which is fine on localhost but strict in browsers
+  let sameSite: 'lax' | 'strict' | 'none' = 'lax';
+  let secure = false;
 
   if (process.env.COOKIE_SAME_SITE) {
     const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
@@ -54,25 +55,15 @@ export function getSessionCookieOptions(maxAge?: number) {
     }
   }
 
-  // If SameSite is None, Secure MUST be true
-  if (sameSite === 'none') {
+  // In production, or if SameSite=None, we MUST use Secure
+  if (isProduction || sameSite === 'none') {
     secure = true;
-  }
-
-  // Force secure to false if not production and we aren't using https (unless explicitly configured otherwise)
-  // This prevents setting Secure cookie on HTTP localhost key
-  if (!isProduction) {
-    secure = false;
-    // If we forced secure=false, we MUST NOT use sameSite=none
-    if (sameSite === 'none') {
-      sameSite = 'lax';
-    }
   }
 
   return {
     httpOnly: true, // Prevent XSS attacks
-    secure: secure, // HTTPS only in production (required for sameSite: 'none')
-    sameSite: sameSite,
+    secure: secure, // HTTPS only in production
+    sameSite: sameSite, // 'lax' allows localhost:8080 → localhost:3000
     maxAge: maxAge || 7 * 24 * 60 * 60 * 1000, // 7 days default
     path: '/', // Available on all routes
     // Don't set domain - let browser handle it based on the request origin

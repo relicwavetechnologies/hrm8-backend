@@ -6,8 +6,25 @@ export class RegionalSalesRepository {
         const where: any = {
             role: { in: ['SALES_AGENT', 'CONSULTANT_360'] }
         };
-        if (regionId) where.region_id = regionId;
-        if (regionIds) where.region_id = { in: regionIds };
+
+        let targetRegionId = regionId;
+        if (targetRegionId === 'all' || targetRegionId === 'Global') {
+            targetRegionId = undefined;
+        }
+
+        if (targetRegionId) {
+            where.region_id = targetRegionId;
+        }
+
+        if (regionIds && regionIds.length > 0) {
+            if (where.region_id) {
+                // If asking for specific region, ensure it's in allowed list
+                if (!regionIds.includes(where.region_id)) return [];
+            } else {
+                // Otherwise filter by all allowed
+                where.region_id = { in: regionIds };
+            }
+        }
 
         return prisma.consultant.findMany({
             where,
@@ -16,6 +33,7 @@ export class RegionalSalesRepository {
     }
 
     async findOpportunities(consultantIds: string[], filters?: { stage?: OpportunityStage; salesAgentId?: string }) {
+        if (consultantIds.length === 0) return [];
         return prisma.opportunity.findMany({
             where: {
                 sales_agent_id: { in: consultantIds },
@@ -26,6 +44,23 @@ export class RegionalSalesRepository {
                 company: { select: { id: true, name: true, domain: true } }
             },
             orderBy: { updated_at: 'desc' }
+        });
+    }
+
+    async findLeads(consultantIds: string[], filters?: { status?: string; assignedTo?: string }) {
+        if (consultantIds.length === 0) return [];
+        return prisma.lead.findMany({
+            where: {
+                assigned_consultant_id: { in: consultantIds },
+                ...(filters?.status ? { status: filters.status as any } : {}),
+                ...(filters?.assignedTo ? { assigned_consultant_id: filters.assignedTo } : {})
+            },
+            include: {
+                consultant: { select: { id: true, first_name: true, last_name: true } },
+                creator: { select: { id: true, first_name: true, last_name: true } },
+                company: { select: { id: true, name: true } }
+            },
+            orderBy: { created_at: 'desc' }
         });
     }
 

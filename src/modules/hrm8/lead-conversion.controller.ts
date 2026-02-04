@@ -19,7 +19,7 @@ export class LeadConversionController extends BaseController {
             const result = await this.leadConversionService.getAll({
                 status: status as ConversionRequestStatus,
             });
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { requests: result });
         } catch (error) {
             return this.sendError(res, error);
         }

@@ -166,51 +166,8 @@ export class AnalyticsService extends BaseService {
         const companies = await this.analyticsRepository.getCompaniesByIds(companyIds);
         const companyMap = new Map(companies.map(c => [c.id, c]));
 
-        // Get application counts per job -> aggregate by company
-        // Since we don't have direct company_id in Application (it's through Job), repository needs to handle this.
-        // Actually, existing implementation logic:
-
-        // 1. Get all jobs involved
-        // The repository method returned aggregated stats by company_id based on Jobs.
-        // But for applications, we need to query applications for those companies.
-
-        // Let's modify approach: query applications by job IDs of these companies?
-        // OR better: in repository logic we saw it queries applications grouped by job_id.
-        // Let's implement that.
-
-        // We need all jobs for these companies to count total applications for the company?
-        // The stats calculation in legacy controller:
-        /*
-        const applicationCounts = await prisma.application.groupBy({ by: ['job_id'], ... });
-        const jobToCompany ...
-        */
-
-        // Since this logic is complex and involves multiple queries, it might be better in Service or split in Repository.
-        // Let's fetch the applications count per company here.
-
-        // We know which companies are top by views/clicks.
-        // For these top companies, let's fetch their jobs and count applications?
-        // Wait, the sorting order depends on views, not applications. So we have the top companies.
-        // NOW we need applications count for THEM.
-
-        // Get all job IDs for these companies?
-        // The simple way:
-        // We have `companiesStats` which has `company_id`.
-        // Let's get all jobs for these `companyIds`.
-
-        // To avoid N+1, let's use a helper in repository to get jobs by company IDs?
-        // Or just `getJobsByIds`? No, we need `getJobsByCompanyIds`.
-
-        // Let's assume we can get application counts per job for all jobs of these companies.
-        // But that's potentially many jobs.
-
-        // Alternative: get all applications for jobs where company_id in companyIds?
-        // Application -> Job -> Company.
-        // Prisma: prisma.application.count({ where: { job: { company_id: { in: companyIds } } } })?
-        // No we need group by company.
-
-        // Let's iterate and do per-company count? If limit is small (10), it is 10 queries. Acceptable.
-        // Or fetch all applications for these companies and group in memory.
+        // Fetch application counts
+        const appCountsMap = await this.analyticsRepository.getApplicationCountsByCompanyIds(companyIds);
 
         const result = companiesStats
             .map(stat => {
@@ -222,11 +179,54 @@ export class AnalyticsService extends BaseService {
                     totalJobs: stat._count.id,
                     totalViews: stat._sum.views_count || 0,
                     totalClicks: stat._sum.clicks_count || 0,
-                    totalApplications: 0, // TODO: Implement fetch
+                    totalApplications: appCountsMap.get(stat.company_id) || 0,
                 };
             })
             .sort((a, b) => b.totalViews - a.totalViews);
 
         return result;
+    }
+
+    async getJobBoardStats() {
+        const { companies, jobStats } = await this.analyticsRepository.getJobBoardStats();
+
+        // Map stats by companyId
+        const statsMap = new Map<string, { total: number; active: number; onHold: number; views: number; clicks: number }>();
+
+        jobStats.forEach(stat => {
+            const current = statsMap.get(stat.company_id) || { total: 0, active: 0, onHold: 0, views: 0, clicks: 0 };
+
+            const count = stat._count.id;
+            const views = stat._sum.views_count || 0;
+            const clicks = stat._sum.clicks_count || 0;
+
+            current.total += count;
+            current.views += views;
+            current.clicks += clicks;
+
+            if (stat.status === 'OPEN') {
+                current.active += count;
+            } else if (stat.status === 'ON_HOLD' || stat.status === 'DRAFT') { // Assuming statuses
+                current.onHold += count;
+            }
+
+            statsMap.set(stat.company_id, current);
+        });
+
+        // Merge with all companies
+        return companies.map(company => {
+            const stats = statsMap.get(company.id) || { total: 0, active: 0, onHold: 0, views: 0, clicks: 0 };
+            return {
+                id: company.id,
+                name: company.name,
+                domain: company.domain,
+                logo: company.careers_page_logo,
+                totalJobs: stats.total,
+                activeJobs: stats.active,
+                onHoldJobs: stats.onHold,
+                totalViews: stats.views,
+                totalClicks: stats.clicks
+            };
+        });
     }
 }

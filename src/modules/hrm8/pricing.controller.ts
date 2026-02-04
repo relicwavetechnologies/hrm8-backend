@@ -15,7 +15,7 @@ export class PricingController extends BaseController {
     getProducts = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.pricingService.getProducts();
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { products: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -28,7 +28,7 @@ export class PricingController extends BaseController {
                 regionId as string,
                 req.assignedRegionIds
             );
-            return this.sendSuccess(res, result);
+            return this.sendSuccess(res, { priceBooks: result });
         } catch (error) {
             return this.sendError(res, error);
         }
