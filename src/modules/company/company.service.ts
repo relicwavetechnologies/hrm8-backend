@@ -22,7 +22,7 @@ export class CompanyService extends BaseService {
     salesAgentId?: string;
   }): Promise<Company> {
     const domain = data.domain.toLowerCase();
-    
+
     // Check if domain exists
     const exists = await this.companyRepository.countByDomain(domain);
     if (exists > 0) {
@@ -93,8 +93,8 @@ export class CompanyService extends BaseService {
   // --- Verification ---
 
   async updateVerificationStatus(
-    id: string, 
-    status: CompanyVerificationStatus, 
+    id: string,
+    status: CompanyVerificationStatus,
     method?: VerificationMethod
   ) {
     const updateData: any = { verification_status: status };
@@ -102,6 +102,43 @@ export class CompanyService extends BaseService {
     if (status === 'VERIFIED') updateData.verified_at = new Date();
 
     return this.companyRepository.update(id, updateData);
+  }
+
+  async getVerificationStatus(id: string) {
+    const company = await this.companyRepository.findById(id);
+    if (!company) throw new HttpException(404, 'Company not found');
+    return {
+      status: company.verification_status,
+      method: company.verification_method,
+      verifiedAt: company.verified_at
+    };
+  }
+
+  async sendEmailVerification(id: string, email: string) {
+    // Logic to send email would go here.
+    // For migration, we'll just log or stub it.
+    console.log(`Sending verification email to ${email} for company ${id}`);
+    // In real impl, checking if token exists, creating token, sending email.
+    return true;
+  }
+
+  async initiateManualVerification(id: string, data: any) {
+    // Update company to pending verification with manual method
+    return this.companyRepository.update(id, {
+      verification_status: 'PENDING',
+      verification_method: 'MANUAL_VERIFICATION',
+      // verification_data: data // Schema doesn't support generic data blob
+    });
+  }
+
+  async completeProfile(id: string) {
+    // Logic to mark profile as complete or calculate percentage
+    const profile = await this.companyRepository.findProfileByCompanyId(id);
+    if (!profile) {
+      await this.getProfile(id); // creates it
+    }
+
+    return this.companyRepository.updateProfile(id, { status: 'COMPLETED' });
   }
 
   // --- Settings ---

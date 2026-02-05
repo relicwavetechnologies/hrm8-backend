@@ -1,32 +1,25 @@
+import { BaseService } from '../../core/service';
 import { prisma } from '../../utils/prisma';
-import type { Prisma } from '@prisma/client';
+import { SubscriptionRepository } from './subscription.repository';
 import { WalletService } from '../wallet/wallet.service';
-import { 
-  SubscriptionPlanType, 
-  SubscriptionStatus, 
-  VirtualTransactionType 
+import {
+  SubscriptionStatus,
+  Prisma,
+  BillingCycle,
+  SubscriptionPlanType,
+  VirtualTransactionType
 } from '@prisma/client';
+import { CreateSubscriptionDTO, SubscriptionStats } from './subscription.types';
+import { HttpException } from '../../core/http-exception';
 
-export interface CreateSubscriptionInput {
-  companyId: string;
-  planType: SubscriptionPlanType;
-  name: string;
-  basePrice: number;
-  billingCycle: 'MONTHLY' | 'ANNUAL';
-  jobQuota?: number | null;
-  discountPercent?: number;
-  promoCode?: string;
-  salesAgentId?: string;
-  referredBy?: string;
-  autoRenew?: boolean;
-  startDate?: Date;
-}
+export class SubscriptionService extends BaseService {
+  private static repository = new SubscriptionRepository();
 
-export class SubscriptionService {
-  /**
-   * Create a new subscription
-   */
-  static async createSubscription(input: CreateSubscriptionInput) {
+  constructor() {
+    super();
+  }
+
+  static async createSubscription(input: CreateSubscriptionDTO) {
     const {
       companyId,
       planType,
@@ -93,7 +86,6 @@ export class SubscriptionService {
         });
       }
 
-      // Calculate end date
       const endDate = new Date(startDate);
       if (billingCycle === 'MONTHLY') {
         endDate.setMonth(endDate.getMonth() + 1);
@@ -102,16 +94,15 @@ export class SubscriptionService {
       }
       const renewalDate = new Date(endDate);
 
-      // Create subscription
       const subscription = await tx.subscription.create({
         data: {
           company_id: companyId,
           name,
-          plan_type: planType,
+          plan_type: planType as SubscriptionPlanType,
           status: SubscriptionStatus.ACTIVE,
           base_price: finalBasePrice,
           currency: 'USD',
-          billing_cycle: billingCycle,
+          billing_cycle: billingCycle as BillingCycle,
           discount_percent: appliedDiscountPercent,
           start_date: startDate,
           end_date: endDate,
@@ -126,14 +117,8 @@ export class SubscriptionService {
         },
       });
 
-      // Get or create wallet
       const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
 
-      // Credit wallet with subscription value (prepaid balance logic)
-      // Note: The original logic credited the wallet. This implies the subscription purchase *loads* the wallet.
-      // Or does it charge it? "Credit the virtual wallet with subscription amount" -> Deposit.
-      // Usually you pay for a subscription and get credits.
-      
       await WalletService.creditAccount({
         accountId: account.id,
         amount: finalBasePrice,
@@ -148,60 +133,130 @@ export class SubscriptionService {
   }
 
   static async getActiveSubscription(companyId: string) {
-    return prisma.subscription.findFirst({
-      where: {
-        company_id: companyId,
-        status: SubscriptionStatus.ACTIVE,
-      },
-      orderBy: { created_at: 'desc' }
-    });
+    return this.repository.findActiveByCompany(companyId);
+  }
+
+  static async getSubscriptionDetails(id: string) {
+    const subscription = await this.repository.findById(id);
+    if (!subscription) throw new HttpException(404, 'Subscription not found');
+    return subscription;
   }
 
   static async listSubscriptions(companyId: string) {
-    return prisma.subscription.findMany({
-        where: { company_id: companyId },
-        orderBy: { created_at: 'desc' }
+    return this.repository.findManyByCompany(companyId);
+  }
+
+  static async getSubscriptionStats(id: string): Promise<SubscriptionStats> {
+    const sub = await this.getSubscriptionDetails(id);
+
+    let daysRemaining = null;
+    if (sub.end_date) {
+      const diff = sub.end_date.getTime() - new Date().getTime();
+      daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+    }
+
+    return {
+      jobsUsed: sub.jobs_used,
+      jobQuota: sub.job_quota,
+      quotaRemaining: sub.job_quota ? sub.job_quota - sub.jobs_used : null,
+      prepaidBalance: sub.prepaid_balance,
+      daysRemaining
+    };
+  }
+
+  static async cancelSubscription(id: string) {
+    return this.repository.update(id, {
+      status: SubscriptionStatus.CANCELLED,
+      cancelled_at: new Date(),
+      auto_renew: false
+    });
+  }
+
+  static async renewSubscription(id: string) {
+    const sub = await this.getSubscriptionDetails(id);
+    if (sub.status !== SubscriptionStatus.ACTIVE && sub.status !== SubscriptionStatus.EXPIRED) {
+      throw new HttpException(400, 'Only active or expired subscriptions can be renewed');
+    }
+
+    const newEnd = new Date(sub.end_date || new Date());
+    if (sub.billing_cycle === 'MONTHLY') {
+      newEnd.setMonth(newEnd.getMonth() + 1);
+    } else {
+      newEnd.setFullYear(newEnd.getFullYear() + 1);
+    }
+
+    return this.repository.update(id, {
+      status: SubscriptionStatus.ACTIVE,
+      end_date: newEnd,
+      renewal_date: newEnd,
+      jobs_used: 0,
+      prepaid_balance: sub.base_price
     });
   }
 
   static async processJobPosting(companyId: string, jobTitle: string, userId: string) {
-    // Logic to deduct job cost
-    // 1. Find active subscription
     const subscription = await this.getActiveSubscription(companyId);
-    if (!subscription) throw new Error('No active subscription');
+    if (!subscription) throw new HttpException(404, 'No active subscription');
 
-    // 2. Check quota
     if (subscription.job_quota && subscription.jobs_used >= subscription.job_quota) {
-        throw new Error('Job quota exceeded');
+      throw new HttpException(402, 'Job quota exceeded');
     }
 
-    // 3. Calculate cost
     let jobCost = 0;
     if (subscription.job_quota && subscription.job_quota > 0) {
-        jobCost = subscription.base_price / subscription.job_quota;
+      jobCost = subscription.base_price / subscription.job_quota;
     }
 
-    // 4. Deduct from wallet
     if (jobCost > 0) {
-        const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
-        await WalletService.debitAccount({
-            accountId: account.id,
-            amount: jobCost,
-            type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
-            description: `Job posting: ${jobTitle}`,
-            referenceType: 'JOB', // or SUBSCRIPTION
-            referenceId: subscription.id,
-            createdBy: userId
-        });
+      await WalletService.debitAccount({
+        ownerType: 'COMPANY',
+        ownerId: companyId,
+        amount: jobCost,
+        type: 'JOB_POSTING_DEDUCTION',
+        description: `Job posting: ${jobTitle}`,
+        referenceType: 'JOB',
+        referenceId: subscription.id,
+        createdBy: userId,
+        accountId: ''
+      });
     }
 
-    // 5. Update subscription usage
-    return prisma.subscription.update({
-        where: { id: subscription.id },
-        data: {
-            jobs_used: { increment: 1 },
-            prepaid_balance: { decrement: jobCost }
-        }
+    return this.repository.update(subscription.id, {
+      jobs_used: { increment: 1 },
+      prepaid_balance: { decrement: jobCost }
     });
+  }
+
+  // Instance methods proxying to static
+  async createSubscription(input: CreateSubscriptionDTO) {
+    return SubscriptionService.createSubscription(input);
+  }
+
+  async getActiveSubscription(companyId: string) {
+    return SubscriptionService.getActiveSubscription(companyId);
+  }
+
+  async getSubscriptionDetails(id: string) {
+    return SubscriptionService.getSubscriptionDetails(id);
+  }
+
+  async listSubscriptions(companyId: string) {
+    return SubscriptionService.listSubscriptions(companyId);
+  }
+
+  async getSubscriptionStats(id: string) {
+    return SubscriptionService.getSubscriptionStats(id);
+  }
+
+  async cancelSubscription(id: string) {
+    return SubscriptionService.cancelSubscription(id);
+  }
+
+  async renewSubscription(id: string) {
+    return SubscriptionService.renewSubscription(id);
+  }
+
+  async processJobPosting(companyId: string, jobTitle: string, userId: string) {
+    return SubscriptionService.processJobPosting(companyId, jobTitle, userId);
   }
 }

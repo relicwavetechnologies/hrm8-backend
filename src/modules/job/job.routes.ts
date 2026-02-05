@@ -1,53 +1,81 @@
 import { Router } from 'express';
 import { JobController } from './job.controller';
-import { RoundConfigController } from './round-config.controller';
+import { ApplicationFormController } from './application-form.controller';
+import { JobDocumentController } from './job-document.controller';
+import { AssessmentController } from '../assessment/assessment.controller';
+import { InterviewController } from '../interview/interview.controller';
+import { JobRoundController } from '../job-rounds/job-rounds.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 
 const router = Router();
 const jobController = new JobController();
+const applicationFormController = new ApplicationFormController();
+const jobDocumentController = new JobDocumentController();
+const assessmentController = new AssessmentController();
+const interviewController = new InterviewController();
+const jobRoundController = new JobRoundController();
 
+// Job CRUD
 router.post('/', authenticate, jobController.createJob);
 router.get('/', authenticate, jobController.getJobs);
 router.post('/bulk-delete', authenticate, jobController.bulkDeleteJobs);
 router.post('/bulk-archive', authenticate, jobController.bulkArchiveJobs);
 router.post('/bulk-unarchive', authenticate, jobController.bulkUnarchiveJobs);
+
+router.post('/validate', authenticate, jobController.validateJob);
 router.get('/:id', authenticate, jobController.getJob);
-router.post('/:id/publish', authenticate, jobController.publishJob);
-
-// Round Email Config Routes
-router.get('/:jobId/rounds/:roundId/email-config', authenticate, RoundConfigController.getEmailConfig);
-router.put('/:jobId/rounds/:roundId/email-config', authenticate, RoundConfigController.updateEmailConfig);
-
-router.post('/:id/save-draft', authenticate, jobController.saveDraft);
-router.post('/:id/save-template', authenticate, jobController.saveTemplate);
-router.post('/:id/save-as-template', authenticate, jobController.saveAsTemplate);
-router.post('/:id/archive', authenticate, jobController.archiveJob);
-router.post('/:id/unarchive', authenticate, jobController.unarchiveJob);
-router.put('/:id/alerts', authenticate, jobController.updateAlerts);
 router.put('/:id', authenticate, jobController.updateJob);
 router.delete('/:id', authenticate, jobController.deleteJob);
 
-// Job Rounds
-router.get('/:id/rounds', authenticate, jobController.getJobRounds);
-router.post('/:id/rounds', authenticate, jobController.createJobRound);
-router.put('/:id/rounds/:roundId', authenticate, jobController.updateJobRound);
-router.delete('/:id/rounds/:roundId', authenticate, jobController.deleteJobRound);
+// Job Actions
+router.post('/:id/publish', authenticate, jobController.publishJob);
+router.post('/:id/save-draft', authenticate, jobController.saveDraft);
+router.post('/:id/save-template', authenticate, jobController.saveTemplate);
+router.post('/:id/save-as-template', authenticate, jobController.saveTemplate);
+router.post('/:id/submit', authenticate, jobController.submitAndActivate);
 
-// Interview Configuration
-router.get('/:id/rounds/:roundId/interview-config', authenticate, jobController.getInterviewConfig);
-router.post('/:id/rounds/:roundId/interview-config', authenticate, jobController.configureInterview);
+router.post('/:id/create-payment', authenticate, jobController.createJobPayment);
 
-// Assessment Configuration
-router.get('/:id/rounds/:roundId/assessment-config', authenticate, jobController.getAssessmentConfig);
-router.post('/:id/rounds/:roundId/assessment-config', authenticate, jobController.configureAssessment);
-router.get('/:id/rounds/:roundId/assessments', authenticate, jobController.getRoundAssessments);
+// Lifecycle
+router.post('/:id/clone', authenticate, jobController.cloneJob);
+router.post('/:id/close', authenticate, jobController.closeJob);
+router.post('/:id/archive', authenticate, jobController.archiveJob);
+router.post('/:id/unarchive', authenticate, jobController.unarchiveJob);
+router.get('/:id/activities', authenticate, jobController.getJobActivities);
+router.put('/:id/alerts', authenticate, jobController.updateAlerts);
+
+// Distribution
+router.get('/:id/distribution', authenticate, jobController.getDistributionChannels);
+router.put('/:id/distribution', authenticate, jobController.updateDistributionChannels);
 
 // Hiring Team
-router.post('/:id/hiring-team/invite', authenticate, jobController.inviteHiringTeamMember); // Legacy?
-router.get('/:id/team', authenticate, jobController.getHiringTeam);
-router.post('/:id/team', authenticate, jobController.inviteHiringTeamMember);
-router.patch('/:id/team/:memberId', authenticate, jobController.updateHiringTeamMemberRole);
-router.delete('/:id/team/:memberId', authenticate, jobController.removeHiringTeamMember);
-router.post('/:id/team/:memberId/resend-invite', authenticate, jobController.resendHiringTeamInvite);
+router.post('/:id/hiring-team/invite', authenticate, jobController.inviteHiringTeamMember);
+router.get('/:id/hiring-team', authenticate, jobController.getHiringTeam);
+router.delete('/:id/hiring-team/:userId', authenticate, jobController.removeHiringTeamMember);
+
+// Application Form
+router.get('/:id/application-form', authenticate, applicationFormController.getApplicationForm);
+router.put('/:id/application-form', authenticate, applicationFormController.updateApplicationForm);
+router.post('/:id/application-form/generate-questions', authenticate, applicationFormController.generateQuestions);
+router.post('/new/application-form/generate-questions', authenticate, applicationFormController.generateQuestions);
+
+// AI & Documents
+router.post('/parse-document', authenticate, jobDocumentController.parseDocument);
+router.post('/generate-description', authenticate, jobController.generateDescription);
+
+// Job Rounds Management
+router.get('/:jobId/rounds', authenticate, jobRoundController.getJobRounds);
+router.post('/:jobId/rounds', authenticate, jobRoundController.createRound);
+router.put('/:jobId/rounds/:id', authenticate, jobRoundController.updateRound);
+router.delete('/:jobId/rounds/:id', authenticate, jobRoundController.deleteRound);
+
+// Job Rounds Configuration (within Jobs context)
+router.get('/:jobId/rounds/:roundId/assessment-config', authenticate, assessmentController.getAssessmentConfig);
+router.get('/:jobId/rounds/:roundId/assessments', authenticate, assessmentController.getRoundAssessments);
+router.post('/:jobId/rounds/:roundId/assessment-config', authenticate, assessmentController.configureAssessment);
+
+// Interview Configuration
+// router.get('/:jobId/rounds/:roundId/interview-config', authenticate, interviewController.getInterviewConfig);
+// router.post('/:jobId/rounds/:roundId/interview-config', authenticate, interviewController.configureInterview);
 
 export default router;

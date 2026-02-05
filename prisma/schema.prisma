@@ -2404,6 +2404,7 @@ enum HiringMode {
   FULL_SERVICE
   EXECUTIVE_SEARCH
   ASSESSMENT_ONLY
+  RPO
 }
 
 enum WorkArrangement {
@@ -2524,6 +2525,7 @@ enum ConsultantStatus {
   ON_LEAVE
   INACTIVE
   SUSPENDED
+  PENDING
 }
 
 enum HRM8UserRole {
@@ -2647,6 +2649,7 @@ enum UniversalNotificationType {
   COMMISSION_EARNED
   LEAD_CONVERSION_REQUESTED
   LEAD_CONVERSION_DECLINED
+  INVITATION_SENT
 }
 
 enum NotificationRecipientType {

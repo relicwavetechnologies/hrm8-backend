@@ -12,8 +12,82 @@ export class SalesController extends BaseController {
     this.salesService = new SalesService(new SalesRepository());
   }
 
-  // --- Dashboard ---
-  getDashboardStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  // Leads
+  createLead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const lead = await this.salesService.createLead(req.body, req.consultant.id);
+      return this.sendSuccess(res, { lead });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getMyLeads = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const leads = await this.salesService.getMyLeads(req.consultant.id);
+      return this.sendSuccess(res, { leads });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  convert = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const leadId = req.params.id as string;
+      const result = await this.salesService.convertLead(leadId, req.consultant.id, req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Conversion Requests
+  submitRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const leadId = req.params.id as string;
+      const request = await this.salesService.submitConversionRequest(req.consultant.id, leadId, req.body);
+      return this.sendSuccess(res, { request });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getMyRequests = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const requests = await this.salesService.getMyRequests(req.consultant.id);
+      return this.sendSuccess(res, { requests });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const request = await this.salesService.getRequest(req.params.id as string, req.consultant.id);
+      return this.sendSuccess(res, { request });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  cancelRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const request = await this.salesService.cancelRequest(req.params.id as string, req.consultant.id);
+      return this.sendSuccess(res, { request });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Dashboard
+  getStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
       const stats = await this.salesService.getDashboardStats(req.consultant.id);
@@ -23,89 +97,55 @@ export class SalesController extends BaseController {
     }
   };
 
-  // --- Leads ---
-  getLeads = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  // Opportunities
+  getOpportunities = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const { status, region } = req.query;
-      const leads = await this.salesService.getLeads(req.consultant.id, {
-        status: status as string,
-        region: region as string
+      const { stage, companyId } = req.query;
+      const opportunities = await this.salesService.getOpportunities(req.consultant.id, {
+        stage: stage as string,
+        companyId: companyId as string
       });
-      return this.sendSuccess(res, { leads });
+      return this.sendSuccess(res, { opportunities });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  createLead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  createOpportunity = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const lead = await this.salesService.createLead(req.consultant.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { lead });
+      const result = await this.salesService.createOpportunity({
+        ...req.body,
+        salesAgentId: req.consultant.id
+      });
+      return this.sendSuccess(res, { opportunity: result });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  convertLead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  updateOpportunity = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const leadId = Array.isArray(req.params.leadId) ? req.params.leadId[0] : req.params.leadId;
-      const result = await this.salesService.convertLead(leadId, req.consultant.id, req.body);
-      return this.sendSuccess(res, result);
+      const result = await this.salesService.updateOpportunity(req.params.id as string, req.body);
+      return this.sendSuccess(res, { opportunity: result });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  submitConversionRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  getPipelineStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const leadId = Array.isArray(req.params.leadId) ? req.params.leadId[0] : req.params.leadId;
-      const request = await this.salesService.submitConversionRequest(req.consultant.id, leadId, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { request });
+      const stats = await this.salesService.getPipelineStats(req.consultant.id);
+      return this.sendSuccess(res, stats);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // --- Conversion Requests ---
-  getConversionRequests = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const requests = await this.salesService.getConversionRequests(req.consultant.id);
-      return this.sendSuccess(res, { requests });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  getConversionRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const request = await this.salesService.getConversionRequest(id, req.consultant.id);
-      return this.sendSuccess(res, { request });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  cancelConversionRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const request = await this.salesService.cancelConversionRequest(id, req.consultant.id);
-      return this.sendSuccess(res, { request });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // --- Companies ---
+  // Companies
   getCompanies = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
@@ -120,7 +160,7 @@ export class SalesController extends BaseController {
     }
   };
 
-  // --- Commissions ---
+  // Commissions
   getCommissions = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
@@ -134,23 +174,22 @@ export class SalesController extends BaseController {
     }
   };
 
-  getWithdrawalBalance = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  // Withdrawals
+  getBalance = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const balance = await this.salesService.getWithdrawalBalance(req.consultant.id);
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const balance = await this.salesService.getBalance(req.consultant.id);
       return this.sendSuccess(res, balance);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // --- Withdrawals ---
   requestWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const withdrawal = await this.salesService.requestWithdrawal(req.consultant.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { withdrawal });
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.salesService.requestWithdrawal(req.consultant.id, req.body);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -158,12 +197,10 @@ export class SalesController extends BaseController {
 
   getWithdrawals = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
       const { status } = req.query;
-      const withdrawals = await this.salesService.getWithdrawals(req.consultant.id, {
-        status: status as string
-      });
-      return this.sendSuccess(res, { withdrawals });
+      const withdrawals = await this.salesService.getWithdrawals(req.consultant.id, { status: status as string });
+      return this.sendSuccess(res, withdrawals);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -171,10 +208,9 @@ export class SalesController extends BaseController {
 
   cancelWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const withdrawal = await this.salesService.cancelWithdrawal(id, req.consultant.id);
-      return this.sendSuccess(res, { withdrawal });
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.salesService.cancelWithdrawal(req.params.id as string, req.consultant.id);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -182,30 +218,29 @@ export class SalesController extends BaseController {
 
   executeWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const withdrawal = await this.salesService.executeWithdrawal(id, req.consultant.id);
-      return this.sendSuccess(res, { withdrawal, message: 'Withdrawal execution initiated' });
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.salesService.executeWithdrawal(req.params.id as string, req.consultant.id);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // --- Stripe ---
+  // Stripe
+  stripeOnboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.salesService.initiateStripeOnboarding(req.consultant.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   getStripeStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const status = await this.salesService.getStripeStatus(req.consultant.id);
-      return this.sendSuccess(res, status);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  initiateStripeOnboarding = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
-      const result = await this.salesService.initiateStripeOnboarding(req.consultant.id);
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.salesService.getStripeStatus(req.consultant.id);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -214,7 +249,7 @@ export class SalesController extends BaseController {
 
   getStripeLoginLink = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
       const result = await this.salesService.getStripeLoginLink(req.consultant.id);
       return this.sendSuccess(res, result);
     } catch (error) {
@@ -222,68 +257,17 @@ export class SalesController extends BaseController {
     }
   };
 
-  // --- Opportunities ---
-
-  getOpportunities = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const isHrm8Admin = res.locals.isHrm8Admin === true;
-      const opportunities = await this.salesService.getOpportunities(isHrm8Admin ? null : req.consultant.id, {
-        stage: req.query.stage as string,
-        companyId: req.query.companyId as string
-      });
-      return this.sendSuccess(res, { opportunities });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  getPipelineStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const isHrm8Admin = res.locals.isHrm8Admin === true;
-      const stats = await this.salesService.getPipelineStats(isHrm8Admin ? null : req.consultant.id);
-      return this.sendSuccess(res, stats);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  createOpportunity = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const opportunity = await this.salesService.createOpportunity({
-        ...req.body,
-        salesAgentId: req.consultant.id
-      });
-      return this.sendSuccess(res, { opportunity });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  updateOpportunity = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
-      const { id } = req.params as { id: string };
-      const opportunity = await this.salesService.updateOpportunity(id, req.body);
-      return this.sendSuccess(res, { opportunity });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // --- Activities ---
-
+  // Activities
   getActivities = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { companyId, leadId, opportunityId, limit } = req.query;
       const activities = await this.salesService.getActivities({
+        companyId: companyId as string,
+        leadId: leadId as string,
+        opportunityId: opportunityId as string,
         consultantId: req.consultant.id,
-        companyId: req.query.companyId as string,
-        leadId: req.query.leadId as string,
-        opportunityId: req.query.opportunityId as string,
-        limit: req.query.limit ? parseInt(req.query.limit as string) : undefined
+        limit: limit ? Number(limit) : undefined
       });
       return this.sendSuccess(res, { activities });
     } catch (error) {

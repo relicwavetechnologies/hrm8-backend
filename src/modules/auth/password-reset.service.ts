@@ -67,10 +67,7 @@ export class PasswordResetService extends BaseService {
     }
 
     const passwordHash = await hashPassword(newPassword);
-    // userRepo.updatePassword needed? Yes.
-    // I didn't implement updatePassword in UserRepository yet. I should add it.
-    // For now assume it exists or I add it.
-    // await userRepository.updatePassword(user.id, passwordHash);
+    await this.userRepository.updatePassword(user.id, passwordHash);
 
     await passwordResetTokenRepository.markAsUsed(tokenRecord.id);
     await passwordResetTokenRepository.invalidateActiveTokensForUser(user.id);

@@ -1,9 +1,9 @@
 import { BaseService } from '../../core/service';
 import { AssessmentRepository } from './assessment.repository';
-import { Assessment, AssessmentStatus } from '@prisma/client';
+import { Assessment, AssessmentStatus, AssessmentType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { emailService } from '../email/email.service';
-import { env } from '../../config/env';
+import crypto from 'crypto';
 
 export class AssessmentService extends BaseService {
   constructor(private assessmentRepository: AssessmentRepository) {
@@ -25,36 +25,13 @@ export class AssessmentService extends BaseService {
       throw new HttpException(410, 'Assessment expired');
     }
 
-    // Fetch questions
-    let questions = await this.assessmentRepository.getQuestions(assessment.id);
-
-    // Self-healing: If no questions found OR questions are malformed (empty text), try to sync from config
-    // This handles cases where config was added after invitation, copy failed, or previous self-heal failed due to property mismatch
-    const hasMalformedQuestions = questions.length > 0 && questions.some(q => !q.question_text || q.question_text.trim() === '' || q.question_text === 'Question text missing');
-
-    if ((questions.length === 0 || hasMalformedQuestions) && (assessment.status === 'INVITED' || assessment.status === 'PENDING_INVITATION' || assessment.status === 'IN_PROGRESS')) {
-      if (assessment.job_round_id) {
-        const config = await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id);
-        if (config && config.questions && Array.isArray(config.questions) && (config.questions as any[]).length > 0) {
-
-          // If we have malformed questions, delete them first to avoid duplicates
-          if (hasMalformedQuestions) {
-            await this.assessmentRepository.deleteQuestions(assessment.id);
-          }
-
-          const questionData = (config.questions as any[]).map((q, index) => ({
-            assessment_id: assessment.id,
-            question_text: q.text || q.question_text || q.question || q.title || 'Question text missing',
-            question_type: q.type || q.question_type || 'single-choice',
-            options: q.options || null,
-            points: q.points || 1,
-            order: q.order !== undefined ? q.order : index
-          }));
-          await this.assessmentRepository.createManyQuestions(questionData);
-          questions = await this.assessmentRepository.getQuestions(assessment.id);
-        }
-      }
+    // Check if already completed
+    if (assessment.status === 'COMPLETED') {
+      throw new HttpException(400, 'Assessment already completed');
     }
+
+    // Fetch questions
+    const questions = await this.assessmentRepository.getQuestions(assessment.id);
 
     return { ...assessment, questions };
   }
@@ -65,372 +42,325 @@ export class AssessmentService extends BaseService {
 
     if (assessment.status === 'INVITED' || assessment.status === 'PENDING_INVITATION') {
       return this.assessmentRepository.update(assessment.id, {
-        data: {
-          status: 'IN_PROGRESS',
-          startedAt: new Date(),
-        },
+        status: 'IN_PROGRESS',
       });
     }
     return assessment;
-  }
-
-  async saveResponse(token: string, questionId: string, response: any) {
-    const assessment = await this.assessmentRepository.findByInvitationToken(token);
-    if (!assessment) throw new HttpException(404, 'Assessment not found');
-
-    if (assessment.status === 'COMPLETED' || assessment.status === 'EXPIRED') {
-      throw new HttpException(400, 'Assessment is already submitted or expired');
-    }
-
-    return this.assessmentRepository.upsertResponse(
-      assessment.id,
-      questionId,
-      assessment.candidate_id,
-      response
-    );
   }
 
   async submitAssessment(token: string, responses: Array<{ questionId: string; response: any }>) {
     const assessment = await this.assessmentRepository.findByInvitationToken(token);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
 
-    // Save final responses (if any provided in body, though we prefer auto-save)
-    if (responses && responses.length > 0) {
-      for (const r of responses) {
-        await this.assessmentRepository.upsertResponse(
-          assessment.id,
-          r.questionId,
-          assessment.candidate_id,
-          r.response
-        );
-      }
+    if (assessment.status === 'COMPLETED') {
+      throw new HttpException(400, 'Assessment already completed');
     }
 
-    // Update status
-    return this.assessmentRepository.update(assessment.id, {
+    // Save responses
+    for (const r of responses) {
+      await this.assessmentRepository.createResponse({
+        assessment: { connect: { id: assessment.id } },
+        assessment_question: { connect: { id: r.questionId } },
+        candidate_id: assessment.candidate_id,
+        response: r.response,
+      });
+    }
+
+    // Update status to COMPLETED
+    const updated = await this.assessmentRepository.update(assessment.id, {
       status: 'COMPLETED',
       completed_at: new Date(),
     });
-  }
 
-  async autoAssignAssessment(
-    applicationId: string,
-    jobRoundId: string,
-    invitedBy: string
-  ): Promise<void> {
-    // Check if assessment already exists
-    const existingAssessment = await this.assessmentRepository.findByApplicationAndRound(applicationId, jobRoundId);
-    if (existingAssessment) return;
+    // Handle Auto-scoring
+    await this.scoreAssessment(assessment.id);
 
-    // Get configuration
-    const config = await this.assessmentRepository.findConfigByJobRoundId(jobRoundId);
-
-    if (!config || !config.enabled) return;
-
-    // Get application details
-    const application = await this.assessmentRepository.findApplicationForAssignment(applicationId);
-    if (!application) throw new Error('Application not found');
-
-    // Calculate expiry
-    let expiryDate: Date | undefined;
-    if (config.deadline_days) {
-      expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + config.deadline_days);
-    }
-
-    // Create assessment
-    const assessment = await this.assessmentRepository.create({
-      user: { connect: { id: invitedBy } },
-      application: { connect: { id: applicationId } },
-      candidate_id: application.candidate_id,
-      job_id: application.job_id,
-      job_round_id: jobRoundId,
-      assessment_type: 'SKILLS_BASED',
-      provider: config.provider || 'native',
-      invited_at: new Date(),
-      expiry_date: expiryDate,
-      pass_threshold: config.pass_threshold || undefined,
-      status: 'INVITED',
-      invitation_token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
-    });
-
-    // Link to progress
-    await this.assessmentRepository.linkToRoundProgress(applicationId, jobRoundId, assessment.id);
-
-    // Create questions from config
-    if (config.questions && Array.isArray(config.questions)) {
-      const questionData = (config.questions as any[]).map((q, index) => ({
-        assessment_id: assessment.id,
-        question_text: q.text || q.question_text || '',
-        question_type: q.type || q.question_type || 'single-choice',
-        options: q.options || null,
-        points: q.points || 1,
-        order: q.order !== undefined ? q.order : index
-      }));
-      await this.assessmentRepository.createManyQuestions(questionData);
-    }
-
-    // Send email
-    try {
-      const candidateName = `${application.candidate.first_name} ${application.candidate.last_name}`;
-      const jobTitle = application.job.title;
-      const assessmentUrl = `${env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
-
-      await emailService.sendAssessmentInvitation({
-        to: application.candidate.email,
-        candidateName,
-        jobTitle,
-        assessmentUrl,
-        expiryDate
-      });
-    } catch (error) {
-      console.error(`[AssessmentService] Failed to send email to ${application.candidate.email}`, error);
-      // We don't fail the assignment if email fails, but we should log it
-    }
-  }
-
-  // Manual invite - works without requiring assessment config to be enabled
-  async manualInviteToAssessment(
-    applicationId: string,
-    jobRoundId: string,
-    invitedBy: string
-  ): Promise<{ success: boolean, assessmentId?: string, error?: string }> {
-    // Check if assessment already exists
-    const existingAssessment = await this.assessmentRepository.findByApplicationAndRound(applicationId, jobRoundId);
-    if (existingAssessment) {
-      return { success: false, error: 'Assessment already exists for this candidate in this round' };
-    }
-
-    // Get application details
-    const application = await this.assessmentRepository.findApplicationForAssignment(applicationId);
-    if (!application) {
-      return { success: false, error: 'Application not found' };
-    }
-
-    // Get config if available (for settings like pass_threshold, deadline)
-    const config = await this.assessmentRepository.findConfigByJobRoundId(jobRoundId);
-
-    // Calculate expiry (7 days default if no config)
-    let expiryDate: Date = new Date();
-    expiryDate.setDate(expiryDate.getDate() + (config?.deadline_days || 7));
-
-    // Create assessment
-    const assessment = await this.assessmentRepository.create({
-      user: { connect: { id: invitedBy } },
-      application: { connect: { id: applicationId } },
-      candidate_id: application.candidate_id,
-      job_id: application.job_id,
-      job_round_id: jobRoundId,
-      assessment_type: 'SKILLS_BASED',
-      provider: config?.provider || 'native',
-      invited_at: new Date(),
-      expiry_date: expiryDate,
-      pass_threshold: config?.pass_threshold || 70,
-      status: 'INVITED',
-      invitation_token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
-    });
-
-    // Link to progress
-    await this.assessmentRepository.linkToRoundProgress(applicationId, jobRoundId, assessment.id);
-
-    // Create questions from config
-    if (config?.questions && Array.isArray(config.questions)) {
-      const questionData = (config.questions as any[]).map((q, index) => ({
-        assessment_id: assessment.id,
-        question_text: q.text || q.question_text || '',
-        question_type: q.type || q.question_type || 'single-choice',
-        options: q.options || null,
-        points: q.points || 1,
-        order: q.order !== undefined ? q.order : index
-      }));
-      await this.assessmentRepository.createManyQuestions(questionData);
-    }
-
-    // Send email
-    try {
-      const candidateName = `${application.candidate.first_name} ${application.candidate.last_name}`;
-      const jobTitle = application.job.title;
-      const assessmentUrl = `${env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
-
-      await emailService.sendAssessmentInvitation({
-        to: application.candidate.email,
-        candidateName,
-        jobTitle,
-        assessmentUrl,
-        expiryDate
-      });
-    } catch (error) {
-      console.error(`[AssessmentService] Failed to send email to ${application.candidate.email}`, error);
-    }
-
-    return { success: true, assessmentId: assessment.id };
-  }
-
-  async createQuestions(assessmentId: string, questions: any[]): Promise<void> {
-    for (let i = 0; i < questions.length; i++) {
-      const question = questions[i];
-      await this.assessmentRepository.createQuestion({
-        assessment: { connect: { id: assessmentId } },
-        question_text: question.questionText || question.text || '',
-        question_type: (question.type || question.questionType || 'MULTIPLE_CHOICE') as any,
-        options: question.options || null,
-        correct_answer: question.correctAnswer || question.correct_answer || null,
-        points: question.points || 1,
-        order: question.order ?? i,
+    // Send completion email
+    const details = (await this.assessmentRepository.getAssessmentWithDetails(assessment.id)) as any;
+    if (details?.application?.candidate && details?.application?.job) {
+      await emailService.sendAssessmentCompletionEmail({
+        to: details.application.candidate.email,
+        candidateName: `${details.application.candidate.first_name} ${details.application.candidate.last_name}`,
+        jobTitle: details.application.job.title,
+        companyName: (details.application.job as any).company?.name || 'Our Company',
+        completedAt: new Date(),
       });
     }
+
+    return updated;
   }
 
-  async getRoundAssessments(roundId: string) {
-    const currentRound = await this.assessmentRepository.findJobRound(roundId);
-    if (!currentRound) throw new Error('Round not found');
-
-    const assessments = await this.assessmentRepository.findByRoundIdWithDetails(roundId);
-
-    // Map assessments and filter out moved candidates
-    const mappedAssessments = assessments.map(a => {
-      const app = a.application as any;
-      const name = app?.candidate ? `${app.candidate.first_name} ${app.candidate.last_name}` : '';
-      const email = app?.candidate?.email || '';
-
-      // Check if candidate has moved to a later round
-      const hasLaterRound = app?.application_round_progress?.some(
-        (p: any) => p.job_round && p.job_round.order > currentRound.order
-      ) || false;
-
-      let averageScore: number | null = null;
-      if (a.assessment_response && a.assessment_response.length > 0) {
-        const grades = a.assessment_response
-          .flatMap((r: any) => r.assessment_grade || [])
-          .filter((g: any) => g.score !== null && g.score !== undefined);
-
-        if (grades.length > 0) {
-          const sum = grades.reduce((acc: number, curr: any) => acc + curr.score, 0);
-          averageScore = Number((sum / grades.length).toFixed(2));
-        }
-      }
-
-      // Determine if assessment is finalized (has score and all grading complete)
-      const isFinalized = a.status === 'COMPLETED' && averageScore !== null;
-
-      return {
-        id: a.id,
-        applicationId: a.application_id,
-        candidateName: name,
-        candidateEmail: email,
-        status: a.status,
-        score: (a as any).results?.score || null,
-        averageScore,
-        invitedAt: a.invited_at,
-        completedAt: a.completed_at,
-        invitationToken: a.invitation_token,
-        isMovedToNextRound: hasLaterRound,
-        isFinalized,
-        applicationStage: app?.stage
-      };
-    });
-
-    // Return all assessments - frontend decides what to show based on current application stage
-    return mappedAssessments;
+  async getAssessmentConfig(jobRoundId: string) {
+    return this.assessmentRepository.findConfiguration(jobRoundId);
   }
 
-  async getGradingDetails(assessmentId: string) {
-    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
+  async configureAssessment(jobRoundId: string, data: any) {
+    return this.assessmentRepository.upsertConfiguration(jobRoundId, data);
+  }
+
+  async getRoundAssessments(jobRoundId: string) {
+    return this.assessmentRepository.findByRound(jobRoundId);
+  }
+
+  async getAssessmentResults(id: string) {
+    const assessment = await this.assessmentRepository.getAssessmentWithDetails(id);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
     return assessment;
   }
 
-  async saveGrade(assessmentId: string, grades: Array<{ questionId: string; score: number; feedback: string }>, graderId: string) {
-    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
+  async getAssessmentForGrading(id: string) {
+    const assessment = await this.assessmentRepository.getAssessmentWithDetails(id);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
-
-    for (const g of grades) {
-      // Find response for this question
-      const response = assessment.assessment_response.find(r => r.question_id === g.questionId);
-      if (response) {
-        await this.assessmentRepository.upsertGrade(response.id, graderId, g.score, g.feedback);
-      }
-    }
-    return { message: 'Grades saved' };
+    return assessment;
   }
 
-  async addComment(assessmentId: string, comment: string, userId: string) {
-    const assessment = await this.assessmentRepository.findById(assessmentId);
-    if (!assessment) throw new HttpException(404, 'Assessment not found');
-
-    return this.assessmentRepository.addComment(assessmentId, userId, comment);
+  async gradeResponse(responseId: string, data: { score: number; feedback?: string; graderId: string }) {
+    return this.assessmentRepository.updateResponse(responseId, {
+      score: data.score,
+      feedback: data.feedback,
+      graded_by: data.graderId,
+      graded_at: new Date(),
+    } as any);
   }
 
-  async finalizeAssessment(assessmentId: string) {
-    const assessment = await this.assessmentRepository.getGradingData(assessmentId);
-    if (!assessment) throw new HttpException(404, 'Assessment not found');
+  async addAssessmentComment(id: string, data: { comment: string; authorId: string; authorName: string }) {
+    const assessment = await this.getAssessment(id);
 
-    // Calculate Average Score
-    let averageScore: number = 0;
-    if (assessment.assessment_response && assessment.assessment_response.length > 0) {
-      const grades = assessment.assessment_response
-        .flatMap((r: any) => r.assessment_grade || [])
-        .filter((g: any) => g.score !== null && g.score !== undefined);
-
-      if (grades.length > 0) {
-        const sum = grades.reduce((acc: number, curr: any) => acc + curr.score, 0);
-        averageScore = Number((sum / grades.length).toFixed(2));
-      }
-    }
-
-    // Update Assessment Status and Score
-    // Note: 'results' is a Json field, we store score there for persistent record
-    await this.assessmentRepository.update(assessment.id, {
-      status: 'COMPLETED',
-      completed_at: assessment.completed_at || new Date(),
-      results: { score: averageScore }
+    // Create new comment using repository method
+    return this.assessmentRepository.createComment({
+      assessment: { connect: { id } },
+      user: { connect: { id: data.authorId } },
+      comment: data.comment
     });
+  }
 
-    // Automation Logic
-    if (assessment.job_round_id) {
-      const config = await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id);
+  async scoreAssessment(id: string, manualData?: { totalScore: number; passed: boolean; feedback?: string }) {
+    const assessment = await this.assessmentRepository.getAssessmentWithDetails(id);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
 
-      if (config) {
-        const passThreshold = config.pass_threshold || 70;
+    if (manualData) {
+      const result = await this.assessmentRepository.update(id, {
+        results: {
+          totalScore: manualData.totalScore,
+          passed: manualData.passed,
+          feedback: manualData.feedback,
+          scoredAt: new Date().toISOString(),
+          isManual: true,
+        } as any,
+        status: 'COMPLETED',
+      });
+      return result;
+    }
 
-        if ((config as any).auto_reject_on_fail && averageScore < passThreshold) {
-          await this.assessmentRepository.rejectApplication(assessment.application_id);
-        } else if ((config as any).auto_move_on_pass && averageScore >= passThreshold) {
-          await this.assessmentRepository.moveToNextRound(assessment.application_id, assessment.job_round_id);
+    const questions = (assessment as any).assessment_question || [];
+    const responses = (assessment as any).assessment_response || [];
+
+    let totalScore = 0;
+    let maxScore = 0;
+
+    for (const question of questions) {
+      maxScore += question.points || 0;
+      const response = responses.find((r: any) => r.question_id === question.id);
+
+      if (response && question.correct_answer) {
+        const isCorrect = this.checkAnswer(question.question_type, response.response, question.correct_answer);
+        if (isCorrect) {
+          totalScore += question.points || 0;
+          await this.assessmentRepository.updateResponse(response.id, { score: question.points });
+        } else {
+          await this.assessmentRepository.updateResponse(response.id, { score: 0 });
         }
       }
     }
 
-    return { success: true, averageScore };
-  }
+    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    const passed = assessment.pass_threshold ? percentage >= assessment.pass_threshold : true;
 
-  async resendInvitation(assessmentId: string) {
-    const assessment = await this.assessmentRepository.findWithCandidateDetails(assessmentId);
-    if (!assessment) throw new HttpException(404, 'Assessment not found');
-
-    // Reset invited_at
-    await this.assessmentRepository.update(assessment.id, {
-      invited_at: new Date()
+    const result = await this.assessmentRepository.update(id, {
+      results: {
+        totalScore,
+        maxScore,
+        percentage: Math.round(percentage * 100) / 100,
+        passed,
+        scoredAt: new Date().toISOString(),
+      } as any,
+      status: 'COMPLETED',
     });
 
-    if (assessment.application) {
-      try {
-        const candidateName = `${assessment.application.candidate.first_name} ${assessment.application.candidate.last_name}`;
-        const jobTitle = assessment.application.job.title;
-        const assessmentUrl = `${env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
-
-        await emailService.sendAssessmentInvitation({
-          to: assessment.application.candidate.email,
-          candidateName,
-          jobTitle,
-          assessmentUrl,
-          expiryDate: assessment.expiry_date || undefined
+    // Notify recruiter if passed/failed status is determined
+    const details = assessment as any;
+    if (details.application?.candidate && details.application?.job) {
+      const recruiter = await this.prisma.user.findUnique({ where: { id: assessment.invited_by } });
+      if (recruiter) {
+        await emailService.sendAssessmentResultsNotification({
+          to: recruiter.email,
+          recruiterName: recruiter.name,
+          candidateName: `${details.application.candidate.first_name} ${details.application.candidate.last_name}`,
+          jobTitle: details.application.job.title,
+          companyName: (details.application.job as any).company?.name || 'Our Company',
+          assessmentScore: Math.round(percentage * 100) / 100,
+          passThreshold: assessment.pass_threshold || undefined,
+          passed,
+          assessmentUrl: `${process.env.FRONTEND_URL}/jobs/${assessment.job_id}/applications/${assessment.application_id}?tab=assessments`,
+          candidateProfileUrl: `${process.env.FRONTEND_URL}/jobs/${assessment.job_id}/applications/${assessment.application_id}`,
         });
-      } catch (error) {
-        console.error(`[AssessmentService] Failed to resend email to ${assessment.application.candidate.email}`, error);
       }
     }
 
-    return { message: 'Invitation resent' };
+    return result;
+  }
+
+  private checkAnswer(type: string, response: any, correct: any): boolean {
+    if (!response || !correct) return false;
+
+    switch (type) {
+      case 'MULTIPLE_CHOICE':
+        return String(response).trim().toLowerCase() === String(correct).trim().toLowerCase();
+      case 'MULTIPLE_SELECT':
+        if (!Array.isArray(response) || !Array.isArray(correct)) return false;
+        return response.length === correct.length && response.every(r => correct.includes(r));
+      case 'SHORT_ANSWER':
+        return String(response).trim().toLowerCase() === String(correct).trim().toLowerCase();
+      default:
+        return false;
+    }
+  }
+
+  async autoAssignAssessment(applicationId: string, jobRoundId: string, invitedBy: string) {
+    const config = await this.assessmentRepository.findConfiguration(jobRoundId);
+    if (!config || !(config as any).enabled || !(config as any).autoAssign) return;
+
+    // Check if already assigned
+    const existing = await this.assessmentRepository.findByApplicationAndRound(applicationId, jobRoundId);
+    if (existing) return;
+
+    const application = await this.prisma.application.findUnique({
+      where: { id: applicationId },
+      include: { candidate: true, job: true }
+    });
+
+    if (!application) return;
+
+    const invitationToken = crypto.randomBytes(32).toString('hex');
+    const assessment = await this.assessmentRepository.create({
+      application: { connect: { id: applicationId } },
+      candidate_id: application.candidate_id,
+      job_id: application.job_id,
+      job_round_id: jobRoundId,
+      assessment_type: (config as any).assessmentType || 'SKILLS_BASED',
+      status: 'INVITED',
+      invited_by: invitedBy,
+      invitation_token: invitationToken,
+      pass_threshold: (config as any).passThreshold,
+    } as any);
+
+    // Create questions from config
+    if ((config as any).questions && Array.isArray((config as any).questions)) {
+      for (let i = 0; i < (config as any).questions.length; i++) {
+        const q = (config as any).questions[i];
+        await this.assessmentRepository.createQuestion({
+          assessment: { connect: { id: assessment.id } },
+          question_text: q.text || q.questionText,
+          question_type: q.type || 'MULTIPLE_CHOICE',
+          options: q.options || null,
+          correct_answer: q.correctAnswer || null,
+          points: q.points || 1,
+          order: q.order ?? i,
+        });
+      }
+    }
+
+    // Send invitation email
+    await this.sendAssessmentInvitation(assessment.id);
+
+    return assessment;
+  }
+
+  async sendAssessmentInvitation(id: string) {
+    const assessment = await this.assessmentRepository.getAssessmentWithDetails(id);
+    const details = assessment as any;
+    if (!assessment || !details.application?.candidate || !details.application?.job) return;
+
+    if (!assessment.invitation_token) {
+      await this.assessmentRepository.update(id, {
+        invitation_token: crypto.randomBytes(32).toString('hex'),
+      });
+    }
+
+    const token = assessment.invitation_token || (await this.assessmentRepository.findById(id))?.invitation_token;
+    const assessmentUrl = `${process.env.FRONTEND_URL}/assessment/${token}`;
+
+    await emailService.sendAssessmentInvitationEmail({
+      to: details.application.candidate.email,
+      candidateName: `${details.application.candidate.first_name} ${details.application.candidate.last_name}`,
+      jobTitle: details.application.job.title,
+      companyName: (details.application.job as any).company?.name || 'Our Company',
+      assessmentUrl,
+      expiryDate: assessment.expiry_date || undefined,
+    });
+
+    return this.assessmentRepository.update(id, { status: 'INVITED' });
+  }
+
+  async resendAssessmentInvitation(id: string) {
+    return this.sendAssessmentInvitation(id);
+  }
+
+  // --- Candidate Context Methods ---
+
+  async getCandidateAssessments(candidateId: string) {
+    return this.assessmentRepository.findByCandidate(candidateId);
+  }
+
+  async getAssessmentDetailsForCandidate(id: string, candidateId: string) {
+    const assessment = await this.assessmentRepository.getAssessmentWithDetails(id);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    if (assessment.candidate_id !== candidateId) throw new HttpException(403, 'Unauthorized access to assessment');
+    return assessment;
+  }
+
+  async startAssessmentForCandidate(id: string, candidateId: string) {
+    const assessment = await this.assessmentRepository.findById(id);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    if (assessment.candidate_id !== candidateId) throw new HttpException(403, 'Unauthorized access to assessment');
+
+    if (assessment.status === 'INVITED' || assessment.status === 'PENDING_INVITATION') {
+      return this.assessmentRepository.update(assessment.id, {
+        status: 'IN_PROGRESS',
+        results: { ...(assessment.results as any), startedAt: new Date().toISOString() } as any
+      });
+    }
+    return assessment;
+  }
+
+  async submitAssessmentForCandidate(id: string, candidateId: string, responses: Array<{ questionId: string; response: any }>) {
+    const assessment = await this.assessmentRepository.findById(id);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    if (assessment.candidate_id !== candidateId) throw new HttpException(403, 'Unauthorized access to assessment');
+
+    if (assessment.status === 'COMPLETED') {
+      throw new HttpException(400, 'Assessment already completed');
+    }
+
+    // Save responses
+    for (const r of responses) {
+      await this.assessmentRepository.createResponse({
+        assessment: { connect: { id: assessment.id } },
+        assessment_question: { connect: { id: r.questionId } },
+        candidate_id: assessment.candidate_id,
+        response: r.response,
+      });
+    }
+
+    // Update status
+    const updated = await this.assessmentRepository.update(assessment.id, {
+      status: 'COMPLETED',
+      completed_at: new Date(),
+    });
+
+    // Score
+    await this.scoreAssessment(assessment.id);
+
+    return updated;
   }
 }

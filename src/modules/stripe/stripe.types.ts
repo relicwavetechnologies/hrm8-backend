@@ -60,6 +60,7 @@ export interface IStripeClient {
       metadata?: Record<string, string>;
     }) => Promise<StripeAccount>;
     retrieve: (accountId: string) => Promise<StripeAccount>;
+    createLoginLink: (accountId: string) => Promise<{ url: string }>;
   };
 
   accountLinks: {

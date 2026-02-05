@@ -2,9 +2,10 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { NotificationService } from './notification.service';
 import { NotificationRepository } from './notification.repository';
-import { AuthenticatedRequest, Hrm8AuthenticatedRequest } from '../../types';
-import { NotificationRecipientType } from '@prisma/client';
-import { HttpException } from '../../core/http-exception';
+import { AuthenticatedRequest, Hrm8AuthenticatedRequest, ConsultantAuthenticatedRequest, UnifiedAuthenticatedRequest } from '../../types';
+import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+
+type NotificationRequest = AuthenticatedRequest & Hrm8AuthenticatedRequest & ConsultantAuthenticatedRequest & UnifiedAuthenticatedRequest;
 
 export class NotificationController extends BaseController {
   private notificationService: NotificationService;
@@ -14,43 +15,36 @@ export class NotificationController extends BaseController {
     this.notificationService = new NotificationService(new NotificationRepository());
   }
 
-  // Helper to resolve recipient info from request user
-  private getRecipientInfo(req: AuthenticatedRequest & Hrm8AuthenticatedRequest): { type: NotificationRecipientType, id: string } {
-    // If HRM8 Auth was used:
+  private getRecipientInfo(req: NotificationRequest): { type: NotificationRecipientType; id: string } {
     if ((req as any).hrm8User) {
       return { type: 'HRM8_USER', id: (req as any).hrm8User.id };
     }
 
-    // If ConsultantAuthMiddleware was used:
     if ((req as any).consultant) {
       return { type: 'CONSULTANT', id: (req as any).consultant.id };
     }
 
-    // If CandidateAuthMiddleware was used:
     if ((req as any).candidate) {
       return { type: 'CANDIDATE', id: (req as any).candidate.id };
     }
 
-    // Default to USER (Employer/Admin)
     if (req.user) {
+      if (req.user.type === 'CANDIDATE') {
+        return { type: 'CANDIDATE', id: req.user.id };
+      }
       return { type: 'USER', id: req.user.id };
     }
 
     throw new Error('Not authenticated');
   }
 
-  list = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+  list = async (req: NotificationRequest, res: Response) => {
     try {
-
       const { type, id } = this.getRecipientInfo(req);
       const limit = parseInt(req.query.limit as string) || 10;
       const offset = parseInt(req.query.offset as string) || 0;
 
-
       const result = await this.notificationService.getUserNotifications(type, id, limit, offset);
-
-
-      // Calculate unread count
       const unreadCount = result.notifications.filter(n => !n.read).length;
 
       return this.sendSuccess(res, {
@@ -63,7 +57,27 @@ export class NotificationController extends BaseController {
     }
   };
 
-  markRead = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+  getNotification = async (req: NotificationRequest, res: Response) => {
+    try {
+      const { type, id } = this.getRecipientInfo(req);
+      const notification = await this.notificationService.getNotificationById(req.params.id as string, type, id);
+      return this.sendSuccess(res, { notification });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getUnreadCount = async (req: NotificationRequest, res: Response) => {
+    try {
+      const { type, id } = this.getRecipientInfo(req);
+      const count = await this.notificationService.getUnreadCount(type, id);
+      return this.sendSuccess(res, { count });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  markRead = async (req: NotificationRequest, res: Response) => {
     try {
       const { type, id: userId } = this.getRecipientInfo(req);
       const { id } = req.params as { id: string };
@@ -75,56 +89,39 @@ export class NotificationController extends BaseController {
     }
   };
 
-  markAllRead = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+  markAllRead = async (req: NotificationRequest, res: Response) => {
     try {
       const { type, id } = this.getRecipientInfo(req);
       const count = await this.notificationService.markAllAsRead(type, id);
-      return this.sendSuccess(res, { message: 'All notifications marked as read', count });
+      return this.sendSuccess(res, { count });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // Delete a notification
-  delete = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
-    console.log('🎯 [Controller] delete method called');
-    try {
-      const { type, id: userId } = this.getRecipientInfo(req);
-      const { id } = req.params as { id: string };
-
-      console.log('👤 [Controller] User info:', { type, userId });
-      console.log('🔍 [Controller] Deleting notification:', id);
-
-      const deleted = await this.notificationService.deleteNotification(id, type, userId);
-
-      if (!deleted) {
-        console.log('❌ [Controller] Notification not found');
-        return this.sendError(res, new HttpException(404, 'Notification not found or unauthorized'), 404);
-      }
-
-      console.log('✅ [Controller] Notification deleted successfully');
-      return this.sendSuccess(res, { message: 'Notification deleted successfully' });
-    } catch (error) {
-      console.error('💥 [Controller] Error:', error);
-      return this.sendError(res, error);
-    }
-  };
-
-  // Test endpoint to create sample notifications
-  createTestNotification = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+  deleteNotification = async (req: NotificationRequest, res: Response) => {
     try {
       const { type, id } = this.getRecipientInfo(req);
-      const { title, message } = req.body;
+      const ok = await this.notificationService.deleteNotification(req.params.id as string, type, id);
+      return this.sendSuccess(res, { success: ok });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 
-
-      const notification = await this.notificationService['createNotification']({
-        recipientType: type,
-        recipientId: id,
-        type: 'SYSTEM_ANNOUNCEMENT',
-        title: title || 'Test Notification',
-        message: message || `Test notification for ${type} user`
+  createTestNotification = async (req: NotificationRequest, res: Response) => {
+    try {
+      const { type, id } = this.getRecipientInfo(req);
+      const { title, message, notificationType } = req.body as {
+        title?: string;
+        message?: string;
+        notificationType?: UniversalNotificationType;
+      };
+      const notification = await this.notificationService.createTestNotification(type, id, {
+        title,
+        message,
+        type: notificationType
       });
-
       return this.sendSuccess(res, { notification });
     } catch (error) {
       return this.sendError(res, error);

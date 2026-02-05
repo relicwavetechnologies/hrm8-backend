@@ -15,7 +15,7 @@ export class UserController extends BaseController {
   // User Management
   getUsers = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const users = await this.userService.getUsersByCompany(req.user.companyId);
       // Filter sensitive data
       const safeUsers = users.map(u => {
@@ -41,7 +41,7 @@ export class UserController extends BaseController {
 
   createUser = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.user || !req.user.companyId) return this.sendError(res, new Error('Not authenticated or company ID missing'));
       const user = await this.userService.createUser(
         req.user.companyId,
         req.user.id,

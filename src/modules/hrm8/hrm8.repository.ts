@@ -65,6 +65,13 @@ export class Hrm8Repository extends BaseRepository {
     });
   }
 
+  async updateSessionBySessionId(sessionId: string) {
+    return this.prisma.hRM8Session.update({
+      where: { session_id: sessionId },
+      data: { last_activity: new Date() },
+    }).catch(() => { });
+  }
+
   // Licensee & Regions
   async getRegionsForLicensee(licenseeId: string) {
     return this.prisma.region.findMany({

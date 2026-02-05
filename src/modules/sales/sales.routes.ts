@@ -5,46 +5,48 @@ import { authenticateConsultant } from '../../middlewares/consultant-auth.middle
 const router = Router();
 const salesController = new SalesController();
 
+router.use(authenticateConsultant);
+
 // Dashboard
-router.get('/dashboard/stats', authenticateConsultant, salesController.getDashboardStats);
+router.get('/dashboard/stats', salesController.getStats);
 
 // Leads
-router.get('/leads', authenticateConsultant, salesController.getLeads);
-router.post('/leads', authenticateConsultant, salesController.createLead);
-router.post('/leads/:leadId/convert', authenticateConsultant, salesController.convertLead);
-router.post('/leads/:leadId/conversion-request', authenticateConsultant, salesController.submitConversionRequest);
+router.get('/leads', salesController.getMyLeads);
+router.post('/leads', salesController.createLead);
+router.post('/leads/:id/convert', salesController.convert);
+router.post('/leads/:leadId/convert', salesController.convert);
+router.post('/leads/:id/conversion-request', salesController.submitRequest);
+router.post('/leads/:leadId/conversion-request', salesController.submitRequest);
 
 // Conversion Requests
-router.get('/conversion-requests', authenticateConsultant, salesController.getConversionRequests);
-router.get('/conversion-requests/:id', authenticateConsultant, salesController.getConversionRequest);
-router.put('/conversion-requests/:id/cancel', authenticateConsultant, salesController.cancelConversionRequest);
+router.get('/conversion-requests', salesController.getMyRequests);
+router.get('/conversion-requests/:id', salesController.getRequest);
+router.put('/conversion-requests/:id/cancel', salesController.cancelRequest);
 
 // Opportunities
-router.get('/opportunities', authenticateConsultant, salesController.getOpportunities);
-router.post('/opportunities', authenticateConsultant, salesController.createOpportunity);
-router.get('/opportunities/stats', authenticateConsultant, salesController.getPipelineStats);
-router.put('/opportunities/:id', authenticateConsultant, salesController.updateOpportunity);
+router.get('/opportunities', salesController.getOpportunities);
+router.post('/opportunities', salesController.createOpportunity);
+router.put('/opportunities/:id', salesController.updateOpportunity);
+router.get('/opportunities/stats', salesController.getPipelineStats);
 
 // Companies
-router.get('/companies', authenticateConsultant, salesController.getCompanies);
-
-// Commissions
-router.get('/commissions', authenticateConsultant, salesController.getCommissions);
-router.get('/commissions/balance', authenticateConsultant, salesController.getWithdrawalBalance);
-
-// Withdrawals
-router.post('/commissions/withdraw', authenticateConsultant, salesController.requestWithdrawal);
-router.get('/commissions/withdrawals', authenticateConsultant, salesController.getWithdrawals);
-router.post('/commissions/withdrawals/:id/cancel', authenticateConsultant, salesController.cancelWithdrawal);
-router.post('/commissions/withdrawals/:id/execute', authenticateConsultant, salesController.executeWithdrawal);
-
-// Stripe
-router.get('/stripe/status', authenticateConsultant, salesController.getStripeStatus);
-router.post('/stripe/onboard', authenticateConsultant, salesController.initiateStripeOnboarding);
-router.post('/stripe/login-link', authenticateConsultant, salesController.getStripeLoginLink);
+router.get('/companies', salesController.getCompanies);
 
 // Activities
-router.get('/activities', authenticateConsultant, salesController.getActivities);
-router.post('/activities', authenticateConsultant, salesController.createActivity);
+router.get('/activities', salesController.getActivities);
+router.post('/activities', salesController.createActivity);
+
+// Commissions & Withdrawals
+router.get('/commissions', salesController.getCommissions);
+router.get('/commissions/balance', salesController.getBalance);
+router.post('/commissions/withdraw', salesController.requestWithdrawal);
+router.get('/commissions/withdrawals', salesController.getWithdrawals);
+router.post('/commissions/withdrawals/:id/cancel', salesController.cancelWithdrawal);
+router.post('/commissions/withdrawals/:id/execute', salesController.executeWithdrawal);
+
+// Stripe Connect
+router.post('/stripe/onboard', salesController.stripeOnboard);
+router.get('/stripe/status', salesController.getStripeStatus);
+router.post('/stripe/login-link', salesController.getStripeLoginLink);
 
 export default router;

@@ -53,7 +53,14 @@ export class SessionRepository extends BaseRepository {
   async deleteBySessionId(sessionId: string): Promise<void> {
     await this.prisma.session.delete({
       where: { session_id: sessionId },
-    }).catch(() => {});
+    }).catch(() => { });
+  }
+
+  async updateBySessionId(sessionId: string): Promise<void> {
+    await this.prisma.session.update({
+      where: { session_id: sessionId },
+      data: { last_activity: new Date() },
+    }).catch(() => { });
   }
 
   private mapPrismaToSession(prismaSession: any): SessionData {

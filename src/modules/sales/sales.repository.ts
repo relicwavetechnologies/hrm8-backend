@@ -1,9 +1,8 @@
-import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity } from '@prisma/client';
+import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity, CommissionWithdrawal, Consultant, Commission } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class SalesRepository extends BaseRepository {
-
-  // --- Leads ---
+  // Leads
   async createLead(data: Prisma.LeadCreateInput): Promise<Lead> {
     return this.prisma.lead.create({ data });
   }
@@ -16,15 +15,21 @@ export class SalesRepository extends BaseRepository {
     return this.prisma.lead.findUnique({ where: { id } });
   }
 
-  async findLeads(filters: any): Promise<Lead[]> {
-    // Implement filters as needed
+  async findLeads(filters: Prisma.LeadWhereInput): Promise<Lead[]> {
     return this.prisma.lead.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      include: {
+        company: { select: { id: true, name: true } }
+      }
     });
   }
 
-  // --- Conversion Requests ---
+  async deleteLead(id: string): Promise<Lead> {
+    return this.prisma.lead.delete({ where: { id } });
+  }
+
+  // Conversion Requests
   async createConversionRequest(data: Prisma.LeadConversionRequestCreateInput): Promise<LeadConversionRequest> {
     return this.prisma.leadConversionRequest.create({ data });
   }
@@ -33,18 +38,28 @@ export class SalesRepository extends BaseRepository {
     return this.prisma.leadConversionRequest.update({ where: { id }, data });
   }
 
-  async findConversionRequests(filters: any): Promise<LeadConversionRequest[]> {
+  async findConversionRequests(filters: Prisma.LeadConversionRequestWhereInput): Promise<LeadConversionRequest[]> {
     return this.prisma.leadConversionRequest.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      include: {
+        lead: { select: { id: true, company_name: true } },
+        company: { select: { id: true, name: true } }
+      }
     });
   }
 
   async findConversionRequestById(id: string): Promise<LeadConversionRequest | null> {
-    return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+    return this.prisma.leadConversionRequest.findUnique({
+      where: { id },
+      include: {
+        lead: true,
+        company: true
+      }
+    });
   }
 
-  // --- Opportunities ---
+  // Opportunities
   async createOpportunity(data: Prisma.OpportunityCreateInput): Promise<Opportunity> {
     return this.prisma.opportunity.create({ data });
   }
@@ -64,8 +79,8 @@ export class SalesRepository extends BaseRepository {
     });
   }
 
-  async findOpportunities(filters: any): Promise<any[]> {
-    const opportunities = await this.prisma.opportunity.findMany({
+  async findOpportunities(filters: Prisma.OpportunityWhereInput): Promise<Opportunity[]> {
+    return this.prisma.opportunity.findMany({
       where: filters,
       include: {
         company: {
@@ -74,36 +89,13 @@ export class SalesRepository extends BaseRepository {
       },
       orderBy: { updated_at: 'desc' }
     });
-
-    // Transform to camelCase to match frontend expectations
-    return opportunities.map(opp => ({
-      id: opp.id,
-      name: opp.name,
-      stage: opp.stage,
-      amount: opp.amount || 0,
-      estimatedValue: opp.amount || 0,
-      probability: opp.probability || 0,
-      expectedCloseDate: opp.expected_close_date,
-      salesAgentId: opp.sales_agent_id,
-      companyId: opp.company_id,
-      type: opp.type,
-      currency: opp.currency,
-      description: opp.description,
-      lostReason: opp.lost_reason,
-      closedAt: opp.closed_at,
-      createdAt: opp.created_at,
-      updatedAt: opp.updated_at,
-      company: opp.company,
-      referredBy: opp.referred_by,
-      tags: opp.tags
-    }));
   }
 
   async deleteOpportunity(id: string): Promise<Opportunity> {
     return this.prisma.opportunity.delete({ where: { id } });
   }
 
-  // --- Activities ---
+  // Activities
   async createActivity(data: Prisma.ActivityCreateInput): Promise<Activity> {
     return this.prisma.activity.create({ data });
   }
@@ -112,7 +104,7 @@ export class SalesRepository extends BaseRepository {
     return this.prisma.activity.update({ where: { id }, data });
   }
 
-  async findActivities(filters: any, limit?: number): Promise<Activity[]> {
+  async findActivities(filters: Prisma.ActivityWhereInput, limit?: number): Promise<Activity[]> {
     return this.prisma.activity.findMany({
       where: filters,
       orderBy: { created_at: 'desc' },
@@ -125,19 +117,20 @@ export class SalesRepository extends BaseRepository {
     });
   }
 
-  // --- Companies ---
-  async findCompanies(filters: any): Promise<any[]> {
+  // Companies
+  async findCompanies(filters: Prisma.CompanyWhereInput): Promise<any[]> {
     return this.prisma.company.findMany({
       where: filters,
       select: {
         id: true,
         name: true,
         domain: true,
+        website: true,
         country_or_region: true,
         verification_status: true,
-        created_at: true
-      },
-      orderBy: { created_at: 'desc' }
+        created_at: true,
+        updated_at: true
+      }
     });
   }
 
@@ -157,9 +150,9 @@ export class SalesRepository extends BaseRepository {
     });
   }
 
-  // --- Commissions ---
-  async findCommissions(filters: any): Promise<any[]> {
-    const commissions = await this.prisma.commission.findMany({
+  // Commissions
+  async findCommissions(filters: Prisma.CommissionWhereInput): Promise<Commission[]> {
+    return this.prisma.commission.findMany({
       where: filters,
       orderBy: { created_at: 'desc' },
       include: {
@@ -167,63 +160,38 @@ export class SalesRepository extends BaseRepository {
         subscription: { select: { id: true, name: true, company: { select: { name: true } } } }
       }
     });
-
-    // Transform to match frontend expectations
-    return commissions.map(commission => ({
-      id: commission.id,
-      consultantId: commission.consultant_id,
-      regionId: commission.region_id,
-      jobId: commission.job_id || undefined,
-      subscriptionId: commission.subscription_id || undefined,
-      type: commission.type,
-      amount: commission.amount,
-      rate: commission.rate || undefined,
-      description: commission.description || undefined,
-      status: commission.status,
-      confirmedAt: commission.confirmed_at || undefined,
-      paidAt: commission.paid_at || undefined,
-      commissionExpiryDate: commission.commission_expiry_date || undefined,
-      paymentReference: commission.payment_reference || undefined,
-      notes: commission.notes || undefined,
-      createdAt: commission.created_at,
-      updatedAt: commission.updated_at,
-      companyName: commission.job?.company?.name || commission.subscription?.company?.name || 'Unknown'
-    }));
   }
 
-  async findCommissionsByIds(ids: string[]): Promise<any[]> {
-    const commissions = await this.prisma.commission.findMany({
-      where: { id: { in: ids } },
-      include: {
-        job: { select: { id: true, title: true, company: { select: { name: true } } } },
-        subscription: { select: { id: true, name: true, company: { select: { name: true } } } }
-      }
+  // Withdrawals
+  async createWithdrawal(data: Prisma.CommissionWithdrawalCreateInput): Promise<CommissionWithdrawal> {
+    return this.prisma.commissionWithdrawal.create({ data });
+  }
+
+  async updateWithdrawal(id: string, data: Prisma.CommissionWithdrawalUpdateInput): Promise<CommissionWithdrawal> {
+    return this.prisma.commissionWithdrawal.update({ where: { id }, data });
+  }
+
+  async findWithdrawalById(id: string): Promise<CommissionWithdrawal | null> {
+    return this.prisma.commissionWithdrawal.findUnique({ where: { id } });
+  }
+
+  async findWithdrawals(filters: Prisma.CommissionWithdrawalWhereInput): Promise<CommissionWithdrawal[]> {
+    return this.prisma.commissionWithdrawal.findMany({
+      where: filters,
+      orderBy: { created_at: 'desc' }
     });
-
-    // Transform to match frontend expectations
-    return commissions.map(commission => ({
-      id: commission.id,
-      consultantId: commission.consultant_id,
-      regionId: commission.region_id,
-      jobId: commission.job_id || undefined,
-      subscriptionId: commission.subscription_id || undefined,
-      type: commission.type,
-      amount: commission.amount,
-      rate: commission.rate || undefined,
-      description: commission.description || undefined,
-      status: commission.status,
-      confirmedAt: commission.confirmed_at || undefined,
-      paidAt: commission.paid_at || undefined,
-      commissionExpiryDate: commission.commission_expiry_date || undefined,
-      paymentReference: commission.payment_reference || undefined,
-      notes: commission.notes || undefined,
-      createdAt: commission.created_at,
-      updatedAt: commission.updated_at,
-      companyName: commission.job?.company?.name || commission.subscription?.company?.name || 'Unknown'
-    }));
   }
 
-  // --- Dashboard Stats ---
+  // Consultant
+  async updateConsultant(id: string, data: Prisma.ConsultantUpdateInput): Promise<Consultant> {
+    return this.prisma.consultant.update({ where: { id }, data });
+  }
+
+  async findConsultantById(id: string): Promise<Consultant | null> {
+    return this.prisma.consultant.findUnique({ where: { id } });
+  }
+
+  // Dashboard Stats
   async getDashboardStats(consultantId: string): Promise<any> {
     const [leads, opportunities, commissions, activities] = await Promise.all([
       this.prisma.lead.findMany({
@@ -254,16 +222,14 @@ export class SalesRepository extends BaseRepository {
       })
     ]);
 
-    // Calculate lead stats
     const leadStats = {
       total: leads.length,
       converted: leads.filter(l => l.status === 'CONVERTED').length,
-      conversionRate: leads.length > 0
+      conversion_rate: leads.length > 0
         ? Math.round((leads.filter(l => l.status === 'CONVERTED').length / leads.length) * 100)
         : 0
     };
 
-    // Calculate commission stats
     const totalEarned = commissions.reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
     const pendingEarned = commissions.filter(c => c.status === 'PENDING').reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
     const paidEarned = commissions.filter(c => c.status === 'PAID').reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
@@ -274,7 +240,6 @@ export class SalesRepository extends BaseRepository {
       paid: paidEarned
     };
 
-    // Calculate company stats (Mocking activeSubscriptions for now as it depends on billing)
     const companiesCount = await this.prisma.company.count({
       where: {
         OR: [
@@ -287,26 +252,23 @@ export class SalesRepository extends BaseRepository {
 
     const companyStats = {
       total: companiesCount,
-      activeSubscriptions: companiesCount // Placeholder
+      active_subscriptions: companiesCount
     };
 
-    // Fetch recent commissions for activity feed
     const recentCommissions = await this.prisma.commission.findMany({
       where: { consultant_id: consultantId },
       orderBy: { created_at: 'desc' },
       take: 5
     });
 
-    // Map activity for frontend
     const mappedActivity = activities.map(a => ({
       type: a.opportunity_id ? 'OPPORTUNITY' : (a.lead_id ? 'LEAD' : 'ACTIVITY'),
       description: a.subject,
       date: a.created_at,
       status: 'COMPLETED',
-      amount: 0 // Opportunities have amounts, but activities are general
+      amount: 0
     }));
 
-    // Map commissions to activity
     const mappedCommissions = recentCommissions.map(c => ({
       type: 'COMMISSION',
       description: c.description || 'Commission Earned',
@@ -315,7 +277,6 @@ export class SalesRepository extends BaseRepository {
       amount: Number(c.amount)
     }));
 
-    // Combine and sort
     const combinedActivity = [...mappedActivity, ...mappedCommissions]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 10);
@@ -324,7 +285,7 @@ export class SalesRepository extends BaseRepository {
       leads: leadStats,
       commissions: commissionStats,
       companies: companyStats,
-      recentActivity: combinedActivity
+      recent_activity: combinedActivity
     };
   }
 }

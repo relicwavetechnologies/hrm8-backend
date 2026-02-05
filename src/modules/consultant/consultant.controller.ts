@@ -2,7 +2,6 @@ import { Response, Request } from 'express';
 import { BaseController } from '../../core/controller';
 import { ConsultantService } from './consultant.service';
 import { ConsultantCandidateService } from './consultant-candidate.service';
-import { ConsultantWithdrawalService } from './consultant-withdrawal.service';
 import { ConversationService } from '../communication/conversation.service';
 import { ConsultantAuthenticatedRequest } from '../../types';
 import { ApplicationStatus, ApplicationStage } from '@prisma/client';
@@ -11,14 +10,12 @@ import { getSessionCookieOptions } from '../../utils/session';
 export class ConsultantController extends BaseController {
   private consultantService: ConsultantService;
   private candidateService: ConsultantCandidateService;
-  private withdrawalService: ConsultantWithdrawalService;
   private conversationService: ConversationService;
 
   constructor() {
     super();
     this.consultantService = new ConsultantService();
     this.candidateService = new ConsultantCandidateService();
-    this.withdrawalService = new ConsultantWithdrawalService();
     this.conversationService = new ConversationService();
   }
 
@@ -212,57 +209,21 @@ export class ConsultantController extends BaseController {
     }
   };
 
-  // Withdrawals
-  getWithdrawalBalance = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  setupAccount = async (req: Request, res: Response) => {
     try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const result = await this.withdrawalService.calculateBalance(consultantId);
-      return this.sendSuccess(res, result);
+      await this.consultantService.setupAccount(req.body);
+      return this.sendSuccess(res, { message: 'Account set up successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  requestWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const result = await this.withdrawalService.requestWithdrawal(consultantId, req.body);
-      return this.sendSuccess(res, result);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
+  getCurrentConsultant = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    // Alias to getProfile
+    return this.getProfile(req, res);
   };
 
-  getWithdrawals = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const { status } = req.query;
-      const result = await this.withdrawalService.getWithdrawals(consultantId, status as string);
-      return this.sendSuccess(res, result);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  cancelWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const { id } = req.params;
-      const result = await this.withdrawalService.cancelWithdrawal(id as string, consultantId);
-      return this.sendSuccess(res, result);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
+  // Profile
   getProfile = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
@@ -448,32 +409,8 @@ export class ConsultantController extends BaseController {
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
       const { id } = req.params;
-      const result = await this.withdrawalService.executeWithdrawal(id as string, consultantId);
+      const result = await this.consultantService.executeWithdrawal(consultantId, id as string);
       return this.sendSuccess(res, { withdrawal: result, message: 'Withdrawal execution initiated' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  getStripeStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const result = await this.withdrawalService.getStripeStatus(consultantId);
-      return this.sendSuccess(res, result);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  initiateStripeOnboarding = async (req: ConsultantAuthenticatedRequest, res: Response) => {
-    try {
-      const consultantId = req.consultant?.id;
-      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
-
-      const result = await this.withdrawalService.initiateStripeOnboarding(consultantId);
-      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -484,8 +421,227 @@ export class ConsultantController extends BaseController {
       const consultantId = req.consultant?.id;
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
-      const result = await this.withdrawalService.getStripeLoginLink(consultantId);
+      const result = await this.consultantService.getStripeLoginLink(consultantId);
       return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+  // Analytics
+  getDashboardAnalytics = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      // Combine performance metrics and maybe recent activity
+      const metrics = await this.consultantService.getPerformanceMetrics(req.consultant.id);
+      return this.sendSuccess(res, { analytics: metrics });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Messages
+  listConversations = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const conversations = await this.consultantService.listConversations(req.consultant.id);
+      return this.sendSuccess(res, { conversations });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getMessages = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { conversationId } = req.params as { conversationId: string };
+      const conversation = await this.consultantService.getMessages(req.consultant.id, conversationId);
+      return this.sendSuccess(res, { conversation });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  sendMessage = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { conversationId } = req.params as { conversationId: string };
+      const message = await this.consultantService.sendMessage(req.consultant.id, conversationId, req.body);
+      return this.sendSuccess(res, { message });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  markRead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { conversationId } = req.params as { conversationId: string };
+      await this.consultantService.markMessageRead(req.consultant.id, conversationId);
+      return this.sendSuccess(res, { success: true });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Candidate Management
+  getPipeline = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { jobId } = req.params as { jobId: string };
+      const candidates = await this.consultantService.getJobCandidates(req.consultant.id, jobId);
+      return this.sendSuccess(res, { candidates });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getJobRounds = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { jobId } = req.params as { jobId: string };
+      const rounds = await this.consultantService.getJobRounds(req.consultant.id, jobId);
+      return this.sendSuccess(res, { rounds });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { applicationId } = req.params as { applicationId: string };
+      const result = await this.consultantService.updateCandidateStatus(req.consultant.id, applicationId, req.body);
+      return this.sendSuccess(res, { result });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addNote = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { applicationId } = req.params as { applicationId: string };
+      const { note } = req.body;
+      await this.consultantService.addCandidateNote(req.consultant.id, applicationId, note);
+      return this.sendSuccess(res, { success: true });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  moveToRound = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { applicationId } = req.params as { applicationId: string };
+      await this.consultantService.moveCandidateToRound(req.consultant.id, applicationId, req.body);
+      return this.sendSuccess(res, { success: true });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateStage = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { applicationId } = req.params as { applicationId: string };
+      const { stage } = req.body;
+      await this.consultantService.updateCandidateStage(req.consultant.id, applicationId, stage);
+      return this.sendSuccess(res, { success: true });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Wallet & Withdrawals
+  getWallet = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const balance = await this.consultantService.getWalletBalance(req.consultant.id);
+      return this.sendSuccess(res, balance);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  requestWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.consultantService.requestWithdrawal(req.consultant.id, req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getWithdrawals = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const withdrawals = await this.consultantService.getWithdrawals(req.consultant.id);
+      return this.sendSuccess(res, withdrawals);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  cancelWithdrawal = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const result = await this.consultantService.cancelWithdrawal(req.consultant.id, id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Stripe
+  onboardStripe = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.consultantService.onboardStripe(req.consultant.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getStripeStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const status = await this.consultantService.getStripeStatus(req.consultant.id);
+      return this.sendSuccess(res, status);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getStripeDashboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.consultantService.getStripeDashboard(req.consultant.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Commission Details
+  getCommissionStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const stats = await this.consultantService.getCommissionStats(req.consultant.id);
+      return this.sendSuccess(res, stats);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getCommissionDetails = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const comm = await this.consultantService.getCommissionDetails(req.consultant.id, id);
+      return this.sendSuccess(res, comm);
     } catch (error) {
       return this.sendError(res, error);
     }

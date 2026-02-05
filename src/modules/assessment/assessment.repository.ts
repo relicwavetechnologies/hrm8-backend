@@ -2,7 +2,6 @@ import type { Prisma, Assessment, AssessmentQuestion, AssessmentResponse } from 
 import { BaseRepository } from '../../core/repository';
 
 export class AssessmentRepository extends BaseRepository {
-
   async create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
     return this.prisma.assessment.create({ data });
   }
@@ -19,23 +18,45 @@ export class AssessmentRepository extends BaseRepository {
       where: { id },
       include: {
         assessment_question: {
-          orderBy: { order: 'asc' }
-        }
-      }
+          orderBy: { order: 'asc' },
+        },
+        assessment_response: true,
+        assessment_comment: {
+          orderBy: { created_at: 'desc' },
+        },
+      },
     });
   }
 
-  async findWithCandidateDetails(id: string) {
+  async getAssessmentWithDetails(id: string): Promise<Assessment | null> {
     return this.prisma.assessment.findUnique({
       where: { id },
       include: {
         application: {
           include: {
             candidate: true,
-            job: true
-          }
-        }
-      }
+            job: true,
+          },
+        },
+        assessment_question: {
+          orderBy: { order: 'asc' },
+        },
+        assessment_response: true,
+        assessment_comment: {
+          orderBy: { created_at: 'desc' },
+        },
+      },
+    });
+  }
+
+  async createComment(data: any) {
+    return this.prisma.assessmentComment.create({ data });
+  }
+
+  async updateResponse(id: string, data: any) {
+    return this.prisma.assessmentResponse.update({
+      where: { id },
+      data,
     });
   }
 
@@ -44,9 +65,9 @@ export class AssessmentRepository extends BaseRepository {
       where: { invitation_token: token },
       include: {
         assessment_question: {
-          orderBy: { order: 'asc' }
-        }
-      }
+          orderBy: { order: 'asc' },
+        },
+      },
     });
   }
 
@@ -62,7 +83,7 @@ export class AssessmentRepository extends BaseRepository {
   async findJobRound(id: string) {
     return this.prisma.jobRound.findUnique({
       where: { id },
-      select: { order: true }
+      select: { order: true },
     });
   }
 
@@ -73,21 +94,21 @@ export class AssessmentRepository extends BaseRepository {
         assessment_question: true,
         assessment_response: {
           include: {
-            assessment_grade: true
-          }
+            assessment_grade: true,
+          },
         },
         application: {
           include: {
             candidate: true,
             application_round_progress: {
               include: {
-                job_round: true
-              }
-            }
-          }
-        }
+                job_round: true,
+              },
+            },
+          },
+        },
       },
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
     });
   }
 
@@ -107,9 +128,34 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
-  async deleteQuestions(assessmentId: string): Promise<Prisma.BatchPayload> {
-    return this.prisma.assessmentQuestion.deleteMany({
-      where: { assessment_id: assessmentId }
+  // Configurations
+  async findConfiguration(jobRoundId: string) {
+    return this.prisma.assessmentConfiguration.findUnique({
+      where: { job_round_id: jobRoundId },
+    });
+  }
+
+  async upsertConfiguration(jobRoundId: string, data: any) {
+    return this.prisma.assessmentConfiguration.upsert({
+      where: { job_round_id: jobRoundId },
+      create: {
+        ...data,
+        job_round: { connect: { id: jobRoundId } },
+      },
+      update: data,
+    });
+  }
+
+  async findByRound(jobRoundId: string): Promise<Assessment[]> {
+    return this.prisma.assessment.findMany({
+      where: { job_round_id: jobRoundId },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+          },
+        },
+      },
     });
   }
 
@@ -118,211 +164,190 @@ export class AssessmentRepository extends BaseRepository {
     return this.prisma.assessmentResponse.create({ data });
   }
 
-  async upsertResponse(assessmentId: string, questionId: string, candidateId: string, response: any): Promise<AssessmentResponse> {
+  async upsertResponse(
+    assessmentId: string,
+    questionId: string,
+    candidateId: string,
+    response: any
+  ): Promise<AssessmentResponse> {
     return this.prisma.assessmentResponse.upsert({
       where: {
         response_identifier: {
           assessment_id: assessmentId,
-          question_id: questionId
-        }
+          question_id: questionId,
+        },
       },
       create: {
         assessment: { connect: { id: assessmentId } },
         assessment_question: { connect: { id: questionId } },
         candidate_id: candidateId,
-        response: response
+        response: response,
       },
       update: {
         response: response,
-        answered_at: new Date()
-      }
+        answered_at: new Date(),
+      },
     });
   }
 
-  async getResponses(assessmentId: string): Promise<AssessmentResponse[]> {
-    return this.prisma.assessmentResponse.findMany({
+  async deleteResponses(assessmentId: string) {
+    return this.prisma.assessmentResponse.deleteMany({
       where: { assessment_id: assessmentId },
     });
   }
 
-  // Configuration and Helpers
+  async deleteQuestions(assessmentId: string): Promise<Prisma.BatchPayload> {
+    return this.prisma.assessmentQuestion.deleteMany({
+      where: { assessment_id: assessmentId },
+    });
+  }
+
+  async createAssessmentConfig(data: Prisma.AssessmentConfigurationCreateInput) {
+    return this.prisma.assessmentConfiguration.create({ data });
+  }
+
+  async updateAssessmentConfig(id: string, data: Prisma.AssessmentConfigurationUpdateInput) {
+    return this.prisma.assessmentConfiguration.update({
+      where: { id },
+      data,
+    });
+  }
+
   async findConfigByJobRoundId(jobRoundId: string) {
     return this.prisma.assessmentConfiguration.findUnique({
-      where: { job_round_id: jobRoundId }
+      where: { job_round_id: jobRoundId },
     });
   }
 
-  async findApplicationForAssignment(applicationId: string) {
-    return this.prisma.application.findUnique({
-      where: { id: applicationId },
-      select: {
-        candidate_id: true,
-        job_id: true,
-        candidate: {
-          select: { first_name: true, last_name: true, email: true }
-        },
-        job: {
-          select: { title: true }
-        }
-      }
-    });
+  async createGrade(data: Prisma.AssessmentGradeCreateInput) {
+    return this.prisma.assessmentGrade.create({ data });
   }
 
-  async linkToRoundProgress(applicationId: string, jobRoundId: string, assessmentId: string) {
-    return this.prisma.applicationRoundProgress.updateMany({
+  async upsertGrade(responseId: string, graderId: string, score: number, feedback?: string) {
+    return this.prisma.assessmentGrade.upsert({
       where: {
-        application_id: applicationId,
-        job_round_id: jobRoundId
+        response_id_grader_id: {
+          response_id: responseId,
+          grader_id: graderId,
+        },
       },
-      data: {
-        assessment_id: assessmentId
-      }
-    });
-  }
-
-  // Grading
-  async getGradingData(assessmentId: string) {
-    return this.prisma.assessment.findUnique({
-      where: { id: assessmentId },
-      include: {
-        assessment_comment: {
-          include: {
-            user: true
-          },
-          orderBy: { created_at: 'desc' }
-        },
-        assessment_question: { orderBy: { order: 'asc' } },
-        assessment_response: {
-          include: {
-            assessment_grade: {
-              include: { user: true }
-            }
-          }
-        },
-        application: {
-          include: {
-            candidate: true
-          }
-        }
-      }
-    });
-  }
-
-  async upsertGrade(responseId: string, graderId: string, score: number, feedback: string) {
-    // Check existing grade
-    const response = await this.prisma.assessmentResponse.findUnique({
-      where: { id: responseId },
-      include: { assessment_grade: true }
-    });
-
-    if (response?.assessment_grade && response.assessment_grade.length > 0) {
-      return this.prisma.assessmentGrade.update({
-        where: { id: response.assessment_grade[0].id },
-        data: { score, comment: feedback, user_id: graderId }
-      });
-    }
-
-    return this.prisma.assessmentGrade.create({
-      data: {
+      create: {
         assessment_response: { connect: { id: responseId } },
-        user: { connect: { id: graderId } },
+        grader: { connect: { id: graderId } },
         score,
-        comment: feedback
-      }
+        feedback,
+      },
+      update: {
+        score,
+        feedback,
+      },
     });
   }
 
   async addComment(assessmentId: string, userId: string, comment: string) {
     return this.prisma.assessmentComment.create({
       data: {
-        assessment_id: assessmentId,
-        user_id: userId,
-        comment
+        assessment: { connect: { id: assessmentId } },
+        user: { connect: { id: userId } },
+        comment,
       },
+    });
+  }
+
+  async getGradingData(assessmentId: string) {
+    return this.prisma.assessment.findUnique({
+      where: { id: assessmentId },
       include: {
-        user: true
-      }
+        assessment_response: {
+          include: {
+            assessment_question: true,
+            assessment_grade: true,
+          },
+        },
+      },
     });
   }
 
-  async updateAssessmentFeedback(id: string, feedback: string) {
-    // Check if recruiter_feedback exists in schema? Usually it does or notes.
-    // If checking `Assessment` type in file 526, it imports from @prisma/client.
-    // I can assume it might exist, or I can check schema if needed.
-    // Given the context of `AssessmentGradingDialog` usually showing comment box, I assume there is a field.
-    // If not, I'll risk it or use `notes`. Let's assume `recruiter_feedback`.
-    // Actually, let's use a safe `try-catch` or just use `update` with generic data, but TypeScript will complain.
-    // I'll stick to basic implementation and fix if TS complains.
-    // Warning: `recruiter_feedback` might not exist.
-    // Let's check `getRoundAssessments` see if it returns any feedback. No.
-    // Let's assume it exists. If not, I'll remove it.
-
-    return this.prisma.assessment.update({
-      where: { id },
+  async linkToRoundProgress(applicationId: string, jobRoundId: string, assessmentId: string) {
+    await this.prisma.applicationRoundProgress.updateMany({
+      where: {
+        application_id: applicationId,
+        job_round_id: jobRoundId,
+      },
       data: {
-        // @ts-ignore: Assuming field exists for now, or handling dynamic update
-        recruiter_feedback: feedback
-      }
-    });
-  }
-  async rejectApplication(applicationId: string) {
-    return this.prisma.application.update({
-      where: { id: applicationId },
-      data: { status: 'REJECTED' }
+        assessment_id: assessmentId,
+      },
     });
   }
 
-  async completeRoundProgress(applicationId: string, roundId: string) {
-    // Update current round progress to completed
-    // Note: Assuming logic to identify correct progress record
-    return this.prisma.applicationRoundProgress.updateMany({
-      where: { application_id: applicationId, job_round_id: roundId },
-      data: { completed: true, completed_at: new Date() } // Assuming 'completed' field exists, implied by 'isMovedToNextRound' logic
+  async findApplicationForAssignment(applicationId: string) {
+    return this.prisma.application.findUnique({
+      where: { id: applicationId },
+      include: {
+        candidate: true,
+        job: true,
+      },
+    });
+  }
+
+  async assignAssessmentToRoundProgress(applicationId: string, jobRoundId: string, assessmentId: string) {
+    return this.prisma.applicationRoundProgress.update({
+      where: {
+        application_id_job_round_id: {
+          application_id: applicationId,
+          job_round_id: jobRoundId,
+        },
+      },
+      data: { assessment_id: assessmentId },
     });
   }
 
   async moveToNextRound(applicationId: string, currentRoundId: string) {
-    // 1. Find current round order
-    const currentRound = await this.prisma.jobRound.findUnique({ where: { id: currentRoundId } });
-    if (!currentRound) return;
+    const currentRound = await this.findJobRound(currentRoundId);
+    if (!currentRound) return null;
 
-    // 2. Find application to get jobId
-    const app = await this.prisma.application.findUnique({ where: { id: applicationId } });
-    if (!app) return;
-
-    // 3. Find next round
     const nextRound = await this.prisma.jobRound.findFirst({
       where: {
-        job_id: app.job_id,
-        order: { gt: currentRound.order }
+        job_id: (await this.prisma.jobRound.findUnique({ where: { id: currentRoundId } }))?.job_id,
+        order: { gt: currentRound.order },
       },
-      orderBy: { order: 'asc' }
+      orderBy: { order: 'asc' },
     });
 
-    if (!nextRound) return; // No next round (end of pipeline)
+    if (!nextRound) return null;
 
-    // 4. Create progress for next round (if not exists)
-    const existing = await this.prisma.applicationRoundProgress.findFirst({
-      where: { application_id: applicationId, job_round_id: nextRound.id }
-    });
-
-    if (!existing) {
-      // Mark current as completed
-      await this.completeRoundProgress(applicationId, currentRoundId);
-
-      // Create next
-      await this.prisma.applicationRoundProgress.create({
-        data: {
+    return this.prisma.applicationRoundProgress.upsert({
+      where: {
+        application_id_job_round_id: {
           application_id: applicationId,
-          job_round_id: nextRound.id
-        }
-      });
+          job_round_id: nextRound.id,
+        },
+      },
+      create: {
+        application_id: applicationId,
+        job_round_id: nextRound.id,
+        completed: false,
+      },
+      update: {
+        completed: false,
+      },
+    });
+  }
 
-      // Update app stage - Commented out to avoid Enum strict typing issues, UI relies on RoundProgress
-      // await this.prisma.application.update({
-      //   where: { id: applicationId },
-      //   data: { stage: nextRound.name }
-      // });
-    }
+  async rejectApplication(applicationId: string) {
+    return this.prisma.application.update({
+      where: { id: applicationId },
+      data: { stage: 'REJECTED', status: 'REJECTED' },
+    });
+  }
+
+  async findAssessmentsByCandidate(candidateId: string) {
+    return this.prisma.assessment.findMany({
+      where: { candidate_id: candidateId },
+      include: {
+        job: true,
+      },
+      orderBy: { created_at: 'desc' },
+    });
   }
 }

@@ -1,4 +1,4 @@
-import type { Prisma, Application, ApplicationStatus, ApplicationStage } from '@prisma/client';
+import type { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 import { ApplicationFilters } from './application.model';
 
@@ -33,19 +33,19 @@ export class ApplicationRepository extends BaseRepository {
             country: true,
             email_verified: true,
             status: true,
-            education: true,
-            skills: true,
-            work_experience: true,
-            resumes: {
-              where: { is_default: true },
-              take: 1
-            }
           },
         },
         job: {
           select: {
             id: true,
             title: true,
+            location: true,
+            employment_type: true,
+            work_arrangement: true,
+            salary_min: true,
+            salary_max: true,
+            salary_currency: true,
+            status: true,
             company: {
               select: {
                 id: true,
@@ -54,36 +54,6 @@ export class ApplicationRepository extends BaseRepository {
             },
           },
         },
-        application_round_progress: {
-          include: {
-            job_round: true
-          },
-          orderBy: {
-            updated_at: 'desc'
-          }
-        },
-        assessment: {
-          include: {
-            assessment_response: true
-          }
-        },
-        questionnaire_response: true,
-        video_interview: true,
-        screening_result: true,
-        evaluations: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                role: true
-              }
-            }
-          },
-          orderBy: {
-            created_at: 'desc'
-          }
-        }
       },
     });
   }
@@ -98,6 +68,11 @@ export class ApplicationRepository extends BaseRepository {
             title: true,
             status: true,
             location: true,
+            employment_type: true,
+            work_arrangement: true,
+            salary_min: true,
+            salary_max: true,
+            salary_currency: true,
             company: {
               select: {
                 id: true,
@@ -141,9 +116,6 @@ export class ApplicationRepository extends BaseRepository {
             country: true,
             email_verified: true,
             status: true,
-            skills: true,
-            work_experience: true,
-            education: true,
           },
         },
         job: {
@@ -152,16 +124,6 @@ export class ApplicationRepository extends BaseRepository {
             title: true,
           },
         },
-        application_round_progress: {
-          include: {
-            job_round: true
-          },
-          orderBy: {
-            updated_at: 'desc'
-          },
-          take: 1
-        },
-        screening_result: true,
       },
       orderBy: [
         { shortlisted: 'desc' },
@@ -169,6 +131,16 @@ export class ApplicationRepository extends BaseRepository {
         { created_at: 'desc' },
       ],
     });
+  }
+
+  async checkExistingApplication(candidateId: string, jobId: string): Promise<boolean> {
+    const count = await this.prisma.application.count({
+      where: {
+        candidate_id: candidateId,
+        job_id: jobId,
+      },
+    });
+    return count > 0;
   }
 
   async delete(id: string): Promise<Application> {
@@ -259,52 +231,6 @@ export class ApplicationRepository extends BaseRepository {
     });
   }
 
-  async checkExistingApplication(candidateId: string, jobId: string): Promise<boolean> {
-    const count = await this.prisma.application.count({
-      where: {
-        candidate_id: candidateId,
-        job_id: jobId,
-      },
-    });
-    return count > 0;
-  }
-
-  async upsertRoundProgress(applicationId: string, jobRoundId: string): Promise<void> {
-    await this.prisma.applicationRoundProgress.upsert({
-      where: {
-        application_id_job_round_id: {
-          application_id: applicationId,
-          job_round_id: jobRoundId,
-        },
-      },
-      create: {
-        application_id: applicationId,
-        job_round_id: jobRoundId,
-        completed: false,
-        updated_at: new Date(),
-      },
-      update: {
-        completed: false,
-        completed_at: null,
-        updated_at: new Date(),
-      },
-    });
-  }
-
-  // Helper to find round (should be in JobRoundRepository ideally but adding here for safe access)
-  async findJobRound(id: string) {
-    return this.prisma.jobRound.findUnique({ where: { id } });
-  }
-
-  async findJobRoundByFixedKey(jobId: string, fixedKey: string) {
-    return this.prisma.jobRound.findFirst({
-      where: {
-        job_id: jobId,
-        fixed_key: fixedKey,
-      },
-    });
-  }
-
   async bulkUpdateScore(applicationIds: string[], scores: Record<string, number>): Promise<number> {
     // Update scores in a transaction
     const updatePromises = applicationIds.map((id) =>
@@ -347,7 +273,7 @@ export class ApplicationRepository extends BaseRepository {
   async updateResumeContent(id: string, content: string) {
     return this.prisma.candidateResume.update({
       where: { id },
-      data: { content }
+      data: { content },
     });
   }
 
@@ -358,7 +284,6 @@ export class ApplicationRepository extends BaseRepository {
     comment?: string;
     decision?: 'APPROVE' | 'REJECT' | 'PENDING';
   }) {
-    // Upsert evaluation: One user can only have one evaluation per application (or update their existing one)
     return this.prisma.candidateEvaluation.upsert({
       where: {
         application_id_user_id: {
@@ -389,11 +314,75 @@ export class ApplicationRepository extends BaseRepository {
           select: {
             id: true,
             name: true,
-            role: true, // Helpful for frontend to distinguish Admin/Member
+            role: true,
           },
         },
       },
       orderBy: { updated_at: 'desc' },
     });
+  }
+
+  async moveToRound(id: string, roundId: string): Promise<ApplicationRoundProgress> {
+    return this.prisma.applicationRoundProgress.upsert({
+      where: {
+        application_id_job_round_id: {
+          application_id: id,
+          job_round_id: roundId,
+        },
+      },
+      create: {
+        application_id: id,
+        job_round_id: roundId,
+        completed: false,
+      },
+      update: {
+        completed: false,
+      },
+    });
+  }
+
+  async updateManualScreening(id: string, data: any): Promise<Application> {
+    return this.prisma.application.update({
+      where: { id },
+      data: {
+        manual_screening_score: data.score,
+        manual_screening_status: data.status,
+        screening_notes: data.notes,
+        manual_screening_completed: data.completed,
+      },
+    });
+  }
+
+  async findInvitationByToken(token: string) {
+    return this.prisma.jobInvitation.findUnique({
+      where: { token },
+      include: { job: true },
+    });
+  }
+
+  async updateInvitationStatus(
+    id: string,
+    status: any,
+    acceptedAt?: Date,
+    applicationId?: string
+  ) {
+    return this.prisma.jobInvitation.update({
+      where: { id },
+      data: {
+        status,
+        accepted_at: acceptedAt,
+        application_id: applicationId,
+      },
+    });
+  }
+
+  async hasApplication(candidateId: string, jobId: string): Promise<boolean> {
+    const count = await this.prisma.application.count({
+      where: {
+        candidate_id: candidateId,
+        job_id: jobId,
+      },
+    });
+    return count > 0;
   }
 }

@@ -8,6 +8,7 @@ const consultantController = new ConsultantController();
 // Auth
 router.post('/auth/login', consultantController.login);
 router.post('/auth/logout', authenticateConsultant, consultantController.logout);
+router.post('/auth/setup-account', consultantController.setupAccount);
 router.get('/auth/me', authenticateConsultant, consultantController.getCurrentUser);
 
 // Profile
@@ -37,13 +38,17 @@ router.get('/conversations/:conversationId/messages', authenticateConsultant, co
 router.post('/conversations/:conversationId/messages', authenticateConsultant, consultantController.sendMessage);
 router.patch('/conversations/:conversationId/read', authenticateConsultant, consultantController.markMessagesRead);
 
-// Commissions & Withdrawals
+// Commissions
 router.get('/commissions', authenticateConsultant, consultantController.getCommissions);
-router.get('/commissions/balance', authenticateConsultant, consultantController.getWithdrawalBalance);
-router.get('/commissions/withdrawals', authenticateConsultant, consultantController.getWithdrawals);
-router.post('/commissions/withdraw', authenticateConsultant, consultantController.requestWithdrawal);
-router.post('/commissions/withdrawals/:id/cancel', authenticateConsultant, consultantController.cancelWithdrawal);
-router.post('/commissions/withdrawals/:id/execute', authenticateConsultant, consultantController.executeWithdrawal);
+router.get('/commissions/stats', authenticateConsultant, consultantController.getCommissionStats);
+router.get('/commissions/:id', authenticateConsultant, consultantController.getCommissionDetails);
+
+// Wallet & Withdrawals
+router.get('/wallet', authenticateConsultant, consultantController.getWallet);
+router.post('/withdrawals', authenticateConsultant, consultantController.requestWithdrawal);
+router.get('/withdrawals', authenticateConsultant, consultantController.getWithdrawals);
+router.post('/withdrawals/:id/cancel', authenticateConsultant, consultantController.cancelWithdrawal);
+router.post('/withdrawals/:id/execute', authenticateConsultant, consultantController.executeWithdrawal);
 
 // Performance
 router.get('/performance', authenticateConsultant, consultantController.getPerformance);
@@ -51,7 +56,8 @@ router.get('/analytics/dashboard', authenticateConsultant, consultantController.
 
 // Stripe
 router.get('/stripe/status', authenticateConsultant, consultantController.getStripeStatus);
-router.post('/stripe/onboard', authenticateConsultant, consultantController.initiateStripeOnboarding);
+router.post('/stripe/onboard', authenticateConsultant, consultantController.onboardStripe);
+router.get('/stripe/dashboard', authenticateConsultant, consultantController.getStripeDashboard);
 router.post('/stripe/login-link', authenticateConsultant, consultantController.getStripeLoginLink);
 
 export default router;

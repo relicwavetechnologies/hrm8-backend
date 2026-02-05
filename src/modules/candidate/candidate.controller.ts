@@ -2,8 +2,9 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { CandidateService } from './candidate.service';
 import { CandidateRepository } from './candidate.repository';
-import { CandidateAuthenticatedRequest } from '../../types';
+import { UnifiedAuthenticatedRequest } from '../../types';
 import { getSessionCookieOptions } from '../../utils/session';
+import { CloudinaryService } from '../storage/cloudinary.service';
 
 export class CandidateController extends BaseController {
   private candidateService: CandidateService;
@@ -13,8 +14,8 @@ export class CandidateController extends BaseController {
     this.candidateService = new CandidateService(new CandidateRepository());
   }
 
-  // Auth
-  login = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Auth ---
+  login = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { email, password } = req.body;
       const { candidate, sessionId } = await this.candidateService.login({ email, password });
@@ -28,7 +29,7 @@ export class CandidateController extends BaseController {
     }
   };
 
-  logout = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  logout = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const sessionId = req.cookies?.candidateSessionId;
       if (sessionId) {
@@ -41,43 +42,34 @@ export class CandidateController extends BaseController {
     }
   };
 
-  register = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  register = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const candidate = await this.candidateService.register(req.body);
       const { password_hash, ...candidateData } = candidate;
-      res.status(201);
-      return this.sendSuccess(res,
-        { candidate: candidateData, message: 'Please check your email to verify your account' }
-      );
+      return this.sendSuccess(res, { candidate: candidateData });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  verifyEmail = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  verifyEmail = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
       const { token } = req.query;
-      if (!token) {
-        return this.sendError(res, new Error('Verification token is required'));
-      }
-
-      const { candidate, sessionId } = await this.candidateService.verifyEmail(token as string);
-      res.cookie('candidateSessionId', sessionId, getSessionCookieOptions());
-
-      const { password_hash, ...candidateData } = candidate;
-      return this.sendSuccess(res, {
-        candidate: candidateData,
-        message: 'Email verified successfully'
-      });
+      if (!token) return this.sendError(res, new Error('Token is required'));
+      const result = await this.candidateService.verifyEmail(token as string);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getCurrentCandidate = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Profile ---
+  getProfile = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const candidate = await this.candidateService.getCurrentCandidate(req.candidate.id);
+      const candidateId = req.candidate?.id || req.params.id as string;
+      if (!candidateId) return this.sendError(res, new Error('Not authenticated'), 401);
+
+      const candidate = await this.candidateService.getProfile(candidateId);
       const { password_hash, ...candidateData } = candidate;
       return this.sendSuccess(res, { candidate: candidateData });
     } catch (error) {
@@ -85,21 +77,13 @@ export class CandidateController extends BaseController {
     }
   };
 
-  // Profile
-  getProfile = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const candidate = await this.candidateService.getProfile(req.candidate.id);
-      const { password_hash, ...candidateData } = candidate;
-      return this.sendSuccess(res, { candidate: candidateData });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
+  me = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    return this.getProfile(req, res);
   };
 
-  updateProfile = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updateProfile = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
       const candidate = await this.candidateService.updateProfile(req.candidate.id, req.body);
       const { password_hash, ...candidateData } = candidate;
       return this.sendSuccess(res, { candidate: candidateData });
@@ -108,9 +92,9 @@ export class CandidateController extends BaseController {
     }
   };
 
-  updatePassword = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updatePassword = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
       const { currentPassword, newPassword } = req.body;
       await this.candidateService.updatePassword(req.candidate.id, currentPassword, newPassword);
       return this.sendSuccess(res, { message: 'Password updated successfully' });
@@ -119,374 +103,86 @@ export class CandidateController extends BaseController {
     }
   };
 
-  // Assessment Methods
-  getAssessments = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updatePhoto = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const assessments = await this.candidateService.getAssessments(req.candidate.id);
-      return this.sendSuccess(res, { assessments });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { photoUrl } = req.body;
+      const candidate = await this.candidateService.updatePhoto(req.candidate.id, photoUrl);
+      const { password_hash, ...candidateData } = candidate;
+      return this.sendSuccess(res, { candidate: candidateData }, 'Photo updated successfully');
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getAssessment = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  deleteAccount = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const assessment = await this.candidateService.getAssessmentDetails(req.candidate.id, id);
-      return this.sendSuccess(res, { assessment });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      await this.candidateService.deleteAccount(req.candidate.id);
+      res.clearCookie('candidateSessionId', getSessionCookieOptions());
+      return this.sendSuccess(res, { message: 'Account deleted successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  startAssessment = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  exportData = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const result = await this.candidateService.startAssessment(req.candidate.id, id);
-      return this.sendSuccess(res, result);
+      const candidateId = req.candidate?.id || req.params.id as string;
+      if (!candidateId) return this.sendError(res, new Error('Not authenticated'), 401);
+
+      const data = await this.candidateService.exportData(candidateId);
+      return this.sendSuccess(res, data);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  submitAssessment = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Work History ---
+  getWorkHistory = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const { answers } = req.body;
-      const result = await this.candidateService.submitAssessment(req.candidate.id, id, answers);
-      return this.sendSuccess(res, result);
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const workHistory = await this.candidateService.getWorkHistory(req.candidate.id);
+      return this.sendSuccess(res, workHistory);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getDocuments = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  addWorkHistory = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const repo = new CandidateRepository();
-      const docs = await repo.getDocuments(req.candidate.id);
-
-      const mappedResumes = docs.resumes.map((resume: any) => ({
-        id: resume.id,
-        fileName: resume.file_name,
-        fileUrl: resume.file_url,
-        fileSize: resume.file_size,
-        fileType: resume.file_type,
-        isDefault: resume.is_default,
-        uploadedAt: resume.uploaded_at,
-        version: resume.version
-      }));
-
-      const mappedCoverLetters = docs.coverLetters.map((cl: any) => ({
-        id: cl.id,
-        title: cl.title,
-        content: cl.content,
-        fileUrl: cl.file_url,
-        fileName: cl.file_name,
-        fileSize: cl.file_size,
-        fileType: cl.file_type,
-        isTemplate: cl.is_template,
-        isDraft: cl.is_draft,
-        createdAt: cl.created_at,
-        updatedAt: cl.updated_at
-      }));
-
-      const mappedPortfolios = docs.portfolios.map((p: any) => ({
-        id: p.id,
-        title: p.title,
-        type: p.type,
-        fileUrl: p.file_url,
-        fileName: p.file_name,
-        fileSize: p.file_size,
-        fileType: p.file_type,
-        externalUrl: p.external_url,
-        platform: p.platform,
-        description: p.description,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      }));
-
-      return this.sendSuccess(res, {
-        documents: {
-          resumes: mappedResumes,
-          coverLetters: mappedCoverLetters,
-          portfolios: mappedPortfolios
-        }
-      });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const workHistory = await this.candidateService.addWorkHistory(req.candidate.id, req.body);
+      return this.sendSuccess(res, workHistory);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  updateDocuments = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updateWorkHistory = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const updates = await this.candidateService.updateDocuments(req.candidate.id, req.body);
-      return this.sendSuccess(res, { documents: updates, message: 'Documents updated successfully' });
+      const { id } = (req.params as any);
+      const workHistory = await this.candidateService.updateWorkHistory(id, req.body);
+      return this.sendSuccess(res, workHistory);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getQualifications = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  deleteWorkHistory = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const repo = new CandidateRepository();
-      const quals = await repo.getQualifications(req.candidate.id);
-
-      const mappedEducation = quals.education.map((e: any) => ({
-        id: e.id,
-        institution: e.institution,
-        degree: e.degree,
-        field: e.field,
-        startDate: e.start_date,
-        endDate: e.end_date,
-        current: e.current,
-        grade: e.grade,
-        description: e.description,
-        createdAt: e.created_at,
-        updatedAt: e.updated_at
-      }));
-
-      const mappedCertifications = quals.certifications.map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        issuingOrg: c.issuing_org,
-        issueDate: c.issue_date,
-        expiryDate: c.expiry_date,
-        credentialId: c.credential_id,
-        credentialUrl: c.credential_url,
-        doesNotExpire: c.does_not_expire,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at
-      }));
-
-      const mappedTraining = quals.training.map((t: any) => ({
-        id: t.id,
-        courseName: t.course_name,
-        provider: t.provider,
-        completedDate: t.completed_date,
-        duration: t.duration,
-        description: t.description,
-        certificateUrl: t.certificate_url,
-        createdAt: t.created_at,
-        updatedAt: t.updated_at
-      }));
-
-      return this.sendSuccess(res, {
-        qualifications: {
-          education: mappedEducation,
-          certifications: mappedCertifications,
-          training: mappedTraining
-        }
-      });
+      const { id } = (req.params as any);
+      await this.candidateService.deleteWorkHistory(id);
+      return this.sendSuccess(res, { message: 'Work history deleted successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  updateQualifications = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Education ---
+  getEducation = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const updates = await this.candidateService.updateQualifications(req.candidate.id, req.body);
-      return this.sendSuccess(res, { qualifications: updates, message: 'Qualifications updated successfully' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  getWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const workExperience = await this.candidateService.getWorkHistory(req.candidate.id);
-      return this.sendSuccess(res, workExperience);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  createWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const experience = await this.candidateService.createWorkExperience(req.candidate.id, req.body);
-      return this.sendSuccess(res, experience);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  updateWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      let result;
-
-      if (id) {
-        // Single update
-        result = await this.candidateService.updateWorkExperienceItem(id, req.body);
-      } else {
-        // Bulk update
-        result = await this.candidateService.updateWorkHistory(req.candidate.id, req.body);
-      }
-
-      return this.sendSuccess(res, result);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-      deleteWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const idRaw = (req.params as any).id as string | string[] | undefined;
-      const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
-      if (!id) return this.sendError(res, new Error('id is required'), 400);
-      await this.candidateService.deleteWorkExperience(id);
-      return this.sendSuccess(res, { message: 'Experience deleted' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Notification Preferences
-  getNotificationPreferences = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const preferences = await this.candidateService.getNotificationPreferences(req.candidate.id);
-      return this.sendSuccess(res, preferences);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  updateNotificationPreferences = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const preferences = await this.candidateService.updateNotificationPreferences(req.candidate.id, req.body);
-      return this.sendSuccess(res, { preferences });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Skills
-  getSkills = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const skills = await this.candidateService.getSkills(req.candidate.id);
-      return this.sendSuccess(res, skills);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  updateSkills = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const skills = await this.candidateService.updateSkills(req.candidate.id, req.body);
-      return this.sendSuccess(res, skills);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Saved Jobs
-  getSavedJobs = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const savedJobs = await this.candidateService.getSavedJobs(req.candidate.id);
-      return this.sendSuccess(res, savedJobs);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  removeSavedJob = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      await this.candidateService.removeSavedJob(req.candidate.id, id);
-      return this.sendSuccess(res, { message: 'Job removed from saved' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Saved Searches
-  getSavedSearches = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const savedSearches = await this.candidateService.getSavedSearches(req.candidate.id);
-      return this.sendSuccess(res, savedSearches);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  deleteSavedSearch = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      await this.candidateService.deleteSavedSearch(id);
-      return this.sendSuccess(res, { message: 'Search deleted' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Job Alerts
-  getJobAlerts = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const jobAlerts = await this.candidateService.getJobAlerts(req.candidate.id);
-      return this.sendSuccess(res, jobAlerts);
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  createJobAlert = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const alert = await this.candidateService.createJobAlert(req.candidate.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { alert });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  updateJobAlert = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const alert = await this.candidateService.updateJobAlert(id, req.body);
-      return this.sendSuccess(res, { alert });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  deleteJobAlert = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      await this.candidateService.deleteJobAlert(id);
-      return this.sendSuccess(res, { message: 'Job alert deleted' });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
-
-  // Qualifications - Education
-  getEducation = async (req: CandidateAuthenticatedRequest, res: Response) => {
-    try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
       const education = await this.candidateService.getEducation(req.candidate.id);
       return this.sendSuccess(res, education);
     } catch (error) {
@@ -494,43 +190,62 @@ export class CandidateController extends BaseController {
     }
   };
 
-  createEducation = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  addEducation = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const education = await this.candidateService.createEducation(req.candidate.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { education });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const education = await this.candidateService.addEducation(req.candidate.id, req.body);
+      return this.sendSuccess(res, education);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  updateEducation = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updateEducation = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { id } = (req.params as any);
       const education = await this.candidateService.updateEducation(id, req.body);
-      return this.sendSuccess(res, { education });
+      return this.sendSuccess(res, education);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  deleteEducation = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  deleteEducation = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = req.params.id as string;
       await this.candidateService.deleteEducation(id);
-      return this.sendSuccess(res, { message: 'Education deleted' });
+      return this.sendSuccess(res, { message: 'Education deleted successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // Qualifications - Certifications
-  getCertifications = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Skills ---
+  getSkills = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const skills = await this.candidateService.getSkills(req.candidate.id);
+      return this.sendSuccess(res, skills);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateSkills = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { skills } = req.body;
+      const result = await this.candidateService.updateSkills(req.candidate.id, skills);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // --- Certifications ---
+  getCertifications = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
       const certifications = await this.candidateService.getCertifications(req.candidate.id);
       return this.sendSuccess(res, certifications);
     } catch (error) {
@@ -538,62 +253,50 @@ export class CandidateController extends BaseController {
     }
   };
 
-  getExpiringCertifications = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  getExpiringCertifications = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const certifications = await this.candidateService.getCertifications(req.candidate.id);
-      const now = new Date();
-      const threeMonthsFromNow = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
-
-      const expiring = certifications.filter((cert: any) => {
-        if (!cert.expiry_date || cert.does_not_expire) return false;
-        const expiry = new Date(cert.expiry_date);
-        return expiry <= threeMonthsFromNow && expiry > now;
-      });
-
-      return this.sendSuccess(res, expiring);
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const certifications = await this.candidateService.getExpiringCertifications(req.candidate.id);
+      return this.sendSuccess(res, certifications);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  createCertification = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  addCertification = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const certification = await this.candidateService.createCertification(req.candidate.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { certification });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const certification = await this.candidateService.addCertification(req.candidate.id, req.body);
+      return this.sendSuccess(res, certification);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  updateCertification = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updateCertification = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { id } = req.params;
       const certification = await this.candidateService.updateCertification(id, req.body);
-      return this.sendSuccess(res, { certification });
+      return this.sendSuccess(res, certification);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  deleteCertification = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  deleteCertification = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { id } = req.params;
       await this.candidateService.deleteCertification(id);
-      return this.sendSuccess(res, { message: 'Certification deleted' });
+      return this.sendSuccess(res, { message: 'Certification deleted successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  // Qualifications - Training
-  getTraining = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  // --- Training ---
+  getTraining = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
       const training = await this.candidateService.getTraining(req.candidate.id);
       return this.sendSuccess(res, training);
     } catch (error) {
@@ -601,34 +304,342 @@ export class CandidateController extends BaseController {
     }
   };
 
-  createTraining = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  addTraining = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const training = await this.candidateService.createTraining(req.candidate.id, req.body);
-      res.status(201);
-      return this.sendSuccess(res, { training });
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const training = await this.candidateService.addTraining(req.candidate.id, req.body);
+      return this.sendSuccess(res, training);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  updateTraining = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  updateTraining = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { id } = req.params;
       const training = await this.candidateService.updateTraining(id, req.body);
-      return this.sendSuccess(res, { training });
+      return this.sendSuccess(res, training);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  deleteTraining = async (req: CandidateAuthenticatedRequest, res: Response) => {
+  deleteTraining = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const { id } = req.params;
       await this.candidateService.deleteTraining(id);
-      return this.sendSuccess(res, { message: 'Training deleted' });
+      return this.sendSuccess(res, { message: 'Training deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // --- Resumes & Cover Letters ---
+  getResumes = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const resumes = await this.candidateService.getResumes(req.candidate.id);
+      return this.sendSuccess(res, resumes);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addResume = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+
+      let resumeData = req.body;
+
+      if (req.file) {
+        const uploadResult = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/resumes' });
+        resumeData = {
+          ...resumeData,
+          file_url: uploadResult.secureUrl,
+          file_name: req.file.originalname,
+          file_size: uploadResult.bytes,
+          file_type: req.file.mimetype,
+          public_id: uploadResult.publicId,
+        };
+      } else if (!resumeData.file_url) {
+        return this.sendError(res, new Error('No resume file provided'), 400);
+      }
+
+      const resume = await this.candidateService.addResume(req.candidate.id, resumeData);
+      return this.sendSuccess(res, resume);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deleteResume = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await this.candidateService.deleteResume(id);
+      return this.sendSuccess(res, { message: 'Resume deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  setDefaultResume = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { id } = req.params;
+      const result = await this.candidateService.setDefaultResume(req.candidate.id, id);
+      return this.sendSuccess(res, result, 'Default resume updated');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getCoverLetters = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const coverLetters = await this.candidateService.getCoverLetters(req.candidate.id);
+      return this.sendSuccess(res, coverLetters);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addCoverLetter = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+
+      let coverLetterData = req.body;
+
+      if (req.file) {
+        const uploadResult = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/cover-letters' });
+        coverLetterData = {
+          ...coverLetterData,
+          file_url: uploadResult.secureUrl,
+          file_name: req.file.originalname,
+          file_size: uploadResult.bytes,
+          file_type: req.file.mimetype,
+        };
+      }
+
+      const coverLetter = await this.candidateService.addCoverLetter(req.candidate.id, coverLetterData);
+      return this.sendSuccess(res, coverLetter);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deleteCoverLetter = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await this.candidateService.deleteCoverLetter(id);
+      return this.sendSuccess(res, { message: 'Cover letter deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateCoverLetter = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const id = req.params.id as string;
+      let coverLetterData = req.body;
+
+      if (req.file) {
+        const uploadResult = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/cover-letters' });
+        coverLetterData = {
+          ...coverLetterData,
+          file_url: uploadResult.secureUrl,
+          file_name: req.file.originalname,
+          file_size: uploadResult.bytes,
+          file_type: req.file.mimetype,
+        };
+      }
+
+      const coverLetter = await this.candidateService.updateCoverLetter(id, coverLetterData);
+      return this.sendSuccess(res, coverLetter, 'Cover letter updated');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // --- Portfolios ---
+  getPortfolios = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const portfolios = await this.candidateService.getPortfolios(req.candidate.id);
+      return this.sendSuccess(res, portfolios);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addPortfolio = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+
+      let portfolioData = req.body;
+
+      if (req.file) {
+        const uploadResult = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/portfolios' });
+        portfolioData = {
+          ...portfolioData,
+          file_url: uploadResult.secureUrl,
+          file_name: req.file.originalname,
+          file_size: uploadResult.bytes,
+          file_type: req.file.mimetype,
+        };
+      }
+
+      const portfolio = await this.candidateService.addPortfolio(req.candidate.id, portfolioData);
+      return this.sendSuccess(res, portfolio);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deletePortfolio = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await this.candidateService.deletePortfolio(id);
+      return this.sendSuccess(res, { message: 'Portfolio item deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updatePortfolio = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const id = req.params.id as string;
+      let portfolioData = req.body;
+
+      if (req.file) {
+        const uploadResult = await CloudinaryService.uploadMulterFile(req.file, { folder: 'hrm8/portfolios' });
+        portfolioData = {
+          ...portfolioData,
+          file_url: uploadResult.secureUrl,
+          file_name: req.file.originalname,
+          file_size: uploadResult.bytes,
+          file_type: req.file.mimetype,
+        };
+      }
+
+      const portfolio = await this.candidateService.updatePortfolio(id, portfolioData);
+      return this.sendSuccess(res, portfolio, 'Portfolio updated');
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // --- Saved Jobs, Searches, Alerts ---
+  getSavedJobs = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const savedJobs = await this.candidateService.getSavedJobs(req.candidate.id);
+      return this.sendSuccess(res, savedJobs);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  saveJob = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { jobId } = req.params;
+      const savedJob = await this.candidateService.saveJob(req.candidate.id, jobId);
+      return this.sendSuccess(res, savedJob);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  unsaveJob = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { jobId } = req.params;
+      await this.candidateService.unsaveJob(req.candidate.id, jobId);
+      return this.sendSuccess(res, { message: 'Job unsaved successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getSavedSearches = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const savedSearches = await this.candidateService.getSavedSearches(req.candidate.id);
+      return this.sendSuccess(res, savedSearches);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  saveSearch = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const { query, filters } = req.body;
+      const savedSearch = await this.candidateService.saveSearch(req.candidate.id, { query, filters });
+      return this.sendSuccess(res, savedSearch);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deleteSavedSearch = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await this.candidateService.deleteSavedSearch(id);
+      return this.sendSuccess(res, { message: 'Saved search deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getJobAlerts = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const jobAlerts = await this.candidateService.getJobAlerts(req.candidate.id);
+      return this.sendSuccess(res, jobAlerts);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  addJobAlert = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const jobAlert = await this.candidateService.addJobAlert(req.candidate.id, req.body);
+      return this.sendSuccess(res, jobAlert);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  deleteJobAlert = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await this.candidateService.deleteJobAlert(id);
+      return this.sendSuccess(res, { message: 'Job alert deleted successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // --- Recommended Jobs & Resume Parsing ---
+  getRecommendedJobs = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const jobs = await this.candidateService.getRecommendedJobs(req.candidate.id);
+      return this.sendSuccess(res, jobs);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  parseResume = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.candidate) return this.sendError(res, new Error('Not authenticated'), 401);
+      const resumeData = await this.candidateService.parseResume(req.candidate.id, (req as any).file);
+      return this.sendSuccess(res, resumeData);
     } catch (error) {
       return this.sendError(res, error);
     }

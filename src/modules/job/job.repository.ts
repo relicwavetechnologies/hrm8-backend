@@ -27,7 +27,7 @@ export class JobRepository extends BaseRepository {
     });
   }
 
-  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<Job[]> {
+  async findByCompanyIdWithFilters(companyId: string, filters: any): Promise<{ jobs: Job[], total: number }> {
     const where: Prisma.JobWhereInput = {
       company_id: companyId,
     };
@@ -66,29 +66,34 @@ export class JobRepository extends BaseRepository {
 
     // Parse pagination
     const page = filters.page ? Number(filters.page) : 1;
-    const limit = filters.limit ? Number(filters.limit) : 1000; // Default high limit for now
+    const limit = filters.limit ? Number(filters.limit) : 50; // Default to 50 items per page
     const skip = (page - 1) * limit;
 
-    return this.prisma.job.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        company: {
-          select: {
-            id: true,
-            name: true,
-            website: true,
+    const [jobs, total] = await Promise.all([
+      this.prisma.job.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          company: {
+            select: {
+              id: true,
+              name: true,
+              website: true,
+            },
+          },
+          _count: {
+            select: {
+              applications: true,
+            },
           },
         },
-        _count: {
-          select: {
-            applications: true,
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.job.count({ where }),
+    ]);
+
+    return { jobs, total };
   }
 
   async delete(id: string): Promise<Job> {
@@ -112,13 +117,16 @@ export class JobRepository extends BaseRepository {
     return result.count;
   }
 
-  async bulkArchive(jobIds: string[], companyId: string, userId?: string): Promise<number> {
+  async bulkArchive(jobIds: string[], companyId: string, userId: string): Promise<number> {
     const result = await this.prisma.job.updateMany({
-      where: { id: { in: jobIds }, company_id: companyId },
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
       data: {
         archived: true,
         archived_at: new Date(),
-        archived_by: userId || null,
+        archived_by: userId,
       },
     });
     return result.count;
@@ -126,7 +134,10 @@ export class JobRepository extends BaseRepository {
 
   async bulkUnarchive(jobIds: string[], companyId: string): Promise<number> {
     const result = await this.prisma.job.updateMany({
-      where: { id: { in: jobIds }, company_id: companyId },
+      where: {
+        id: { in: jobIds },
+        company_id: companyId,
+      },
       data: {
         archived: false,
         archived_at: null,
@@ -180,156 +191,56 @@ export class JobRepository extends BaseRepository {
     return { jobs, total };
   }
 
-  async createJobAnalytics(data: any): Promise<any> {
-    return this.prisma.jobAnalytics.create({ data });
+  async findActivities(jobId: string, limit: number = 20): Promise<any[]> {
+    return this.prisma.auditLog.findMany({
+      where: {
+        entity_type: 'JOB',
+        entity_id: jobId,
+      },
+      orderBy: { performed_at: 'desc' },
+      take: limit,
+    });
   }
 
-  async getPublicJobFilters() {
-    const jobs = await this.prisma.job.findMany({
-      where: {
-        status: 'OPEN',
-        visibility: 'public',
-        archived: false,
-        OR: [
-          { expires_at: null },
-          { expires_at: { gte: new Date() } }
-        ]
-      },
-      select: {
-        category: true,
-        department: true,
-        location: true,
-        hiring_mode: true,
-        promotional_tags: true,
-        company: {
-          select: {
-            id: true,
-            name: true,
+  async getJobStats(companyId: string): Promise<{ total: number; active: number; filled: number; applicants: number }> {
+    const [total, active, filled, applicantsResult] = await Promise.all([
+      // Total jobs
+      this.prisma.job.count({
+        where: { company_id: companyId }
+      }),
+      // Active jobs (OPEN)
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'OPEN'
+        }
+      }),
+      // Filled jobs
+      this.prisma.job.count({
+        where: {
+          company_id: companyId,
+          status: 'FILLED'
+        }
+      }),
+      // Total applicants across all jobs
+      // We need to sum the application counts. 
+      // Since we might not have a direct Application aggregation here easily depending on prisma version/schema,
+      // let's try to do it via Application model if possible, or sum from jobs.
+      // Assuming Application is related to Job, we can count all applications where job.companyId is companyId.
+      this.prisma.application.count({
+        where: {
+          job: {
+            company_id: companyId
           }
         }
-      }
-    });
-
-    const categories = [...new Set(jobs.map(j => j.category).filter(Boolean))].sort() as string[];
-    const departments = [...new Set(jobs.map(j => j.department).filter(Boolean))].sort() as string[];
-    const locations = [...new Set(jobs.map(j => j.location).filter(Boolean))].sort() as string[];
-    const hiringModes = [...new Set(jobs.map(j => j.hiring_mode).filter(Boolean))].sort() as string[];
-
-    // Extract unique tags
-    const allTags = new Set<string>();
-    jobs.forEach(j => {
-      if (j.promotional_tags) {
-        j.promotional_tags.forEach(tag => allTags.add(tag));
-      }
-    });
-
-    // Extract unique companies
-    const companiesMap = new Map<string, { id: string; name: string }>();
-    jobs.forEach(j => {
-      if (j.company) {
-        companiesMap.set(j.company.id, j.company);
-      }
-    });
+      })
+    ]);
 
     return {
-      categories,
-      departments,
-      locations,
-      hiringModes,
-      companies: Array.from(companiesMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
-      tags: Array.from(allTags).sort(),
-      types: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'CASUAL', 'INTERNSHIP', 'FREELANCE'], // Using ENUM values
-      arrangements: ['ON_SITE', 'REMOTE', 'HYBRID']
+      total,
+      active,
+      filled,
+      applicants: applicantsResult
     };
-  }
-
-  async getPublicJobAggregations() {
-    const jobs = await this.prisma.job.findMany({
-      where: {
-        status: 'OPEN',
-        visibility: 'public',
-        archived: false,
-        OR: [
-          { expires_at: null },
-          { expires_at: { gte: new Date() } }
-        ]
-      },
-      select: {
-        category: true,
-        department: true,
-        location: true,
-        hiring_mode: true,
-      }
-    });
-
-    const aggregate = (arr: (string | null)[]) => {
-      const counts: Record<string, number> = {};
-      arr.filter(Boolean).forEach(val => {
-        counts[val!] = (counts[val!] || 0) + 1;
-      });
-      return Object.entries(counts).map(([name, count]) => ({ name, count }));
-    };
-
-    return {
-      categories: aggregate(jobs.map(j => j.category)),
-      departments: aggregate(jobs.map(j => j.department)),
-      locations: aggregate(jobs.map(j => j.location)),
-      hiringModes: aggregate(jobs.map(j => j.hiring_mode)),
-    };
-  }
-
-  // Team Management Methods
-
-  async addTeamMember(jobId: string, data: any): Promise<any> {
-    return this.prisma.jobHiringTeamMember.create({
-      data: {
-        ...data,
-        job: { connect: { id: jobId } },
-      }
-    });
-  }
-
-  async getTeamMembers(jobId: string): Promise<any[]> {
-    return this.prisma.jobHiringTeamMember.findMany({
-      where: { job_id: jobId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true
-          }
-        }
-      }
-    });
-  }
-
-  async updateTeamMember(id: string, data: any): Promise<any> {
-    return this.prisma.jobHiringTeamMember.update({
-      where: { id },
-      data
-    });
-  }
-
-  async removeTeamMember(id: string): Promise<any> {
-    return this.prisma.jobHiringTeamMember.delete({
-      where: { id }
-    });
-  }
-
-  async findTeamMemberByEmail(jobId: string, email: string): Promise<any | null> {
-    return this.prisma.jobHiringTeamMember.findFirst({
-      where: {
-        job_id: jobId,
-        email: { equals: email, mode: 'insensitive' }
-      }
-    });
-  }
-
-  async findUserByEmail(email: string): Promise<any | null> {
-    return this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } }
-    });
   }
 }

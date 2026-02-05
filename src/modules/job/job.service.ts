@@ -1,9 +1,12 @@
 import { BaseService } from '../../core/service';
 import { JobRepository } from './job.repository';
 import { ApplicationRepository } from '../application/application.repository';
-import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType, InvitationStatus } from '@prisma/client';
+import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
+import { JobPaymentService } from '../payment/job-payment.service';
+import { jobAllocationService } from '../hrm8/job-allocation.service';
+import { jobDescriptionGeneratorService } from '../ai/job-description-generator.service';
 
 export class JobService extends BaseService {
   constructor(
@@ -23,21 +26,37 @@ export class JobService extends BaseService {
     const assignmentMode = data.assignmentMode || 'AUTO';
 
     const job = await this.jobRepository.create({
-      ...data,
+      title: data.title,
+      description: data.description,
+      job_summary: data.jobSummary,
+      category: data.category,
+      number_of_vacancies: data.numberOfVacancies || 1,
+      department: data.department,
+      location: data.location,
+      employment_type: data.employmentType,
+      work_arrangement: data.workArrangement,
+      salary_min: data.salaryMin,
+      salary_max: data.salaryMax,
+      salary_currency: data.salaryCurrency || 'USD',
+      salary_description: data.salaryDescription,
+      stealth: data.stealth,
+      visibility: data.visibility,
+      requirements: data.requirements,
+      responsibilities: data.responsibilities,
+      hiring_mode: data.hiringMode,
+      promotional_tags: data.promotionalTags || [],
+      terms_accepted: data.termsAccepted,
+      terms_accepted_at: data.termsAcceptedAt ? new Date(data.termsAcceptedAt) : null,
+      terms_accepted_by: data.termsAcceptedBy,
+      hiring_team: data.hiringTeam,
+      application_form: data.applicationForm,
+      video_interviewing_enabled: data.videoInterviewingEnabled || false,
+      assignment_mode: assignmentMode,
+      service_package: data.servicePackage || 'self-managed',
       company: { connect: { id: companyId } },
-      created_by: createdBy,
+      creator: { connect: { id: createdBy } },
       job_code: jobCode,
       status: 'DRAFT',
-      assignment_mode: assignmentMode,
-      // Map other fields as necessary from data...
-      // Ensure camelCase to snake_case mapping or rely on Prisma types matching
-      hiring_mode: data.hiringMode,
-      work_arrangement: data.workArrangement,
-      employment_type: data.employmentType,
-      number_of_vacancies: data.numberOfVacancies || 1,
-      salary_currency: data.salaryCurrency || 'USD',
-      promotional_tags: data.promotionalTags || [],
-      video_interviewing_enabled: data.videoInterviewingEnabled || false,
     });
 
     return this.mapToResponse(job);
@@ -48,9 +67,37 @@ export class JobService extends BaseService {
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
-    // Map fields for update
-    // Note: In a real scenario, use a mapper or cleaner input object
-    const updatedJob = await this.jobRepository.update(id, data);
+    const updateData: any = {};
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.jobSummary !== undefined) updateData.job_summary = data.jobSummary;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.numberOfVacancies !== undefined) updateData.number_of_vacancies = data.numberOfVacancies;
+    if (data.department !== undefined) updateData.department = data.department;
+    if (data.location !== undefined) updateData.location = data.location;
+    if (data.employmentType !== undefined) updateData.employment_type = data.employmentType;
+    if (data.workArrangement !== undefined) updateData.work_arrangement = data.workArrangement;
+    if (data.salaryMin !== undefined) updateData.salary_min = data.salaryMin;
+    if (data.salaryMax !== undefined) updateData.salary_max = data.salaryMax;
+    if (data.salaryCurrency !== undefined) updateData.salary_currency = data.salaryCurrency;
+    if (data.salaryDescription !== undefined) updateData.salary_description = data.salaryDescription;
+    if (data.stealth !== undefined) updateData.stealth = data.stealth;
+    if (data.visibility !== undefined) updateData.visibility = data.visibility;
+    if (data.requirements !== undefined) updateData.requirements = data.requirements;
+    if (data.responsibilities !== undefined) updateData.responsibilities = data.responsibilities;
+    if (data.hiringMode !== undefined) updateData.hiring_mode = data.hiringMode;
+    if (data.promotionalTags !== undefined) updateData.promotional_tags = data.promotionalTags;
+    if (data.termsAccepted !== undefined) updateData.terms_accepted = data.termsAccepted;
+    if (data.termsAcceptedAt !== undefined) updateData.terms_accepted_at = data.termsAcceptedAt ? new Date(data.termsAcceptedAt) : null;
+    if (data.termsAcceptedBy !== undefined) updateData.terms_accepted_by = data.termsAcceptedBy;
+    if (data.hiringTeam !== undefined) updateData.hiring_team = data.hiringTeam;
+    if (data.applicationForm !== undefined) updateData.application_form = data.applicationForm;
+    if (data.videoInterviewingEnabled !== undefined) updateData.video_interviewing_enabled = data.videoInterviewingEnabled;
+    if (data.assignmentMode !== undefined) updateData.assignment_mode = data.assignmentMode;
+    if (data.servicePackage !== undefined) updateData.service_package = data.servicePackage;
+    if (data.status !== undefined) updateData.status = data.status;
+
+    const updatedJob = await this.jobRepository.update(id, updateData);
     return this.mapToResponse(updatedJob);
   }
 
@@ -62,29 +109,65 @@ export class JobService extends BaseService {
   }
 
   async getCompanyJobs(companyId: string, filters: any) {
-    const jobs = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
+    const { jobs, total } = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
 
     // Map database fields to API response format (camelCase)
     const mappedJobs = jobs.map(job => this.mapToResponse(job));
 
     // If ApplicationRepository is available, add application counts to each job
     if (this.applicationRepository) {
-      const jobsWithCounts = await Promise.all(
-        mappedJobs.map(async (job) => {
-          const counts = await this.applicationRepository!.countByJobId(job.id);
-          const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
+      try {
+        const jobsWithCounts = await Promise.all(
+          mappedJobs.map(async (job) => {
+            try {
+              const counts = await this.applicationRepository!.countByJobId(job.id);
+              const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
 
-          return {
-            ...job,
-            totalApplications: counts,
-            unreadApplicants: unreadCounts,
-          };
-        })
-      );
-      return jobsWithCounts;
+              return {
+                ...job,
+                totalApplications: counts,
+                unreadApplicants: unreadCounts,
+              };
+            } catch (error) {
+              // If counting fails for individual job, return job with zero counts
+              console.warn(`[JobService] Failed to count applications for job ${job.id}:`, error);
+              return {
+                ...job,
+                totalApplications: 0,
+                unreadApplicants: 0,
+              };
+            }
+          })
+        );
+        return {
+          jobs: jobsWithCounts,
+          total,
+          page: filters.page || 1,
+          limit: filters.limit || 50,
+          stats: await this.jobRepository.getJobStats(companyId)
+        };
+      } catch (error) {
+        // If application counting fails entirely, log warning and return jobs without counts
+        const stats = await this.jobRepository.getJobStats(companyId);
+        return {
+          jobs: mappedJobs.map(job => ({ ...job, totalApplications: 0, unreadApplicants: 0 })),
+          total,
+          page: filters.page || 1,
+          limit: filters.limit || 50,
+          stats
+        };
+      }
     }
 
-    return mappedJobs;
+    const stats = await this.jobRepository.getJobStats(companyId);
+    const result = {
+      jobs: mappedJobs,
+      total,
+      page: filters.page || 1,
+      limit: filters.limit || 50,
+      stats
+    };
+    return result;
   }
 
   private mapToResponse(job: any): any {
@@ -118,11 +201,12 @@ export class JobService extends BaseService {
       applicationForm: job.application_form,
       hiringTeam: job.hiring_team,
       jobBoardDistribution: job.job_board_distribution,
-      serviceType: job.service_type,
-      serviceStatus: job.service_status,
+      servicePackage: job.service_package,
+      paymentStatus: job.payment_status,
       assignedConsultantId: job.assigned_consultant_id,
       assignedConsultantName: job.assigned_consultant_name,
       applicantsCount: job._count?.applications || 0,
+      jobTargetChannels: job.job_target_channels,
     };
   }
 
@@ -151,74 +235,14 @@ export class JobService extends BaseService {
     return deletedCount;
   }
 
-  /**
-   * Archive a job
-   */
-  async archiveJob(id: string, companyId: string, userId?: string): Promise<Job> {
-    await this.getJob(id, companyId); // Verify ownership
-
-    const updatedJob = await this.jobRepository.update(id, {
-      archived: true,
-      archived_at: new Date(),
-      archived_by: userId,
-    });
-
-    return this.mapToResponse(updatedJob);
+  async bulkArchiveJobs(jobIds: string[], companyId: string, userId: string): Promise<number> {
+    if (!jobIds || jobIds.length === 0) throw new HttpException(400, 'No job IDs provided');
+    return this.jobRepository.bulkArchive(jobIds, companyId, userId);
   }
 
-  /**
-   * Unarchive a job
-   */
-  async unarchiveJob(id: string, companyId: string): Promise<Job> {
-    await this.getJob(id, companyId); // Verify ownership
-
-    const updatedJob = await this.jobRepository.update(id, {
-      archived: false,
-      archived_at: null,
-      archived_by: null,
-    });
-
-    return this.mapToResponse(updatedJob);
-  }
-
-  /**
-   * Bulk archive jobs
-   */
-  async bulkArchiveJobs(jobIds: string[], companyId: string, userId?: string): Promise<number> {
-    if (!jobIds || jobIds.length === 0) {
-      throw new HttpException(400, 'No job IDs provided');
-    }
-
-    // Verify all jobs belong to company
-    const jobs = await this.jobRepository.findByCompanyId(companyId);
-    const validJobIds = jobs.filter(job => jobIds.includes(job.id)).map(job => job.id);
-
-    if (validJobIds.length === 0) {
-      throw new HttpException(400, 'No valid jobs found for archiving');
-    }
-
-    const result = await this.jobRepository.bulkArchive(validJobIds, companyId, userId);
-    return result;
-  }
-
-  /**
-   * Bulk unarchive jobs
-   */
   async bulkUnarchiveJobs(jobIds: string[], companyId: string): Promise<number> {
-    if (!jobIds || jobIds.length === 0) {
-      throw new HttpException(400, 'No job IDs provided');
-    }
-
-    // Verify all jobs belong to company
-    const jobs = await this.jobRepository.findByCompanyId(companyId);
-    const validJobIds = jobs.filter(job => jobIds.includes(job.id)).map(job => job.id);
-
-    if (validJobIds.length === 0) {
-      throw new HttpException(400, 'No valid jobs found for unarchiving');
-    }
-
-    const result = await this.jobRepository.bulkUnarchive(validJobIds, companyId);
-    return result;
+    if (!jobIds || jobIds.length === 0) throw new HttpException(400, 'No job IDs provided');
+    return this.jobRepository.bulkUnarchive(jobIds, companyId);
   }
 
   async publishJob(id: string, companyId: string, userId?: string): Promise<Job> {
@@ -233,14 +257,35 @@ export class JobService extends BaseService {
       throw new HttpException(400, 'Only draft jobs can be published');
     }
 
-    // TODO: Implement wallet payment logic here
-    // For now, just change status to OPEN
+    // Process payment before publishing
+    try {
+      await new JobPaymentService().processJobPayment(id, companyId, userId);
+    } catch (paymentError: any) {
+      // Handle payment errors with proper error messages
+      const errorMessage = paymentError.message || 'Payment processing failed';
+
+      // Send notification if payment fails
+      if (this.notificationService && userId) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: userId,
+          type: UniversalNotificationType.JOB_PUBLISHED,
+          title: 'Job Publication Failed',
+          message: `Unable to publish job "${job.title}". ${errorMessage}. Please recharge your wallet and try again.`,
+          data: { jobId: id, companyId, error: errorMessage },
+          actionUrl: `/ats/jobs/${id}`
+        });
+      }
+
+      throw paymentError;
+    }
+
     const updatedJob = await this.jobRepository.update(id, {
       status: 'OPEN',
       posting_date: new Date(),
     });
 
-    // Trigger notification
+    // Trigger success notification
     if (this.notificationService && userId) {
       await this.notificationService.createNotification({
         recipientType: NotificationRecipientType.USER,
@@ -253,15 +298,19 @@ export class JobService extends BaseService {
       });
     }
 
-    // Process job alerts asynchronously (fire and forget)
-    // This notifies candidates who have matching job alerts
-    if (this.notificationService) {
-      const emailService = new EmailService();
-      const jobAlertService = new JobAlertService(this.notificationService, emailService);
-      jobAlertService.processJobAlerts(updatedJob).catch(error => {
-        console.error('[JobService] Failed to process job alerts:', error);
-      });
+    // Process job alerts for candidates who might be interested in this job
+    try {
+      const { CandidateRepository } = await import('../candidate/candidate.repository');
+      const { CandidateService } = await import('../candidate/candidate.service');
+      const candidateService = new CandidateService(new CandidateRepository());
+      await candidateService.notifyMatchingCandidates(updatedJob);
+    } catch (alertError: any) {
+      // Log alert processing errors but don't fail the publish operation
+      console.error(`[JobService] Failed to process job alerts for published job ${id}:`, alertError);
     }
+
+    // Auto-assignment
+    await jobAllocationService.autoAssignJob(id);
 
     return this.mapToResponse(updatedJob);
   }
@@ -269,7 +318,7 @@ export class JobService extends BaseService {
   async saveDraft(id: string, companyId: string, data: any): Promise<Job> {
     await this.getJob(id, companyId); // Verify ownership
 
-    const updatedJob = await this.jobRepository.update(id, {
+    const updatedJob = await this.updateJob(id, companyId, {
       ...data,
       status: 'DRAFT',
     });
@@ -281,73 +330,209 @@ export class JobService extends BaseService {
     await this.getJob(id, companyId); // Verify ownership
 
     // For now, just mark the job as a template
-    const updatedJob = await this.jobRepository.update(id, {
+    const updatedJob = await this.updateJob(id, companyId, {
       ...data,
-      saved_as_template: true,
+      savedAsTemplate: true,
     });
 
     return this.mapToResponse(updatedJob);
   }
 
+  async submitAndActivate(id: string, companyId: string, userId?: string): Promise<Job> {
+    // This is essentially the same as publishJob, but usually triggered at the end of a wizard
+    return this.publishJob(id, companyId, userId);
+  }
+
+  async updateAlerts(id: string, companyId: string, alerts: any): Promise<Job> {
+    await this.getJob(id, companyId);
+    const updatedJob = await this.jobRepository.update(id, {
+      alerts_enabled: alerts,
+    });
+    return this.mapToResponse(updatedJob);
+  }
+
+  async generateDescription(data: any): Promise<{ description: string; requirements: string[]; responsibilities: string[] }> {
+    return jobDescriptionGeneratorService.generateWithAI(data);
+  }
+
+  async inviteHiringTeamMember(id: string, companyId: string, userId: string, data: any) {
+    const job = await this.getJob(id, companyId);
+    const currentTeam = (job.hiringTeam as any[]) || [];
+    const memberExists = currentTeam.some((m: any) => m.email === data.email);
+
+    if (memberExists) {
+      throw new HttpException(400, 'User already invited to hiring team');
+    }
+
+    const updatedTeam = [...currentTeam, {
+      email: data.email,
+      role: data.role || 'INTERVIEWER',
+      invitedAt: new Date().toISOString(),
+      invitedBy: userId
+    }];
+
+    const updatedJob = await this.jobRepository.update(id, {
+      hiring_team: updatedTeam,
+    });
+
+    // Trigger notification if notification service is available
+    if (this.notificationService) {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.USER,
+        recipientId: userId, // Current user is the sender
+        type: UniversalNotificationType.INVITATION_SENT,
+        title: 'Hiring Team Invitation',
+        message: `Hiring team invitation sent to ${data.email} for "${job.title}".`,
+        data: { jobId: id, role: data.role, invitedEmail: data.email },
+        actionUrl: `/ats/jobs/${id}`
+      });
+    }
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async cloneJob(id: string, companyId: string, userId: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+    if (!job) throw new HttpException(404, 'Job not found');
+
+    const jobCode = await this.generateJobCode(companyId);
+
+    // Create a new job with data from the existing job
+    // Reset status to DRAFT, new dates, new creator
+    const clonedJob = await this.jobRepository.create({
+      title: `${job.title} (Copy)`,
+      description: job.description,
+      job_summary: job.jobSummary,
+      category: job.category,
+      number_of_vacancies: job.numberOfVacancies,
+      department: job.department,
+      location: job.location,
+      employment_type: job.employmentType,
+      work_arrangement: job.workArrangement,
+      salary_min: job.salaryMin,
+      salary_max: job.salaryMax,
+      salary_currency: job.salaryCurrency,
+      salary_description: job.salaryDescription,
+      stealth: job.stealth,
+      visibility: job.visibility,
+      requirements: job.requirements,
+      responsibilities: job.responsibilities,
+      hiring_mode: job.hiringMode,
+      promotional_tags: job.promotionalTags,
+      hiring_team: job.hiringTeam, // Copy team or reset? Usually copy
+      application_form: job.applicationForm,
+      video_interviewing_enabled: job.videoInterviewingEnabled,
+      assignment_mode: job.assignmentMode,
+      service_package: job.servicePackage,
+      company: { connect: { id: companyId } },
+      creator: { connect: { id: userId } },
+      job_code: jobCode,
+      status: 'DRAFT',
+    });
+
+    return this.mapToResponse(clonedJob);
+  }
+
+  async closeJob(id: string, companyId: string, userId: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+    if (job.status === 'CLOSED') return job;
+
+    const updatedJob = await this.jobRepository.update(id, {
+      status: 'CLOSED',
+      close_date: new Date(),
+    });
+
+    // Log activity if log service exists (omitted for brevity)
+    return this.mapToResponse(updatedJob);
+  }
+
+  async archiveJob(id: string, companyId: string, userId: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+
+    const updatedJob = await this.jobRepository.update(id, {
+      archived: true,
+      archived_at: new Date(),
+      archived_by: userId
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async unarchiveJob(id: string, companyId: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+
+    const updatedJob = await this.jobRepository.update(id, {
+      archived: false,
+      archived_at: null,
+      archived_by: null
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async getHiringTeam(id: string, companyId: string) {
+    const job = await this.getJob(id, companyId);
+    return job.hiringTeam || [];
+  }
+
+  async removeHiringTeamMember(id: string, companyId: string, memberEmail: string) {
+    const job = await this.getJob(id, companyId);
+    const currentTeam = (job.hiringTeam as any[]) || [];
+
+    const updatedTeam = currentTeam.filter((m: any) => m.email !== memberEmail);
+
+    if (currentTeam.length === updatedTeam.length) {
+      // Member not found, potentially throw error or just return
+      return this.mapToResponse(job);
+    }
+
+    const updatedJob = await this.jobRepository.update(id, {
+      hiring_team: updatedTeam
+    });
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async getJobActivities(id: string, companyId: string) {
+    await this.getJob(id, companyId); // Verify access
+    return this.jobRepository.findActivities(id);
+  }
   private async generateJobCode(companyId: string): Promise<string> {
     const count = await this.jobRepository.countByCompany(companyId);
     return `JOB-${String(count + 1).padStart(3, '0')}`;
+
   }
 
-  async inviteTeamMember(jobId: string, companyId: string, data: any): Promise<void> {
-    const { email, name, role } = data;
-    await this.getJob(jobId, companyId); // Verify access
+  async validateJob(data: any): Promise<{ valid: boolean; errors: string[] }> {
+    const errors: string[] = [];
+    if (!data.title) errors.push('Title is required');
+    if (!data.department) errors.push('Department is required');
+    if (!data.location) errors.push('Location is required');
+    if (!data.employmentType) errors.push('Employment Type is required');
 
-    // Check if already in team
-    const existingMember = await this.jobRepository.findTeamMemberByEmail(jobId, email);
-    if (existingMember) {
-      throw new HttpException(400, 'User is already in the hiring team');
-    }
+    // Add more validation logic as needed
 
-    // Check if user exists
-    const user = await this.jobRepository.findUserByEmail(email);
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
 
-    await this.jobRepository.addTeamMember(jobId, {
-      email,
-      name: name || user?.name,
-      role,
-      user_id: user?.id,
-      status: 'ACTIVE', // Auto-activate for now if added by admin
+  async getDistributionChannels(id: string, companyId: string) {
+    const job = await this.getJob(id, companyId);
+    return {
+      jobId: id,
+      channels: job.jobTargetChannels || [] // mapping from prisma snake_case might be handled in getJob or need direct access
+    };
+  }
+
+  async updateDistributionChannels(id: string, companyId: string, channels: string[]) {
+    await this.getJob(id, companyId);
+
+    const updatedJob = await this.jobRepository.update(id, {
+      job_target_channels: channels, // Using the schema field we found
     });
 
-    // TODO: Send email invitation
-  }
-
-  async getTeamMembers(jobId: string, companyId: string) {
-    await this.getJob(jobId, companyId);
-    return this.jobRepository.getTeamMembers(jobId);
-  }
-
-  async removeTeamMember(jobId: string, memberId: string, companyId: string) {
-    await this.getJob(jobId, companyId);
-    // Ideally verify member belongs to job, but cascade delete handles cleanup if job deleted
-    await this.jobRepository.removeTeamMember(memberId);
-  }
-
-  async updateTeamMemberRole(jobId: string, memberId: string, companyId: string, role: any) {
-    await this.getJob(jobId, companyId);
-    await this.jobRepository.updateTeamMember(memberId, { role });
-  }
-
-  async resendInvite(jobId: string, memberId: string, companyId: string) {
-    await this.getJob(jobId, companyId);
-
-    // Get member to verify exists and get details
-    // Ideally we should have a getTeamMemberById method but we can just update blindly or fetch all
-    // For now, let's update the invited_at timestamp to "resend"
-
-    // Verify member exists (implicit in update)
-    await this.jobRepository.updateTeamMember(memberId, {
-      invited_at: new Date()
-    });
-
-    // TODO: Trigger actual email sending logic here
-    // const member = await this.jobRepository.getTeamMember(memberId);
-    // this.emailService.sendInvite(member.email, ...);
+    return this.mapToResponse(updatedJob);
   }
 }

@@ -1,22 +1,29 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
-import { CandidateScoringService } from '../ai/candidate-scoring.service';
+import { Prisma, Application, ApplicationStatus, ApplicationStage, ApplicationRoundProgress, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 import { HttpException } from '../../core/http-exception';
-import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
+import { SubmitApplicationRequest, ApplicationFilters, AnonymousApplicationRequest } from './application.model';
 import { CandidateRepository } from '../candidate/candidate.repository';
-import { DocumentParser } from '../../utils/document-parser';
+import { CandidateService } from '../candidate/candidate.service';
+import { JobRepository } from '../job/job.repository';
+import { AssessmentService } from '../assessment/assessment.service';
+import { AssessmentRepository } from '../assessment/assessment.repository';
+import { CandidateScoringService } from '../ai/candidate-scoring.service';
 import { prisma } from '../../utils/prisma';
 import { emailService } from '../email/email.service';
-import { NotificationService } from '../notification/notification.service';
 
 export class ApplicationService extends BaseService {
+  private assessmentService: AssessmentService;
+  private notificationService: NotificationService;
+
   constructor(
-    public applicationRepository: ApplicationRepository,
-    private candidateRepository: CandidateRepository,
-    private notificationService: NotificationService
+    private applicationRepository: ApplicationRepository,
+    notificationService?: NotificationService
   ) {
     super();
+    this.notificationService = notificationService || new NotificationService(new (require('../notification/notification.repository').NotificationRepository)());
+    this.assessmentService = new AssessmentService(new AssessmentRepository());
   }
 
   async submitApplication(data: SubmitApplicationRequest): Promise<Application> {
@@ -54,35 +61,30 @@ export class ApplicationService extends BaseService {
     // Trigger AI Scoring asynchronously
     CandidateScoringService.scoreCandidate({
       applicationId: application.id,
-      jobId: data.jobId
+      jobId: data.jobId,
     }).catch((err) => {
       console.error('Failed to trigger AI analysis:', err);
     });
 
-    // Handle Auto-Email for NEW round
-    // Non-blocking catch-all to prevent application failure if email fails
+    // Handle Auto-Email for NEW round (non-blocking)
     (async () => {
       try {
         const newRound = await prisma.jobRound.findFirst({
           where: {
             job_id: data.jobId,
             is_fixed: true,
-            fixed_key: 'NEW'
-          }
+            fixed_key: 'NEW',
+          },
         });
 
         if (newRound?.email_config) {
           const config = newRound.email_config as any;
           if (config.enabled && config.templateId) {
-            // Fetch candidate to get email if not in request
-            // Ideally we use the application's candidate relation but we just created it. 
-            // We have data.candidateId.
-            const candidate = await this.candidateRepository.findById(data.candidateId);
-
-            // Fetch job to get companyId
+            const candidateRepository = new CandidateRepository();
+            const candidate = await candidateRepository.findById(data.candidateId);
             const job = await prisma.job.findUnique({
               where: { id: data.jobId },
-              select: { company_id: true }
+              select: { company_id: true },
             });
 
             if (candidate && candidate.email && job?.company_id) {
@@ -92,8 +94,8 @@ export class ApplicationService extends BaseService {
                 contextIds: {
                   candidateId: candidate.id,
                   jobId: data.jobId,
-                  companyId: job.company_id
-                }
+                  companyId: job.company_id,
+                },
               });
               console.log(`[Auto-Email] Sent 'New Application' email to ${candidate.email}`);
             }
@@ -104,40 +106,68 @@ export class ApplicationService extends BaseService {
       }
     })();
 
-    return application;
+    // Notify Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(application.id) as any;
+      if (appWithDetails && appWithDetails.job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: appWithDetails.job.created_by,
+          type: UniversalNotificationType.NEW_APPLICATION,
+          title: `New Application: ${appWithDetails.job.title}`,
+          message: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has applied for ${appWithDetails.job.title}.`,
+          actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${application.id}`,
+          data: { applicationId: application.id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+        });
+      }
+
+      // Notify Candidate
+      if (appWithDetails && appWithDetails.candidate) {
+        // 1. In-App Notification
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate.id,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED, // Or a more specific type if added to enum
+          title: 'Application Received!',
+          message: `Your application for ${appWithDetails.job.title} at ${appWithDetails.job.company?.name || 'the company'} has been successfully submitted.`,
+          actionUrl: '/candidate/applications',
+          skipEmail: true,
+          data: { applicationId: application.id, jobId: appWithDetails.job_id }
+        });
+
+        // 2. Email Notification
+        const { emailService } = await import('../email/email.service');
+        await emailService.sendApplicationSubmissionEmail({
+          to: appWithDetails.candidate.email,
+          candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}`,
+          jobTitle: appWithDetails.job.title,
+          companyName: appWithDetails.job.company?.name || 'the company',
+          applicationUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidate/applications`
+        });
+      }
+    } catch (error) {
+      console.error('[ApplicationService] Failed to notify of new application:', error);
+    }
+
+    return this.mapToResponse(application);
   }
 
-  async getApplication(id: string): Promise<any> {
-    const app = await this.applicationRepository.findById(id);
-    if (!app) {
+  async getApplication(id: string): Promise<Application | null> {
+    const application = await this.applicationRepository.findById(id);
+    if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.mapApplication(app);
+    return this.mapToResponse(application);
   }
 
   async getCandidateApplications(candidateId: string): Promise<Application[]> {
     const applications = await this.applicationRepository.findByCandidateId(candidateId);
-    return applications.map(app => this.mapApplication(app));
+    return applications.map(app => this.mapToResponse(app));
   }
 
-  async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
+  async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<Application[]> {
     const applications = await this.applicationRepository.findByJobId(jobId, filters);
-
-    // Extract round progress and map applications
-    const roundProgress: Record<string, any> = {};
-    const mappedApplications = applications.map(app => {
-      // Extract round progress
-      const progress = (app as any).application_round_progress?.[0];
-      if (progress) {
-        roundProgress[app.id] = {
-          roundId: progress.job_round_id,
-          stage: app.stage
-        };
-      }
-      return this.mapApplication(app);
-    });
-
-    return { applications: mappedApplications, roundProgress };
+    return applications.map(app => this.mapToResponse(app));
   }
 
   async triggerAiAnalysis(applicationId: string, jobId: string): Promise<void> {
@@ -149,15 +179,12 @@ export class ApplicationService extends BaseService {
         screeningType: 'AUTOMATED',
         status: result.recommendation === 'strong_no_hire' ? 'FAILED' : 'PASSED',
         score: result.scores.overall,
-        criteriaMatched: result, // Save full analysis JSON
+        criteriaMatched: result,
       });
 
-      // Update application score
       await this.applicationRepository.updateScore(applicationId, result.scores.overall);
-
     } catch (error) {
       console.error('Error in triggerAiAnalysis:', error);
-      // Log but don't fail the request
     }
   }
 
@@ -165,74 +192,19 @@ export class ApplicationService extends BaseService {
     let success = 0;
     let failed = 0;
 
-    await Promise.all(applicationIds.map(async (id) => {
-      try {
-        await this.triggerAiAnalysis(id, jobId);
-        success++;
-      } catch (error) {
-        console.error(`Failed to analyze application ${id}`, error);
-        failed++;
-      }
-    }));
+    await Promise.all(
+      applicationIds.map(async (id) => {
+        try {
+          await this.triggerAiAnalysis(id, jobId);
+          success++;
+        } catch (error) {
+          console.error(`Failed to analyze application ${id}`, error);
+          failed++;
+        }
+      })
+    );
 
     return { success, failed };
-  }
-
-  private mapApplication(app: any): Application {
-    console.log(`[mapApplication] Mapping application: ${app.id}`);
-    // Find AI screening result (AUTOMATED) or fallback to first result
-    const aiResult = Array.isArray(app.screening_result)
-      ? app.screening_result.find((r: any) => r.screening_type === 'AUTOMATED')
-      : app.screening_result;
-
-    // Use criteria_matched from new result, or fallback to legacy app.ai_analysis
-    const analysisData = aiResult?.criteria_matched || app.ai_analysis || {};
-
-    const hasAnalysis = !!aiResult || !!app.ai_analysis;
-
-    const aiAnalysis = hasAnalysis ? {
-      summary: analysisData.summary || aiResult?.summary, // Support both new execution JSON and potential legacy fields
-      detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis,
-      behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits,
-      concerns: analysisData.concerns,
-      strengths: analysisData.strengths,
-      careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory,
-      flightRisk: analysisData.flightRisk || analysisData.flight_risk,
-      culturalFit: analysisData.culturalFit || analysisData.cultural_fit,
-      salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark,
-      technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment,
-    } : null;
-
-    // Map candidate data to parsedResume format
-    const parsedResume = app.candidate ? {
-      skills: app.candidate.skills?.map((s: any) => ({
-        name: s.name,
-        proficiency: s.level || 'Intermediate' // Default to intermediate if missing
-      })) || [],
-      workHistory: app.candidate.work_experience?.map((w: any) => ({
-        company: w.company,
-        role: w.role,
-        startDate: w.start_date,
-        endDate: w.end_date,
-        description: w.description
-      })) || [],
-      education: app.candidate.education?.map((e: any) => ({
-        institution: e.institution,
-        degree: e.degree,
-        field: e.field,
-        startDate: e.start_date,
-        endDate: e.end_date
-      })) || []
-    } : null;
-
-    return {
-      ...app,
-      recruiterNotes: app.recruiter_notes,
-      // Map screening_result to aiAnalysis property expected by frontend
-      aiAnalysis,
-      // Map candidate details to parsedResume property expected by frontend
-      parsedResume,
-    };
   }
 
   async updateScore(id: string, score: number): Promise<Application> {
@@ -240,7 +212,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateScore(id, score);
+    const updated = await this.applicationRepository.updateScore(id, score);
+    return this.mapToResponse(updated);
   }
 
   async updateRank(id: string, rank: number): Promise<Application> {
@@ -248,7 +221,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateRank(id, rank);
+    const updated = await this.applicationRepository.updateRank(id, rank);
+    return this.mapToResponse(updated);
   }
 
   async updateTags(id: string, tags: string[]): Promise<Application> {
@@ -256,7 +230,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateTags(id, tags);
+    const updated = await this.applicationRepository.updateTags(id, tags);
+    return this.mapToResponse(updated);
   }
 
   async shortlistCandidate(id: string, userId: string): Promise<Application> {
@@ -264,7 +239,27 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.shortlist(id, userId);
+    const updated = await this.applicationRepository.shortlist(id, userId);
+
+    // Notify Candidate (In-App)
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.candidate_id) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate_id,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: "You've Been Shortlisted!",
+          message: `Your application for ${appWithDetails.job?.title || 'the position'} has been shortlisted.`,
+          actionUrl: '/candidate/applications',
+          data: { applicationId: id, jobId: appWithDetails.job_id }
+        });
+      }
+    } catch (error) {
+      console.error('[ApplicationService] Failed to send shortlist notification:', error);
+    }
+
+    return this.mapToResponse(updated);
   }
 
   async unshortlistCandidate(id: string): Promise<Application> {
@@ -272,7 +267,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.unshortlist(id);
+    const updated = await this.applicationRepository.unshortlist(id);
+    return this.mapToResponse(updated);
   }
 
   async updateStage(id: string, stage: ApplicationStage): Promise<Application> {
@@ -280,20 +276,47 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    const updatedApp = await this.applicationRepository.updateStage(id, stage);
+    const updated = await this.applicationRepository.updateStage(id, stage);
 
-    // Notify Candidate of status change
-    await this.notificationService.createNotification({
-      recipientType: NotificationRecipientType.CANDIDATE,
-      recipientId: updatedApp.candidate_id,
-      type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
-      title: 'Application Update',
-      message: `Your application status has been updated to ${stage.replace(/_/g, ' ')}.`,
-      data: { applicationId: id, stage },
-      actionUrl: `/candidate/applications/${id}`,
-    });
+    // Notify Candidate and Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.candidate_id) {
+        // Notify Candidate
+        const isRejected = stage === 'REJECTED';
+        const title = isRejected ? 'Application Update' : 'Application Progress Update';
+        const message = isRejected
+          ? `We regret to inform you that your application for ${appWithDetails.job?.title} at ${appWithDetails.job?.company?.name || 'the company'} was not successful at this time.`
+          : `Your application for ${appWithDetails.job?.title} has moved to the "${stage.replace(/_/g, ' ')}" stage.`;
 
-    return updatedApp;
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.CANDIDATE,
+          recipientId: appWithDetails.candidate_id,
+          type: isRejected ? UniversalNotificationType.APPLICATION_REJECTED : UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title,
+          message,
+          actionUrl: '/candidate/applications',
+          data: { applicationId: id, jobId: appWithDetails.job_id, stage }
+        });
+
+        // Notify Recruiter (Job Owner)
+        if (appWithDetails.job?.created_by) {
+          await this.notificationService.createNotification({
+            recipientType: NotificationRecipientType.USER,
+            recipientId: appWithDetails.job.created_by,
+            type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+            title: 'Application Stage Updated',
+            message: `Application for ${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has moved to "${stage.replace(/_/g, ' ')}".`,
+            actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${id}`,
+            data: { applicationId: id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('[ApplicationService] Failed to send stage change notifications:', error);
+    }
+
+    return this.mapToResponse(updated);
   }
 
   async updateNotes(id: string, notes: string): Promise<Application> {
@@ -301,7 +324,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateNotes(id, notes);
+    const updated = await this.applicationRepository.updateNotes(id, notes);
+    return this.mapToResponse(updated);
   }
 
   async withdrawApplication(id: string, candidateId: string): Promise<Application> {
@@ -315,9 +339,29 @@ export class ApplicationService extends BaseService {
       throw new HttpException(403, 'Unauthorized to withdraw this application');
     }
 
-    return this.applicationRepository.update(id, {
+    const updated = await this.applicationRepository.update(id, {
       status: 'WITHDRAWN',
     });
+
+    // Notify Recruiter
+    try {
+      const appWithDetails = await this.applicationRepository.findById(id) as any;
+      if (appWithDetails && appWithDetails.job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: appWithDetails.job.created_by,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: 'Application Withdrawn',
+          message: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name} has withdrawn their application for ${appWithDetails.job.title}.`,
+          actionUrl: `/ats/jobs/${appWithDetails.job_id}/applications/${id}`,
+          data: { applicationId: id, candidateName: `${appWithDetails.candidate.first_name} ${appWithDetails.candidate.last_name}` }
+        });
+      }
+    } catch (error: any) {
+      console.error('[ApplicationService] Failed to send withdrawal notification to recruiter:', error);
+    }
+
+    return this.mapToResponse(updated);
   }
 
   async deleteApplication(id: string, candidateId: string): Promise<void> {
@@ -335,7 +379,8 @@ export class ApplicationService extends BaseService {
   }
 
   async markAsRead(id: string): Promise<Application> {
-    return this.applicationRepository.markAsRead(id);
+    const updated = await this.applicationRepository.markAsRead(id);
+    return this.mapToResponse(updated);
   }
 
   async bulkScoreCandidates(applicationIds: string[], scores: Record<string, number>): Promise<number> {
@@ -355,99 +400,139 @@ export class ApplicationService extends BaseService {
     return this.applicationRepository.checkExistingApplication(candidateId, jobId);
   }
 
-  async createManualApplication(data: any, recruiterId: string): Promise<Application> {
-    // 1. Check or Create Candidate
-    let candidate = await this.candidateRepository.findByEmail(data.email);
+  async submitAnonymousApplication(data: AnonymousApplicationRequest): Promise<Application> {
+    const candidateRepository = new CandidateRepository();
+    const candidateService = new CandidateService(candidateRepository);
 
-    if (!candidate) {
-      candidate = await this.candidateRepository.create({
-        email: data.email,
-        first_name: data.firstName,
-        last_name: data.lastName,
-        password_hash: '', // No password for manually added
-        status: 'ACTIVE',
-        resume_url: data.resumeUrl, // Sync profile URL
-        resumes: data.resumeUrl ? {
-          create: {
-            file_url: data.resumeUrl,
-            file_name: 'Resume.pdf', // Default
-            file_size: 0,
-            file_type: 'application/pdf',
-            content: '', // content not available yet
-            is_default: true
-          }
-        } : undefined
-      });
-    } else {
-      // If candidate exists, add resume if provided
-      if (data.resumeUrl) {
-        // We need to add resume. Repository doesn't expose addResume directly but UPDATE works with nested create
-        await this.candidateRepository.update(candidate.id, {
-          resumes: {
-            create: {
-              file_url: data.resumeUrl,
-              file_name: 'Resume.pdf',
-              file_size: 0,
-              file_type: 'application/pdf',
-              is_default: false
-            }
-          }
-        });
-      }
-    }
-
-    // 2. Create Application
-    const existingApp = await this.applicationRepository.checkExistingApplication(candidate.id, data.jobId);
-    if (existingApp) {
-      throw new HttpException(400, 'Candidate already applied to this job');
-    }
-
-    const app = await this.applicationRepository.create({
-      candidate: { connect: { id: candidate.id } },
-      job: { connect: { id: data.jobId } },
-      status: 'NEW',
-      stage: 'NEW_APPLICATION',
-      manually_added: true,
-      added_by: recruiterId,
-      added_at: new Date(),
-      resume_url: data.resumeUrl,
-      source: 'MANUAL',
-      recruiter_notes: data.notes,
-      tags: data.tags || []
+    // Register candidate (this will fail if email exists)
+    const candidate = await candidateService.register({
+      email: data.email,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      password: data.password || Math.random().toString(36).slice(-8), // Generate a random password if none provided
+      phone: data.phone,
     });
 
-    return app;
-  }
-
-  async updateManualScreening(id: string, data: { status: any, score?: number, notes?: string, date?: Date }): Promise<Application> {
-    return this.applicationRepository.update(id, {
-      manual_screening_status: data.status,
-      manual_screening_score: data.score,
-      screening_notes: data.notes,
-      manual_screening_date: data.date || new Date(),
-      manual_screening_completed: true
+    const application = await this.submitApplication({
+      candidateId: candidate.id,
+      jobId: data.jobId,
+      resumeUrl: data.resumeUrl,
+      coverLetterUrl: data.coverLetterUrl,
+      portfolioUrl: data.portfolioUrl,
+      linkedInUrl: data.linkedInUrl,
+      websiteUrl: data.websiteUrl,
+      customAnswers: data.customAnswers,
+      questionnaireData: data.questionnaireData,
     });
+
+    // Profile Enhancement: If a resume was uploaded, we should ideally have it parsed.
+    // However, data.resumeUrl is just a string. 
+    // In a full implementation, we'd need the buffer or we'd re-trigger parsing if not already done.
+    // For now, if we have the file in req (not available here in service directly), we'd parse.
+    // Assuming the frontend might call the parse endpoint separately, or we add file support here.
+
+    return application;
   }
 
-  async createFromTalentPool(candidateId: string, jobId: string, recruiterId: string): Promise<Application> {
+  async acceptJobInvitation(candidateId: string, token: string, applicationData: any): Promise<Application> {
+    const invitation = await this.applicationRepository.findInvitationByToken(token);
+    if (!invitation) throw new HttpException(404, 'Invitation not found');
+    if (invitation.expires_at < new Date()) throw new HttpException(400, 'Invitation expired');
+    if (invitation.status === 'ACCEPTED') throw new HttpException(400, 'Invitation already accepted');
+
+    const application = await this.submitApplication({
+      candidateId,
+      jobId: invitation.job_id,
+      ...applicationData,
+    });
+
+    await this.applicationRepository.updateInvitationStatus(
+      invitation.id,
+      'ACCEPTED' as any,
+      new Date(),
+      application.id
+    );
+
+    return application;
+  }
+
+  async createManualApplication(
+    companyId: string,
+    jobId: string,
+    candidateId: string,
+    recruiterId: string,
+    data: any
+  ): Promise<Application> {
+    const jobRepository = new JobRepository();
+    const job = await jobRepository.findById(jobId);
+    if (!job || job.company_id !== companyId) {
+      throw new HttpException(403, 'Job not found or access denied');
+    }
+
     const hasApplied = await this.applicationRepository.checkExistingApplication(candidateId, jobId);
-    if (hasApplied) {
-      throw new HttpException(400, 'Candidate already applied');
-    }
+    if (hasApplied) throw new HttpException(400, 'Candidate already applied');
 
-    const candidate = await this.candidateRepository.findById(candidateId);
-    if (!candidate) throw new HttpException(404, 'Candidate not found');
-
+    // Create the application manually
     return this.applicationRepository.create({
       candidate: { connect: { id: candidateId } },
       job: { connect: { id: jobId } },
       status: 'NEW',
       stage: 'NEW_APPLICATION',
+      resume_url: data.resumeUrl,
+      cover_letter_url: data.coverLetterUrl,
+      portfolio_url: data.portfolioUrl,
+      linked_in_url: data.linkedInUrl,
+      website_url: data.websiteUrl,
       manually_added: true,
       added_by: recruiterId,
-      source: 'TALENT_POOL',
-      resume_url: candidate.resume_url // Copy resume from candidate profile if exists
+      added_at: new Date(),
+    } as any);
+  }
+
+  async addFromTalentPool(
+    jobId: string,
+    candidateId: string,
+    recruiterId: string,
+    companyId: string
+  ): Promise<any> {
+    const jobRepository = new JobRepository();
+    const job = await jobRepository.findById(jobId);
+    if (!job || job.company_id !== companyId) {
+      throw new HttpException(403, 'Job not found or access denied');
+    }
+
+    const hasApplied = await this.applicationRepository.checkExistingApplication(candidateId, jobId);
+    if (hasApplied) throw new HttpException(400, 'Candidate already applied');
+
+    // For now, let's just create a manual application
+    return this.createManualApplication(companyId, jobId, candidateId, recruiterId, {});
+  }
+
+  async moveToRound(id: string, roundId: string, invitedBy?: string): Promise<ApplicationRoundProgress> {
+    const progress = await this.applicationRepository.moveToRound(id, roundId);
+
+    // Check if round is an assessment round
+    const round = await this.prisma.jobRound.findUnique({
+      where: { id: roundId },
+      select: { type: true }
     });
+
+    if (round?.type === 'ASSESSMENT' && invitedBy) {
+      await this.assessmentService.autoAssignAssessment(id, roundId, invitedBy);
+    }
+
+    return progress;
+  }
+
+  async updateManualScreening(id: string, data: any): Promise<Application> {
+    return this.applicationRepository.updateManualScreening(id, data);
+  }
+
+  async getApplicationResume(id: string): Promise<any> {
+    const application = await this.applicationRepository.findById(id);
+    if (!application) throw new HttpException(404, 'Application not found');
+    if (!application.resume_url) throw new HttpException(404, 'Resume not found');
+    return { url: application.resume_url };
   }
 
   async getResume(id: string): Promise<any> {
@@ -459,37 +544,23 @@ export class ApplicationService extends BaseService {
       throw new HttpException(404, 'Resume not found');
     }
 
-    console.log('[getResume] Application ID:', id);
-    console.log('[getResume] Application resume_url:', app.resume_url);
-
-    // Try to find the detailed resume record to get content
     let resumeRecord = await this.applicationRepository.findResumeByUrl(app.resume_url);
-    console.log('[getResume] Found resumeRecord by URL match:', !!resumeRecord);
-
     let parsedContent = resumeRecord?.content || null;
-    console.log('[getResume] Existing content in resumeRecord:', parsedContent ? `${parsedContent.substring(0, 50)}...` : 'null');
 
     if (resumeRecord && !parsedContent) {
-      // Content missing in DB, trigger parsing (Self-Healing)
       try {
-        console.log(`[getResume] Parsing missing content for resume: ${resumeRecord.id}`);
         const { DocumentParser } = await import('../../utils/document-parser');
         parsedContent = await DocumentParser.parseFromUrl(resumeRecord.file_url);
-        console.log('[getResume] Parsed content length:', parsedContent?.length || 0);
         if (parsedContent) {
           await this.applicationRepository.updateResumeContent(resumeRecord.id, parsedContent);
-          console.log('[getResume] Updated resume content in DB');
         }
       } catch (e) {
         console.error('[getResume] Failed to parse resume on fly', e);
       }
     } else if (!resumeRecord) {
-      // No record found, try parsing from URL directly to return content
-      console.log('[getResume] No resumeRecord found, parsing directly from app.resume_url');
       try {
         const { DocumentParser } = await import('../../utils/document-parser');
         parsedContent = await DocumentParser.parseFromUrl(app.resume_url);
-        console.log('[getResume] Parsed content length from app URL:', parsedContent?.length || 0);
       } catch (e) {
         console.error('[getResume] Failed to parse resume on fly from app url', e);
       }
@@ -504,12 +575,11 @@ export class ApplicationService extends BaseService {
         fileSize: resumeRecord.file_size,
         fileType: resumeRecord.file_type,
         uploadedAt: resumeRecord.uploaded_at,
-        content: parsedContent, // Use the potentially newly parsed content
-        isDefault: resumeRecord.is_default
+        content: parsedContent,
+        isDefault: resumeRecord.is_default,
       };
     }
 
-    // Fallback if no detailed record
     return {
       id: app.id,
       candidateId: app.candidate_id,
@@ -518,106 +588,15 @@ export class ApplicationService extends BaseService {
       fileSize: 0,
       fileType: 'application/pdf',
       uploadedAt: app.created_at,
-      uploadedBy: app.candidate_id,
-      content: parsedContent
+      content: parsedContent,
+      isDefault: false,
     };
   }
 
-  async moveToRound(applicationId: string, jobRoundId: string, userId: string): Promise<Application> {
-    // Verify application exists
-    const application = await this.getApplication(applicationId);
-    if (!application) {
-      throw new HttpException(404, 'Application not found');
-    }
-
-    // Handle fallback round IDs (e.g., "fixed-OFFER-{jobId}")
-    let actualRoundId = jobRoundId;
-
-    // We need to access JobRoundService/Repository to resolve rounds.
-    // For now assuming we cannot inject it due to circular deps, we access prisma via repository if needed,
-    // OR we instantiate a repository here. Best practice is to have it injected.
-    // I'll assume we can't easily inject it right now without refactoring constructor, 
-    // so I'll rely on a helper in ApplicationRepository OR add the dependency if safe.
-    // Let's rely on ApplicationRepository helper methods to interact with JobRounds which is not ideal but safe.
-    // Ideally: new JobRoundRepository() or injected.
-
-    // NOTE: For this "Restoration" I will use a helper in ApplicationRepository to find round by ID or Fixed Key
-    const round = await this.applicationRepository.findJobRound(actualRoundId);
-    let targetRound = round;
-
-    if (!targetRound && actualRoundId.startsWith('fixed-')) {
-      const parts = actualRoundId.split('-');
-      if (parts.length >= 2) {
-        const fixedKey = parts[1]; // e.g., "OFFER"
-        // Try find by fixed key
-        targetRound = await this.applicationRepository.findJobRoundByFixedKey(application.job_id, fixedKey);
-
-        // If still not found, we might need to initialize (this checks logic from old backend)
-        // For now, assuming fixed rounds are likely present.
-        if (targetRound) {
-          actualRoundId = targetRound.id;
-        }
-      }
-    }
-
-    if (!targetRound) {
-      throw new HttpException(404, 'Round not found');
-    }
-
-    if (targetRound.job_id !== application.job_id) {
-      throw new HttpException(403, 'Round does not belong to the same job');
-    }
-
-    // Upsert Progress
-    await this.applicationRepository.upsertRoundProgress(applicationId, actualRoundId);
-
-    // Map Round to Stage
-    let mappedStage: ApplicationStage = 'NEW_APPLICATION';
-    if (targetRound.is_fixed && targetRound.fixed_key) {
-      const key = targetRound.fixed_key;
-      if (key === 'NEW') mappedStage = 'NEW_APPLICATION';
-      else if (key === 'OFFER') mappedStage = 'OFFER_EXTENDED';
-      else if (key === 'HIRED') mappedStage = 'OFFER_ACCEPTED';
-      else if (key === 'REJECTED') mappedStage = 'REJECTED';
-    } else {
-      if (targetRound.type === 'ASSESSMENT') mappedStage = 'RESUME_REVIEW';
-      else if (targetRound.type === 'INTERVIEW') mappedStage = 'TECHNICAL_INTERVIEW';
-    }
-
-    // Update Application Stage
-    const updatedApp = await this.applicationRepository.updateStage(applicationId, mappedStage);
-
-    // Auto-assign Assessment
-    if (targetRound.type === 'ASSESSMENT') {
-      // Need to dynamic import or use a service locator to avoid circular dependency if possible
-      const { AssessmentService } = await import('../assessment/assessment.service');
-      const { AssessmentRepository } = await import('../assessment/assessment.repository'); // Import repo to instantiate service
-      // Instantiate manually if not in container (NestJS style vs manual) - The codebase seems manual dependency injection or simple classes.
-      // Looking at structure, simple classes.
-      const assessmentService = new AssessmentService(new AssessmentRepository());
-      try {
-        await assessmentService.autoAssignAssessment(applicationId, actualRoundId, userId);
-      } catch (e) {
-        console.error('Failed to auto-assign assessment', e);
-      }
-    }
-    // Auto-schedule Interview
-    else if (targetRound.type === 'INTERVIEW') {
-      const { InterviewService } = await import('../interview/interview.service');
-      try {
-        await InterviewService.autoScheduleInterview({
-          applicationId,
-          jobRoundId: actualRoundId,
-          scheduledBy: userId
-        });
-      } catch (e) {
-        console.error('Failed to auto-schedule interview', e);
-      }
-    }
-
-    // Trigger Emails (Omitted/Placeholder as EmailAutomationService might not exist or be different)
-
-    return updatedApp;
+  async getApplicationForAdmin(id: string): Promise<Application | null> {
+    const application = await this.applicationRepository.findById(id);
+    if (!application) throw new HttpException(404, 'Application not found');
+    return this.mapToResponse(application);
   }
 
   async addEvaluation(data: {
@@ -627,20 +606,108 @@ export class ApplicationService extends BaseService {
     comment?: string;
     decision?: 'APPROVE' | 'REJECT' | 'PENDING';
   }) {
-    const evaluation = await this.applicationRepository.addEvaluation(data);
-
-    // If decision provided, handle application status update
-    // Only 'APPROVE' or 'REJECT' should trigger status changes AND only if user has permission (handled in Controller/Middleware)
-    // Assuming Permission Check is done before calling this service or within the controller.
-
-    // Note: The prompt implies: "if shortlisting type user or admin approve or reject candidate it will be marked as shortlisted and rejected"
-    // We'll handle the status update logic in the controller to keep service focused, OR here if we pass user role.
-    // For now, simpler to return evaluation and let controller decide on status update based on role.
-
-    return evaluation;
+    return this.applicationRepository.addEvaluation(data);
   }
 
   async getEvaluations(applicationId: string) {
     return this.applicationRepository.getEvaluations(applicationId);
+  }
+
+  private mapToResponse(app: any): any {
+    if (!app) return null;
+
+    const aiResult = Array.isArray(app.screening_result)
+      ? app.screening_result.find((r: any) => r.screening_type === 'AUTOMATED')
+      : app.screening_result;
+
+    const analysisData = aiResult?.criteria_matched || app.ai_analysis || {};
+    const hasAnalysis = !!aiResult || !!app.ai_analysis;
+
+    const aiAnalysis = hasAnalysis
+      ? {
+          summary: analysisData.summary || aiResult?.summary,
+          detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis,
+          behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits,
+          concerns: analysisData.concerns,
+          strengths: analysisData.strengths,
+          careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory,
+          flightRisk: analysisData.flightRisk || analysisData.flight_risk,
+          culturalFit: analysisData.culturalFit || analysisData.cultural_fit,
+          salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark,
+          technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment,
+        }
+      : null;
+
+    const parsedResume = app.candidate
+      ? {
+          skills: app.candidate.skills?.map((s: any) => ({
+            name: s.name,
+            proficiency: s.level || 'Intermediate',
+          })) || [],
+          workHistory: app.candidate.work_experience?.map((w: any) => ({
+            company: w.company,
+            role: w.role,
+            startDate: w.start_date,
+            endDate: w.end_date,
+            description: w.description,
+          })) || [],
+          education: app.candidate.education?.map((e: any) => ({
+            institution: e.institution,
+            degree: e.degree,
+            field: e.field_of_study,
+            startDate: e.start_date,
+            endDate: e.end_date,
+          })) || [],
+        }
+      : null;
+
+    return {
+      ...app,
+      // Map database fields to camelCase for frontend
+      jobId: app.job_id,
+      candidateId: app.candidate_id,
+      appliedDate: app.applied_date,
+      resumeUrl: app.resume_url,
+      coverLetterUrl: app.cover_letter_url,
+      portfolioUrl: app.portfolio_url,
+      linkedInUrl: app.linked_in_url,
+      websiteUrl: app.website_url,
+      customAnswers: app.custom_answers,
+      questionnaireData: app.questionnaire_data,
+      isRead: app.is_read,
+      isNew: app.is_new,
+      recruiterNotes: app.recruiter_notes,
+      shortlistedAt: app.shortlisted_at,
+      shortlistedBy: app.shortlisted_by,
+      manuallyAdded: app.manually_added,
+      addedAt: app.added_at,
+      addedBy: app.added_by,
+      screeningStatus: app.screening_status,
+      screeningNotes: app.screening_notes,
+      reviewNotes: app.screening_notes, // alias used in some places
+      videoInterviewStatus: app.video_interview_status,
+      aiAnalysis,
+      parsedResume,
+      // Nested mapping if available
+      job: app.job ? {
+        ...app.job,
+        id: app.job.id,
+        title: app.job.title,
+        location: app.job.location,
+        employmentType: app.job.employment_type,
+        workArrangement: app.job.work_arrangement,
+        salaryMin: app.job.salary_min,
+        salaryMax: app.job.salary_max,
+        salaryCurrency: app.job.salary_currency,
+        company: app.job.company
+      } : undefined,
+      candidate: app.candidate ? {
+        ...app.candidate,
+        firstName: app.candidate.first_name,
+        lastName: app.candidate.last_name,
+        linkedInUrl: app.candidate.linked_in_url,
+        emailVerified: app.candidate.email_verified,
+      } : undefined
+    };
   }
 }

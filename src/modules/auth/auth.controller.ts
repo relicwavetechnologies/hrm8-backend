@@ -5,6 +5,10 @@ import { AuthRepository } from './auth.repository';
 import { getSessionCookieOptions, generateSessionId, getSessionExpiration } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
 import { verificationService } from '../verification/verification.service';
+import { passwordResetService } from './password-reset.service';
+import { signupRequestService } from './signup-request.service';
+import { CompanyService } from '../company/company.service';
+import { CompanyRepository } from '../company/company.repository';
 
 export class AuthController extends BaseController {
   private authService: AuthService;
@@ -19,25 +23,18 @@ export class AuthController extends BaseController {
   login = async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
-      console.log(`[AuthController.login] Login attempt for email: ${email}`);
-
       const { user, sessionId } = await this.authService.login({ email, password });
 
-      console.log(`[AuthController.login] Login successful, setting sessionId: ${sessionId}`);
-      const cookieOptions = getSessionCookieOptions();
-      console.log(`[AuthController.login] Cookie options:`, cookieOptions);
-
-      res.cookie('sessionId', sessionId, cookieOptions);
+      res.cookie('sessionId', sessionId, getSessionCookieOptions());
 
       const { password_hash, ...userData } = user;
       return this.sendSuccess(res, {
         user: {
           ...userData,
-          companyId: user.company_id
-        }
+          companyId: user.company_id,
+        },
       });
     } catch (error) {
-      console.error(`[AuthController.login] Login error:`, error);
       return this.sendError(res, error);
     }
   };
@@ -60,11 +57,93 @@ export class AuthController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { 
-        user: { 
-          ...userData, 
-          companyId: user.company_id 
-        } 
+
+      const companyService = new CompanyService(new CompanyRepository());
+      const profile = await companyService.getProfile(user.company_id);
+
+      return this.sendSuccess(res, {
+        user: {
+          ...userData,
+          companyId: user.company_id,
+        },
+        profile,
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  registerCompany = async (req: Request, res: Response) => {
+    try {
+      const {
+        companyName,
+        website,
+        domain,
+        adminEmail,
+        adminFirstName,
+        adminLastName,
+        password,
+        countryOrRegion,
+        acceptedTerms,
+      } = req.body;
+
+      const result = await this.authService.registerCompanyWithAdmin({
+        companyName,
+        website,
+        domain,
+        adminEmail,
+        adminFirstName,
+        adminLastName,
+        password,
+        countryOrRegion,
+        acceptedTerms,
+      });
+
+      res.status(201);
+      return this.sendSuccess(res, {
+        companyId: result.company.id,
+        adminUserId: result.user.id,
+        verificationRequired: result.verificationRequired,
+        verificationMethod: result.verificationMethod,
+        message: result.verificationRequired
+          ? 'Company registered. Please verify your email to activate your account.'
+          : 'Company registered and verified successfully.',
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  registerEmployee = async (req: Request, res: Response) => {
+    try {
+      const { email, name, password } = req.body;
+
+      const user = await this.authService.registerEmployeeAutoJoin(email, name, password);
+
+      if (!user) {
+        return this.sendError(res, new Error('No company found for this email domain. Please contact your company admin for an invitation.'));
+      }
+
+      res.status(201);
+      return this.sendSuccess(res, {
+        userId: user.id,
+        message: 'Account created successfully. You can now login.',
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  acceptInvitation = async (req: Request, res: Response) => {
+    try {
+      const { token, password, name } = req.body;
+
+      const user = await this.authService.acceptInvitation(token, password, name);
+
+      res.status(201);
+      return this.sendSuccess(res, {
+        userId: user.id,
+        message: 'Account created successfully. You can now login.',
       });
     } catch (error) {
       return this.sendError(res, error);
@@ -74,20 +153,23 @@ export class AuthController extends BaseController {
   verifyCompany = async (req: Request, res: Response) => {
     try {
       const { token, companyId } = req.body as { token?: string; companyId?: string };
+
       if (!token || !companyId) {
         return this.sendError(res, new Error('Token and companyId are required'));
       }
 
       const result = await verificationService.verifyByEmailToken(companyId, token);
+
       if (!result.verified) {
         return this.sendError(res, new Error(result.error || 'Invalid or expired verification token'));
       }
 
       if (result.email) {
         const user = await this.authRepository.findByEmail(result.email);
+
         if (user && user.status === 'ACTIVE') {
           const sessionId = generateSessionId();
-          const expiresAt = getSessionExpiration(24);
+          const expiresAt = getSessionExpiration();
 
           await this.authRepository.createSession({
             session_id: sessionId,
@@ -99,8 +181,12 @@ export class AuthController extends BaseController {
           });
 
           await this.authRepository.updateLastLogin(user.id);
-
           res.cookie('sessionId', sessionId, getSessionCookieOptions());
+
+          const companyRepository = new CompanyRepository();
+          const companyService = new CompanyService(companyRepository);
+          const company = await companyService.getCompany(user.company_id);
+          const profile = await companyService.getProfile(user.company_id);
 
           const { password_hash, ...userData } = user;
           return this.sendSuccess(res, {
@@ -109,7 +195,11 @@ export class AuthController extends BaseController {
             user: {
               ...userData,
               companyId: user.company_id,
+              companyName: company.name,
+              companyWebsite: company.website,
+              companyDomain: company.domain,
             },
+            profile,
           });
         }
       }
@@ -129,10 +219,66 @@ export class AuthController extends BaseController {
       if (!email) {
         return this.sendError(res, new Error('Email is required'));
       }
+
       const result = await verificationService.resendVerificationEmail(email);
+
       return this.sendSuccess(res, {
         message: 'Verification email sent. Please check your inbox.',
         ...result,
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  requestPasswordReset = async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+
+      await passwordResetService.requestPasswordReset(email, {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
+      return this.sendSuccess(res, {
+        message: 'If an account exists for that email, we sent a password reset link.',
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resetPassword = async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+
+      await passwordResetService.resetPassword(token, password);
+
+      return this.sendSuccess(res, {
+        message: 'Password updated successfully. You can now log in.',
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  createSignupRequest = async (req: Request, res: Response) => {
+    try {
+      const { companyId, email, name, firstName, lastName, password, acceptedTerms } = req.body;
+
+      await signupRequestService.createSignupRequest({
+        companyId,
+        email,
+        name,
+        firstName,
+        lastName,
+        password,
+        acceptedTerms,
+      });
+
+      res.status(201);
+      return this.sendSuccess(res, {
+        message: 'Signup request submitted successfully. Your request is pending approval.',
       });
     } catch (error) {
       return this.sendError(res, error);

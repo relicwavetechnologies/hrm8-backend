@@ -1,22 +1,23 @@
 import { Router } from 'express';
 import { NotificationController } from './notification.controller';
-import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
-
-// Note: This router assumes standard 'authenticate' middleware.
-// If you need to support Candidates/Consultants, you might need a unified auth middleware
-// or mount this router multiple times with different middlewares.
+import { unifiedAuthenticate } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
 const notificationController = new NotificationController();
 
-console.log('✅ [Routes] Notification routes being registered');
+// Listing & Count
+router.get('/', unifiedAuthenticate, notificationController.list);
+router.get('/count', unifiedAuthenticate, notificationController.getUnreadCount);
 
-router.get('/', authenticateUnified, notificationController.list);
-router.patch('/:id/read', authenticateUnified, notificationController.markRead);
-router.patch('/read-all', authenticateUnified, notificationController.markAllRead);
-router.delete('/:id', authenticateUnified, (req, res) => {
-  console.log('🗑️  [Route] DELETE /:id hit for notification:', req.params.id);
-  notificationController.delete(req, res);
-});
+// Single Notification Operations
+router.get('/:id', unifiedAuthenticate, notificationController.getNotification);
+router.patch('/:id/read', unifiedAuthenticate, notificationController.markRead);
+router.delete('/:id', unifiedAuthenticate, notificationController.deleteNotification);
+
+// Bulk Operations
+router.patch('/read-all', unifiedAuthenticate, notificationController.markAllRead);
+
+// Test Operations
+router.post('/test', unifiedAuthenticate, notificationController.createTestNotification);
 
 export default router;

@@ -1,108 +1,179 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { InterviewService } from './interview.service';
-import { AuthenticatedRequest } from '../../types';
+import { InterviewRepository } from './interview.repository';
+import { UnifiedAuthenticatedRequest } from '../../types';
 
 export class InterviewController extends BaseController {
+  private service: InterviewService;
 
-  create = async (req: AuthenticatedRequest, res: Response) => {
+  constructor() {
+    super('interview');
+    this.service = new InterviewService(new InterviewRepository());
+  }
+
+  create = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
+      if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
 
-      const interview = await InterviewService.createInterview({
+      const { applicationId, jobRoundId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
+
+      const result = await this.service.createInterview({
         applicationId,
+        jobRoundId,
         scheduledDate: new Date(scheduledDate),
         duration,
         type,
+        scheduledBy: req.user.id,
         meetingLink,
         interviewerIds,
-        notes,
-        scheduledBy: req.user?.id || 'system'
+        notes
       });
-
-      return this.sendSuccess(res, { interview });
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 
-  list = async (req: AuthenticatedRequest, res: Response) => {
+  listByJob = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const { jobId, jobRoundId, status, startDate, endDate } = req.query;
+      const result = await this.service.listByJob(req.params.jobId as string);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  }
 
-      const interviews = await InterviewService.getInterviews({
+  getById = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const result = await this.service.getById(req.params.id as string);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  }
+
+  updateStatus = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const result = await this.service.updateStatus(req.params.id as string, req.body.status, req.body.notes);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  }
+
+  addFeedback = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const result = await this.service.addFeedback(req.params.id as string, req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  }
+
+  getInterviews = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const filters = req.query;
+      const result = await this.service.getInterviews({
+        jobId: filters.jobId as string,
+        jobRoundId: filters.jobRoundId as string,
+        status: filters.status as string,
+        startDate: filters.startDate ? new Date(filters.startDate as string) : undefined,
+        endDate: filters.endDate ? new Date(filters.endDate as string) : undefined
+      });
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  }
+
+  getCalendarEvents = async (req: UnifiedAuthenticatedRequest, res: Response) => {
+    try {
+      const { jobId, start, end } = req.query;
+      const interviews = await this.service.getInterviews({
         jobId: jobId as string,
-        jobRoundId: jobRoundId as string,
-        status: status as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: start ? new Date(start as string) : undefined,
+        endDate: end ? new Date(end as string) : undefined
       });
 
-      return this.sendSuccess(res, { interviews });
-    } catch (error) {
-      return this.sendError(res, error);
-    }
-  };
+      const events = interviews.map((i: any) => ({
+        id: i.id,
+        title: i.application?.candidate
+          ? `Interview: ${i.application.candidate.first_name}`
+          : `Interview`,
+        start: i.scheduled_date,
+        end: new Date(new Date(i.scheduled_date).getTime() + (i.duration * 60000)),
+        extendedProps: {
+          interviewId: i.id,
+          type: i.type,
+          status: i.status
+        }
+      }));
 
-  listByJob = async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const jobId = req.params.jobId as string;
-      const interviews = await InterviewService.getInterviews({ jobId });
-      return this.sendSuccess(res, { interviews });
+      return this.sendSuccess(res, events);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 
-  listByApplication = async (req: AuthenticatedRequest, res: Response) => {
+  rescheduleInterview = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const applicationId = req.params.applicationId as string;
-      const interviews = await InterviewService.getInterviews({ applicationId });
-      return this.sendSuccess(res, { interviews });
+      if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+      const result = await this.service.rescheduleInterview(
+        req.params.id as string,
+        new Date(req.body.newScheduledDate),
+        req.body.reason,
+        req.user.id
+      );
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 
-  getById = async (req: AuthenticatedRequest, res: Response) => {
+  cancelInterview = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const id = req.params.id as string;
-      const interview = await InterviewService.getInterviewById(id);
-      if (!interview) return this.sendError(res, new Error('Interview not found'), 404);
-      return this.sendSuccess(res, { interview });
+      if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+      const result = await this.service.cancelInterview(
+        req.params.id as string,
+        req.body.reason,
+        req.user.id
+      );
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 
-  updateStatus = async (req: AuthenticatedRequest, res: Response) => {
+  markAsNoShow = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const id = req.params.id as string;
-      const { status, notes } = req.body;
-      const interview = await InterviewService.updateStatus(id, status, notes);
-      return this.sendSuccess(res, { interview });
+      if (!req.user) return this.sendError(res, new Error('Unauthorized'), 401);
+      const result = await this.service.markAsNoShow(
+        req.params.id as string,
+        req.body.reason,
+        req.user.id
+      );
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 
-  addFeedback = async (req: AuthenticatedRequest, res: Response) => {
+  bulkReschedule = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const id = req.params.id as string;
-      const feedback = req.body; // Expects interviewer_id, overall_rating, etc.
-      const interview = await InterviewService.addFeedback(id, feedback);
-      return this.sendSuccess(res, { interview });
+      const result = await this.service.bulkReschedule(req.body.ids, new Date(req.body.newDate));
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
-  getProgressionStatus = async (req: AuthenticatedRequest, res: Response) => {
+  }
+
+  bulkCancel = async (req: UnifiedAuthenticatedRequest, res: Response) => {
     try {
-      const id = req.params.id as string;
-      const status = await InterviewService.getProgressionStatus(id);
-      return this.sendSuccess(res, status);
+      const result = await this.service.bulkCancel(req.body.ids, req.body.reason);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
-  };
+  }
 }

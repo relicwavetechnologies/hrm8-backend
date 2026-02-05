@@ -1,10 +1,10 @@
 import { BaseService } from '../../core/service';
 import { SalesRepository } from './sales.repository';
-import { SalesWithdrawalService } from './sales-withdrawal.service';
-import { Lead, LeadConversionRequest, Opportunity, Activity, OpportunityStage, ActivityType } from '@prisma/client';
+import { OpportunityStage, ActivityType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { SalesValidators } from './sales.validators';
 import { prisma } from '../../utils/prisma';
+import { SalesWithdrawalService } from './sales-withdrawal.service';
 import { notifySalesAgent } from '../notification/notification-service-singleton';
 
 export class SalesService extends BaseService {
@@ -15,8 +15,138 @@ export class SalesService extends BaseService {
     this.withdrawalService = new SalesWithdrawalService();
   }
 
-  // --- Opportunities ---
+  // Leads
+  async createLead(data: any, consultantId: string) {
+    SalesValidators.validateLeadData(data);
 
+    return this.salesRepository.createLead({
+      company_name: data.company_name ?? data.companyName,
+      email: data.email,
+      phone: data.phone || null,
+      website: data.website || null,
+      country: data.country,
+      city: data.city || null,
+      state_province: data.state_province ?? data.state || null,
+      creator: { connect: { id: consultantId } },
+      assigned_consultant: { connect: { id: consultantId } },
+      status: 'NEW',
+      lead_source: data.lead_source ?? data.source ?? 'WEBSITE'
+    } as any);
+  }
+
+  async getMyLeads(consultantId: string) {
+    return this.salesRepository.findLeads({
+      OR: [
+        { assigned_consultant_id: consultantId },
+        { created_by: consultantId },
+        { referred_by: consultantId }
+      ]
+    });
+  }
+
+  async getLeads(consultantId: string, filters?: { status?: string; region?: string }) {
+    const where: any = {
+      OR: [
+        { assigned_consultant_id: consultantId },
+        { created_by: consultantId },
+        { referred_by: consultantId }
+      ]
+    };
+    if (filters?.status) where.status = filters.status;
+    if (filters?.region) where.region_id = filters.region;
+
+    return this.salesRepository.findLeads(where);
+  }
+
+  async convertLead(leadId: string, consultantId: string, companyData: any) {
+    const lead = await this.salesRepository.findLeadById(leadId);
+    if (!lead) throw new HttpException(404, 'Lead not found');
+    if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
+
+    const company = await prisma.company.create({
+      data: {
+        name: companyData.company_name || lead.company_name,
+        domain: companyData.website ? new URL(companyData.website).hostname : '',
+        website: companyData.website || lead.website || '',
+        country_or_region: companyData.country || lead.country || '',
+        verification_status: 'PENDING'
+      }
+    });
+
+    await this.createOpportunity({
+      companyId: company.id,
+      name: `${company.name} Opportunity`,
+      type: 'NEW_BUSINESS',
+      salesAgentId: consultantId,
+      amount: companyData.estimatedValue,
+      description: companyData.notes
+    });
+
+    await this.salesRepository.updateLead(leadId, {
+      status: 'CONVERTED',
+      company: { connect: { id: company.id } },
+      converted_at: new Date()
+    } as any);
+
+    return { lead, company };
+  }
+
+  // Conversion Requests
+  async submitConversionRequest(consultantId: string, leadId: string, data: any) {
+    const lead = await this.salesRepository.findLeadById(leadId);
+    if (!lead) throw new HttpException(404, 'Lead not found');
+    if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
+
+    SalesValidators.validateConversionRequest(data);
+
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { region_id: true }
+    });
+
+    if (!consultant?.region_id) {
+      throw new HttpException(400, 'Consultant does not have an assigned region');
+    }
+
+    return this.salesRepository.createConversionRequest({
+      lead: { connect: { id: leadId } },
+      consultant: { connect: { id: consultantId } },
+      region: { connect: { id: consultant.region_id } },
+      company_name: data.company_name,
+      email: data.email,
+      phone: data.phone || null,
+      website: data.website || null,
+      country: data.country,
+      city: data.city || null,
+      state_province: data.state_province ?? data.state || null,
+      agent_notes: data.notes || null,
+      status: 'PENDING'
+    });
+  }
+
+  async getMyRequests(consultantId: string) {
+    return this.salesRepository.findConversionRequests({
+      consultant_id: consultantId
+    });
+  }
+
+  async getRequest(requestId: string, consultantId: string) {
+    const request = await this.salesRepository.findConversionRequestById(requestId);
+    if (!request) throw new HttpException(404, 'Conversion request not found');
+    if (request.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
+    return request;
+  }
+
+  async cancelRequest(requestId: string, consultantId: string) {
+    const request = await this.salesRepository.findConversionRequestById(requestId);
+    if (!request) throw new HttpException(404, 'Conversion request not found');
+    if (request.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
+    if (request.status !== 'PENDING') throw new HttpException(400, 'Can only cancel pending requests');
+
+    return this.salesRepository.updateConversionRequest(requestId, { status: 'CANCELLED' });
+  }
+
+  // Opportunities
   private getProbabilityForStage(stage: OpportunityStage): number {
     switch (stage) {
       case 'NEW': return 10;
@@ -32,7 +162,7 @@ export class SalesService extends BaseService {
   async createOpportunity(data: {
     companyId: string;
     name: string;
-    type: any; // OpportunityType
+    type: any;
     stage?: OpportunityStage;
     amount?: number;
     currency?: string;
@@ -55,10 +185,9 @@ export class SalesService extends BaseService {
       expected_close_date: data.expectedCloseDate ? new Date(data.expectedCloseDate) : null,
       consultant: { connect: { id: data.salesAgentId } },
       description: data.description,
-      tags: data.tags || [],
+      tags: data.tags || []
     });
 
-    // Notify sales agent about new opportunity
     await notifySalesAgent(data.salesAgentId, {
       title: 'New Opportunity Created',
       message: `Opportunity "${data.name}" has been created with an estimated value of ${data.currency || 'USD'} ${data.amount || 0}.`,
@@ -87,7 +216,6 @@ export class SalesService extends BaseService {
     if (probability !== undefined) updateData.probability = probability;
     if (closedAt !== undefined) updateData.closed_at = closedAt;
 
-    // Remove immutable or special fields
     delete updateData.id;
     delete updateData.companyId;
     delete updateData.salesAgentId;
@@ -112,7 +240,6 @@ export class SalesService extends BaseService {
     const opportunities = await this.salesRepository.findOpportunities(where);
 
     const totalPipelineValue = opportunities.reduce((sum, opp) => sum + (opp.amount || 0), 0);
-
     const weightedPipelineValue = opportunities.reduce((sum, opp) => {
       const amount = opp.amount || 0;
       const prob = opp.probability || 0;
@@ -127,18 +254,17 @@ export class SalesService extends BaseService {
       acc[stage].count++;
       acc[stage].value += (opp.amount || 0);
       return acc;
-    }, {} as Record<string, { count: number, value: number }>);
+    }, {} as Record<string, { count: number; value: number }>);
 
     return {
-      totalPipelineValue,
-      weightedPipelineValue,
-      byStage,
-      dealCount: opportunities.length
+      total_pipeline_value: totalPipelineValue,
+      weighted_pipeline_value: weightedPipelineValue,
+      by_stage: byStage,
+      deal_count: opportunities.length
     };
   }
 
-  // --- Activities ---
-
+  // Activities
   async logActivity(data: {
     companyId: string;
     leadId?: string;
@@ -147,7 +273,7 @@ export class SalesService extends BaseService {
     subject: string;
     description?: string;
     createdBy: string;
-    actorType?: any; // ActorType
+    actorType?: any;
     scheduledAt?: Date;
     dueDate?: Date;
     completedAt?: Date;
@@ -165,7 +291,7 @@ export class SalesService extends BaseService {
       due_date: data.dueDate ? new Date(data.dueDate) : null,
       completed_at: data.completedAt ? new Date(data.completedAt) : null,
       call_duration: data.duration,
-      attachments: data.metadata,
+      attachments: data.metadata
     };
 
     if (data.leadId) createData.lead = { connect: { id: data.leadId } };
@@ -190,155 +316,28 @@ export class SalesService extends BaseService {
     return this.salesRepository.findActivities(where, filters.limit);
   }
 
-  // --- Dashboard ---
+  // Dashboard
   async getDashboardStats(consultantId: string) {
     return this.salesRepository.getDashboardStats(consultantId);
   }
 
-  // --- Leads ---
-  async getLeads(consultantId: string, filters?: { status?: string; region?: string }) {
-    const where: any = {
-      OR: [
-        { assigned_consultant_id: consultantId },
-        { created_by: consultantId },
-        { referred_by: consultantId }
-      ]
-    };
-    if (filters?.status) where.status = filters.status;
-    if (filters?.region) where.region_id = filters.region;
-
-    return this.salesRepository.findLeads(where);
-  }
-
-  async createLead(consultantId: string, data: any) {
-    SalesValidators.validateLeadData(data);
-
-    return this.salesRepository.createLead({
-      company_name: data.company_name,
-      email: data.email,
-      phone: data.phone || null,
-      website: data.website || null,
-      country: data.country,
-      city: data.city || null,
-      state_province: data.state || null,
-      creator: { connect: { id: consultantId } },
-      status: 'NEW',
-      lead_source: data.source || 'WEBSITE'
-    } as any);
-  }
-
-  async convertLead(leadId: string, consultantId: string, companyData: any) {
-    const lead = await this.salesRepository.findLeadById(leadId);
-    if (!lead) throw new HttpException(404, 'Lead not found');
-    if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
-
-    // Create company from lead data
-    const company = await prisma.company.create({
-      data: {
-        name: companyData.company_name || lead.company_name,
-        domain: companyData.website ? new URL(companyData.website).hostname : '',
-        website: companyData.website || lead.website || '',
-        country_or_region: companyData.country || lead.country || '',
-        verification_status: 'PENDING'
-      }
-    });
-
-    // Create opportunity
-    await this.createOpportunity({
-      companyId: company.id,
-      name: `${company.name} Opportunity`,
-      type: 'NEW_BUSINESS',
-      salesAgentId: consultantId,
-      amount: companyData.estimatedValue,
-      description: companyData.notes
-    });
-
-    // Update lead status
-    await this.salesRepository.updateLead(leadId, {
-      status: 'CONVERTED',
-      company: { connect: { id: company.id } },
-      converted_at: new Date()
-    } as any);
-
-    return { lead, company };
-  }
-
-  async submitConversionRequest(consultantId: string, leadId: string, data: any) {
-    const lead = await this.salesRepository.findLeadById(leadId);
-    if (!lead) throw new HttpException(404, 'Lead not found');
-    if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
-
-    SalesValidators.validateConversionRequest(data);
-
-    // Get the region for the conversion request
-    const consultant = await prisma.consultant.findUnique({
-      where: { id: consultantId },
-      select: { region_id: true }
-    });
-
-    if (!consultant?.region_id) {
-      throw new HttpException(400, 'Consultant does not have an assigned region');
-    }
-
-    return this.salesRepository.createConversionRequest({
-      lead: { connect: { id: leadId } },
-      consultant: { connect: { id: consultantId } },
-      region: { connect: { id: consultant.region_id } },
-      company_name: data.company_name,
-      email: data.email,
-      phone: data.phone || null,
-      website: data.website || null,
-      country: data.country,
-      city: data.city || null,
-      state_province: data.state || null,
-      agent_notes: data.notes || null,
-      status: 'PENDING'
-    });
-  }
-
-  // --- Conversion Requests ---
-  async getConversionRequests(consultantId: string) {
-    return this.salesRepository.findConversionRequests({
-      consultant_id: consultantId
-    });
-  }
-
-  async getConversionRequest(requestId: string, consultantId: string) {
-    const request = await this.salesRepository.findConversionRequestById(requestId);
-    if (!request) throw new HttpException(404, 'Conversion request not found');
-    if (request.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
-    return request;
-  }
-
-  async cancelConversionRequest(requestId: string, consultantId: string) {
-    const request = await this.salesRepository.findConversionRequestById(requestId);
-    if (!request) throw new HttpException(404, 'Conversion request not found');
-    if (request.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
-    if (request.status !== 'PENDING') throw new HttpException(400, 'Can only cancel pending requests');
-
-    return this.salesRepository.updateConversionRequest(requestId, { status: 'CANCELLED' });
-  }
-
-  // --- Companies ---
+  // Companies
   async getCompanies(consultantId: string, filters?: { region?: string; status?: string }) {
-    // Companies that consultant created leads for or has opportunities with
     const where: any = {};
     if (filters?.region) where.region_id = filters.region;
     if (filters?.status) where.verification_status = filters.status;
-
     return this.salesRepository.findCompanies(where);
   }
 
-  // --- Commissions ---
-  async getCommissions(consultantId: string, filters?: { status?: string; dateRange?: any }) {
+  // Commissions
+  async getCommissions(consultantId: string, filters?: { status?: string }) {
     const where: any = { consultant_id: consultantId };
     if (filters?.status) where.status = filters.status;
-
     return this.salesRepository.findCommissions(where);
   }
 
-  // --- Withdrawals ---
-  async getWithdrawalBalance(consultantId: string) {
+  // Withdrawals
+  async getBalance(consultantId: string) {
     return this.withdrawalService.calculateBalance(consultantId);
   }
 
@@ -375,7 +374,7 @@ export class SalesService extends BaseService {
     return this.withdrawalService.executeWithdrawal(withdrawalId, consultantId);
   }
 
-  // --- Stripe ---
+  // Stripe
   async getStripeStatus(consultantId: string) {
     return this.withdrawalService.getStripeStatus(consultantId);
   }

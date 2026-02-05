@@ -9,7 +9,14 @@ export async function authenticate(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.sessionId;
+    let sessionId = req.cookies?.sessionId;
+
+    if (!sessionId && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        sessionId = authHeader.substring(7);
+      }
+    }
 
     console.log('[authenticate] Checking authentication');
     console.log('[authenticate] All cookies:', req.cookies);
@@ -38,16 +45,9 @@ export async function authenticate(
       return;
     }
 
-    // sessionRepository already handles expiration check in findBySessionId? 
-    // Yes, I implemented it to delete if expired.
+    // Update last activity
+    await sessionRepository.updateBySessionId(sessionId);
 
-    // Update activity - handled in SessionModel? 
-    // SessionRepository doesn't have updateLastActivity exposed? 
-    // I should check SessionRepository.
-    // I didn't implement updateLastActivity in SessionRepository. I should.
-    
-    // For now, skip updateLastActivity or add it.
-    // I'll add it to repository if I can, but for now just proceed.
 
     req.user = {
       id: session.userId,

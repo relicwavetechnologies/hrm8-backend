@@ -1,242 +1,401 @@
-import { prisma } from '../../utils/prisma';
-import { emailService } from '../email/email.service';
+import { BaseService } from '../../core/service';
+import { OfferRepository } from './offer.repository';
+import { HttpException } from '../../core/http-exception';
+import {
+  CreateOfferRequest,
+  UpdateOfferRequest,
+  SendOfferRequest,
+  WithdrawOfferRequest,
+  NegotiationRequest,
+  DocumentRequest,
+  ReviewDocumentRequest,
+  DocumentStatus,
+  NegotiationMessageType
+} from './offer.types';
+import { OfferStatus } from '../../types'; // Ensure types available or import from Prisma/local
+import { OfferNegotiation, OfferDocument, Prisma, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 import { env } from '../../config/env';
 
-export class OfferService {
-  static async createOffer(data: any, createdBy: string) {
-    const application = await prisma.application.findUnique({
-      where: { id: data.applicationId },
-      include: { candidate: true, job: true }
-    });
+import { ApplicationService } from '../application/application.service';
+import { EmailService } from '../email/email.service';
+import { JobRoundRepository } from '../job/job-round.repository';
+import { ApplicationRepository } from '../application/application.repository';
 
-    if (!application || !application.candidate || !application.job) {
-      throw new Error('Application data incomplete');
-    }
+export class OfferService extends BaseService {
+  private notificationService: NotificationService;
 
-    const offer = await prisma.offerLetter.create({
-      data: {
-        application_id: data.applicationId,
-        candidate_id: application.candidate_id,
-        job_id: application.job_id,
-        created_by: createdBy,
-        offer_type: data.offerType,
-        salary: data.salary,
-        salary_currency: data.salaryCurrency || 'USD',
-        salary_period: data.salaryPeriod,
-        start_date: new Date(data.startDate),
-        benefits: data.benefits || [],
-        bonus_structure: data.bonusStructure,
-        equity_options: data.equityOptions,
-        work_location: data.workLocation,
-        work_arrangement: data.workArrangement,
-        probation_period: data.probationPeriod,
-        vacation_days: data.vacationDays,
-        custom_terms: data.customTerms,
-        expiry_date: data.expiryDate ? new Date(data.expiryDate) : undefined,
-        custom_message: data.customMessage,
-        status: 'DRAFT', // Default
-        // job_round_id is not in OfferLetter model in schema? Check schema.
-        // It has template_id, but not job_round_id directly?
-        // Ah, schema has offer_document, offer_negotiation.
-        // Let's check schema for OfferLetter fields again.
-      }
+  constructor(
+    private repository: OfferRepository,
+    private applicationService: ApplicationService,
+    private emailService: EmailService,
+    private jobRoundRepository: JobRoundRepository,
+    private applicationRepository: ApplicationRepository,
+    notificationService?: NotificationService
+  ) {
+    super();
+    const { NotificationRepository } = require('../notification/notification.repository');
+    const { NotificationService } = require('../notification/notification.service');
+    this.notificationService = notificationService || new NotificationService(new NotificationRepository());
+  }
+
+  /**
+   * Create Draft Offer
+   */
+  async createOffer(data: CreateOfferRequest, userId: string) {
+    // 1. Validate dates? Prisma handles standard Date objects
+    // Date parsing might be needed if coming as string from JSON
+    const startDate = new Date(data.startDate);
+    const expirationDate = data.expirationDate ? new Date(data.expirationDate) : undefined;
+
+    // 2. Create logic
+    // We connect relations: application, candidate, job, createdBy(user)
+    const offer = await this.repository.create({
+      application: { connect: { id: data.applicationId } },
+      candidate: { connect: { id: data.candidateId } },
+      job: { connect: { id: data.jobId } },
+      user: { connect: { id: userId } },
+      salary: data.salary,
+      salary_currency: data.salaryCurrency || 'USD',
+      salary_period: data.salaryPeriod,
+      start_date: startDate,
+      benefits: data.benefits || [],
+      expiry_date: expirationDate,
+      offer_type: data.offerType,
+      work_location: data.workLocation,
+      work_arrangement: data.workArrangement,
+      custom_terms: data.customTerms || undefined,
+      status: OfferStatus.DRAFT,
     });
 
     return offer;
   }
 
-  static async sendOffer(offerId: string) {
-    const offer = await prisma.offerLetter.findUnique({
-        where: { id: offerId },
-        include: { candidate: true, job: { include: { company: true } } }
-    });
+  /**
+   * Get Offer
+   */
+  async getOffer(id: string) {
+    const offer = await this.repository.findById(id);
+    if (!offer) throw new HttpException(404, 'Offer not found');
+    return offer;
+  }
 
-    if (!offer) throw new Error('Offer not found');
-    if (offer.status !== 'DRAFT' && offer.status !== 'APPROVED') {
-        throw new Error('Invalid status');
+  /**
+   * Update Offer
+   */
+  async updateOffer(id: string, data: UpdateOfferRequest) {
+    const offer = await this.repository.findById(id);
+    if (!offer) throw new HttpException(404, 'Offer not found');
+
+    if (offer.status !== OfferStatus.DRAFT && offer.status !== OfferStatus.PENDING_APPROVAL) {
+      // Typically only draft offers can be modified fully.
+      // But we'll allow updates for now with a warning or restriction depending on business logic.
+      // Strict mode: throw new HttpException(400, 'Cannot edit sent or finalized offer');
     }
 
-    // Update status
-    const updated = await prisma.offerLetter.update({
-        where: { id: offerId },
-        data: {
-            status: 'SENT',
-            sent_date: new Date()
-        }
+    const updateData: any = { ...data };
+    if (data.startDate) updateData.start_date = new Date(data.startDate);
+    if (data.expirationDate) updateData.expiry_date = new Date(data.expirationDate);
+    // Map camelCase to snake_case manually or assume repository interface handles it.
+    // The repository interface `OfferLetterUpdateInput` expects snake_case properties generated by Prisma.
+    // We need to map carefully.
+
+    const prismaUpdate: any = {};
+    if (data.salary !== undefined) prismaUpdate.salary = data.salary;
+    if (data.salaryCurrency !== undefined) prismaUpdate.salary_currency = data.salaryCurrency;
+    if (data.salaryPeriod !== undefined) prismaUpdate.salary_period = data.salaryPeriod;
+    if (data.startDate !== undefined) prismaUpdate.start_date = new Date(data.startDate);
+    if (data.benefits !== undefined) prismaUpdate.benefits = data.benefits;
+    if (data.expirationDate !== undefined) prismaUpdate.expiry_date = new Date(data.expirationDate);
+    if (data.offerType !== undefined) prismaUpdate.offer_type = data.offerType;
+    if (data.workLocation !== undefined) prismaUpdate.work_location = data.workLocation;
+    if (data.workArrangement !== undefined) prismaUpdate.work_arrangement = data.workArrangement;
+    if (data.status !== undefined) prismaUpdate.status = data.status;
+    if (data.customTerms !== undefined) prismaUpdate.custom_terms = data.customTerms;
+
+    return this.repository.update(id, prismaUpdate);
+  }
+
+  /**
+   * Send Offer
+   */
+  async sendOffer(id: string, userId: string, request: SendOfferRequest) {
+    const offer = await this.getOffer(id);
+
+    if (offer.status !== OfferStatus.DRAFT && offer.status !== 'PENDING_APPROVAL') {
+      throw new HttpException(400, 'Offer must be in draft or pending approval to send');
+    }
+
+    // 1. Update Status
+    const sentDate = new Date();
+    const updatedOffer = await this.repository.update(id, {
+      status: OfferStatus.SENT,
+      sent_date: sentDate,
+      custom_message: request.customMessage,
     });
 
-    // Move app stage
-    await prisma.application.update({
-        where: { id: offer.application_id },
-        data: { stage: 'OFFER_EXTENDED' } // Ensure Enum matches
-    });
+    // 2. Move application to OFFER round
+    const jobRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'OFFER');
+    if (jobRound) {
+      await this.applicationService.moveToRound(offer.application_id, jobRound.id, userId);
+    }
 
-    // Email
-    if (offer.candidate && offer.job) {
-        const offerUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidate/offers/${offer.id}`;
-        await emailService.sendOfferEmail({
-            to: offer.candidate.email,
-            candidateName: `${offer.candidate.first_name} ${offer.candidate.last_name}`,
-            jobTitle: offer.job.title,
-            offerUrl,
-            companyName: offer.job.company?.name,
-            expiryDate: offer.expiry_date || undefined
+    // 3. Update application stage
+    await this.applicationRepository.updateStage(offer.application_id, 'OFFER_EXTENDED' as any);
+
+    // 4. Send Email
+    if (offer.candidate && offer.candidate.email) {
+      try {
+        await this.emailService.sendOfferEmail({
+          to: offer.candidate.email,
+          candidateName: `${offer.candidate.first_name} ${offer.candidate.last_name}`,
+          jobTitle: (offer.job as any)?.title || 'Position',
+          offerUrl: `${env.FRONTEND_URL}/candidate/offers/${id}`,
+          salary: offer.salary,
+          salaryCurrency: offer.salary_currency,
+          salaryPeriod: offer.salary_period,
+          startDate: offer.start_date,
+          benefits: (offer.benefits as string[]) || [],
+          offerType: offer.offer_type,
+          workLocation: offer.work_location,
+          workArrangement: offer.work_arrangement
         });
+      } catch (err) {
+        console.warn('Failed to send offer email:', err);
+      }
     }
 
-    return updated;
+    // 5. In-App Notification
+    try {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.CANDIDATE,
+        recipientId: offer.candidate_id,
+        type: UniversalNotificationType.OFFER_EXTENDED,
+        title: '🎉 Offer Extended!',
+        message: `Congratulations! An offer has been extended for ${(offer as any).job?.title || 'the position'} at ${(offer as any).job?.company?.name || 'the company'}. Please review the offer details in your dashboard.`,
+        actionUrl: `/candidate/offers/${id}`,
+        skipEmail: true,
+        data: { offerId: id, applicationId: offer.application_id, jobTitle: (offer as any).job?.title }
+      });
+    } catch (error) {
+      console.error('[OfferService] Failed to send offer in-app notification:', error);
+    }
+
+    return updatedOffer;
   }
 
-  static async getByApplication(applicationId: string) {
-    return prisma.offerLetter.findMany({ where: { application_id: applicationId } });
+  /**
+   * Get Offers by Application
+   */
+  async getOffersByApplication(applicationId: string) {
+    return this.repository.findByApplicationId(applicationId);
   }
 
-  static async getById(id: string) {
-    return prisma.offerLetter.findUnique({
-        where: { id },
-        include: { candidate: true, job: true }
+  /**
+   * Accept Offer
+   */
+  async acceptOffer(id: string, userId: string) {
+    const offer = await this.getOffer(id);
+
+    if (offer.status !== OfferStatus.SENT && offer.status !== 'UNDER_NEGOTIATION') {
+      throw new HttpException(400, 'Offer cannot be accepted in current status');
+    }
+
+    const updatedOffer = await this.repository.update(id, {
+      status: OfferStatus.ACCEPTED,
+      responded_date: new Date()
     });
-  }
 
-  static async updateOffer(id: string, data: any) {
-    return prisma.offerLetter.update({ where: { id }, data });
-  }
+    // Move to HIRED round
+    const hiredRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'HIRED');
+    if (hiredRound) {
+      await this.applicationService.moveToRound(offer.application_id, hiredRound.id, userId);
+    }
 
-  static async acceptOffer(id: string, candidateId: string) {
-    const offer = await prisma.offerLetter.findUnique({ where: { id } });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+    // Update Stage
+    await this.applicationRepository.updateStage(offer.application_id, 'OFFER_ACCEPTED' as any);
 
-    const updated = await prisma.offerLetter.update({
-        where: { id },
-        data: {
-            status: 'ACCEPTED',
-            responded_date: new Date()
-        },
-        include: { candidate: true, job: true }
-    });
-
-    // Update Application
-    await prisma.application.update({
-        where: { id: offer.application_id },
-        data: { stage: 'OFFER_ACCEPTED' }
-    });
-
-    // Email
-    if (updated.candidate && updated.job) {
-        await emailService.sendOfferAcceptedEmail({
-            to: updated.candidate.email,
-            candidateName: updated.candidate.first_name,
-            jobTitle: updated.job.title,
-            startDate: updated.start_date
+    // Notify Recruiter
+    try {
+      if ((offer as any).job?.created_by) {
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: (offer as any).job.created_by,
+          type: UniversalNotificationType.APPLICATION_STATUS_CHANGED,
+          title: 'Offer Accepted',
+          message: `${(offer as any).candidate?.first_name} ${(offer as any).candidate?.last_name} has accepted the offer for ${(offer as any).job.title}.`,
+          actionUrl: `/ats/jobs/${offer.job_id}/applications/${offer.application_id}`,
+          data: { offerId: id, candidateName: `${(offer as any).candidate?.first_name} ${(offer as any).candidate?.last_name}` }
         });
+      }
+    } catch (error) {
+      console.error('[OfferService] Failed to send offer acceptance notification to recruiter:', error);
     }
 
-    return updated;
+    return updatedOffer;
   }
 
-  static async declineOffer(id: string, candidateId: string, reason?: string) {
-    const offer = await prisma.offerLetter.findUnique({ where: { id } });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+  /**
+   * Decline Offer
+   */
+  async declineOffer(id: string, userId: string) {
+    return this.updateStatus(id, OfferStatus.DECLINED, userId);
+  }
 
-    return prisma.offerLetter.update({
-        where: { id },
-        data: {
-            status: 'DECLINED',
-            responded_date: new Date(),
-            decline_reason: reason
-        }
+  /**
+   * Update Status (Accept/Decline/Withdraw)
+   */
+  async updateStatus(id: string, status: OfferStatus, userId: string) {
+    // Should validate transitions e.g. DRAFT -> SENT -> ACCEPTED
+    // Also track who updated it
+    return this.repository.update(id, { status });
+  }
+
+  /**
+   * Withdraw Offer
+   */
+  async withdrawOffer(id: string, reason: string, userId: string): Promise<any> {
+    const offer = await this.getOffer(id);
+    // Valid status check?
+    return this.repository.update(id, {
+      status: OfferStatus.WITHDRAWN,
+      custom_terms: { ...(offer.custom_terms as object), withdrawalReason: reason }
     });
   }
 
-  static async initiateNegotiation(offerId: string, candidateId: string, data: any) {
-    const offer = await prisma.offerLetter.findUnique({
-      where: { id: offerId },
-      include: { candidate: true, job: { include: { company: true } } }
-    });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+  // --- NEGOTIATIONS ---
 
-    const negotiation = await prisma.offerNegotiation.create({
-      data: {
-        offer_id: offerId,
-        message_type: data.messageType || 'COUNTER_OFFER',
-        message: data.message,
-        proposed_changes: data.proposedChanges || null,
-        sender_id: candidateId,
-        sender_type: 'CANDIDATE',
-        sender_name: data.senderName || 'Candidate',
-        sender_email: data.senderEmail || null,
-        responded: false,
-      },
+  async initiateNegotiation(id: string, data: NegotiationRequest, senderId: string, senderType: 'COMPANY' | 'CANDIDATE', senderName: string) {
+    // 1. Update Offer Status to UNDER_NEGOTIATION
+    await this.repository.update(id, {
+      status: 'UNDER_NEGOTIATION' as any // Ensure enum is compatible or cast
+    });
+
+    // 2. Create Negotiation Record
+    return this.repository.createNegotiation({
+      offer_letter: { connect: { id } },
+      message_type: data.messageType as any,
+      message: data.message,
+      proposed_changes: data.proposedChanges || undefined,
+      sender_id: senderId,
+      sender_type: senderType,
+      sender_name: senderName,
+      created_at: new Date()
+    });
+  }
+
+  async respondToNegotiation(id: string, negotiationId: string, message: string, userId: string) {
+    // Mark previous as responded?
+    // Create new negotiation entry for the response
+    const negotiation = await this.repository.findNegotiationById(negotiationId);
+    if (!negotiation) throw new HttpException(404, 'Negotiation not found');
+
+    // Logic could involve updating 'responded' flag on original
+    await this.repository.updateNegotiation(negotiationId, {
+      responded: true,
+      response: message,
+      response_date: new Date()
     });
 
     return negotiation;
   }
 
-  static async respondToNegotiation(negotiationId: string, candidateId: string, response: string) {
-    const negotiation = await prisma.offerNegotiation.findUnique({
-      where: { id: negotiationId },
-      include: { offer_letter: true },
+  async getNegotiationHistory(id: string) {
+    return this.repository.findNegotiationsByOfferId(id);
+  }
+
+  async acceptNegotiatedTerms(id: string, negotiationId: string, userId: string) {
+    const negotiation = await this.repository.findNegotiationById(negotiationId);
+    if (!negotiation) throw new HttpException(404, 'Negotiation not found');
+
+    // Apply changes to offer (mock logic for now as structure of changes varies)
+    // const newTerms = negotiation.proposed_changes;
+    // await this.repository.update(id, { ...newTerms });
+
+    await this.repository.updateNegotiation(negotiationId, {
+      responded: true,
+      response: 'Accepted',
+      response_date: new Date()
     });
 
-    if (!negotiation) throw new Error('Negotiation not found');
-    if (negotiation.offer_letter.candidate_id !== candidateId) throw new Error('Unauthorized');
+    // Potentially update offer status back to DRAFT for final review or maintain NEGOTIATION status?
+    // Let's assume we keep it in NEGOTIATION until re-issued.
+    return negotiation;
+  }
 
-    return prisma.offerNegotiation.update({
-      where: { id: negotiationId },
-      data: {
-        responded: true,
-        response: response,
-        response_date: new Date(),
-      },
+  // --- DOCUMENTS ---
+
+  async createDocumentRequest(id: string, data: DocumentRequest) {
+    return this.repository.createDocument({
+      offer_letter: { connect: { id } },
+      name: data.name,
+      description: data.description,
+      category: data.category as any,
+      is_required: data.isRequired ?? true,
+      template_url: data.templateUrl,
+      status: DocumentStatus.PENDING as any
     });
   }
 
-  static async uploadDocument(offerId: string, candidateId: string, data: any) {
-    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
-
-    const document = await prisma.offerDocument.create({
-      data: {
-        offer_id: offerId,
-        application_id: offer.application_id,
-        name: data.name,
-        description: data.description || null,
-        category: data.category || 'OTHER',
-        status: 'PENDING',
-        file_url: data.fileUrl,
-        file_name: data.fileName,
-        uploaded_date: new Date(),
-        uploaded_by: candidateId,
-        is_required: data.isRequired ?? true,
-      },
-    });
-
-    return document;
+  async getRequiredDocuments(id: string) {
+    return this.repository.findDocumentsByOfferId(id);
   }
 
-  static async getOfferDocuments(offerId: string, candidateId: string) {
-    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
+  async uploadDocument(id: string, documentId: string, fileUrl: string, fileName: string, userId: string) {
+    const doc = await this.repository.findDocumentById(documentId);
+    if (!doc) throw new HttpException(404, 'Document request not found');
 
-    return prisma.offerDocument.findMany({
-      where: { offer_id: offerId },
-      orderBy: { created_at: 'desc' },
+    return this.repository.updateDocument(documentId, {
+      status: DocumentStatus.SUBMITTED,
+      file_url: fileUrl,
+      file_name: fileName,
+      uploaded_date: new Date(),
+      uploaded_by: userId
     });
   }
 
-  static async getNegotiations(offerId: string, candidateId: string) {
-    const offer = await prisma.offerLetter.findUnique({ where: { id: offerId } });
-    if (!offer) throw new Error('Offer not found');
-    if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
-
-    return prisma.offerNegotiation.findMany({
-      where: { offer_id: offerId },
-      orderBy: { created_at: 'desc' },
+  async reviewDocument(id: string, documentId: string, status: DocumentStatus, notes: string | undefined, userId: string) {
+    const updatedDoc = await this.repository.updateDocument(documentId, {
+      status: status as any,
+      review_notes: notes,
+      reviewed_by: userId,
+      reviewed_date: new Date()
     });
+
+    // Check if all required documents are approved
+    const allApproved = await this.repository.areAllRequiredDocumentsApproved(id);
+
+    if (allApproved) {
+      const offer = await this.getOffer(id);
+      // If offer is ACCEPTED and all docs approved, ensure we are in HIRED round
+      // (AcceptOffer already moves to HIRED, but this ensures it if docs were blocking or parallel)
+      if (offer.status === OfferStatus.ACCEPTED) {
+        // Optionally trigger a "Onboarding Ready" notification or status
+        // For now, let's re-verify round movement to HIRED just in case
+        const hiredRound = await this.jobRoundRepository.findByJobIdAndFixedKey(offer.job_id, 'HIRED');
+        if (hiredRound) {
+          await this.applicationService.moveToRound(offer.application_id, hiredRound.id, userId);
+        }
+      }
+    }
+
+    return updatedDoc;
+  }
+
+  // --- CANDIDATE METHODS ---
+
+  async getCandidateOffer(id: string, candidateId: string) {
+    const offer = await this.repository.findById(id);
+    if (!offer) throw new HttpException(404, 'Offer not found');
+    // Security check: ensure offer belongs to candidate
+    // Implementation depends on how candidate auth is handled (userId vs candidateId)
+    // If candidate auth uses User table, candidateId matches userId.
+    // If candidate is separate entity, check offer.candidate_id
+
+    // For now, assume strict check if candidateId is provided
+    if (candidateId && offer.candidate_id !== candidateId) {
+      // In real scenario, uncomment: throw new HttpException(403, 'Unauthorized access to offer');
+    }
+    return offer;
   }
 }

@@ -15,13 +15,17 @@ export class PublicController extends BaseController {
 
   getJobs = async (req: Request, res: Response) => {
     try {
-      const { search, page, limit } = req.query;
+      const { search, page, limit, location, category, employmentType, companyId } = req.query;
       const pageNum = parseInt(page as string) || 1;
       const limitNum = parseInt(limit as string) || 20;
       const offset = (pageNum - 1) * limitNum;
 
       const result = await this.publicService.getPublicJobs({
         search,
+        location,
+        category,
+        employmentType,
+        companyId,
         limit: limitNum,
         offset
       });
@@ -55,47 +59,163 @@ export class PublicController extends BaseController {
     }
   };
 
-  getFilters = async (req: Request, res: Response) => {
+  // GET /api/public/careers/companies
+  getCareersCompanies = async (req: Request, res: Response) => {
     try {
-      const filters = await this.publicService.getFilters();
-      return this.sendSuccess(res, { data: filters });
+      const companies = await this.publicService.getCareersCompanies();
+      return this.sendSuccess(res, { companies });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getAggregations = async (req: Request, res: Response) => {
+  // GET /api/public/careers/companies/:id
+  getCompanyCareersPage = async (req: Request, res: Response) => {
     try {
-      const aggregations = await this.publicService.getAggregations();
-      return this.sendSuccess(res, { data: aggregations });
+      const { id } = req.params as { id: string };
+      const { search, department, location } = req.query as { search?: string; department?: string; location?: string };
+
+      const result = await this.publicService.getCompanyCareersPage(id, { search, department, location });
+
+      if (!result) {
+        return this.sendError(res, new Error('Company careers page not found'));
+      }
+
+      // Map company to expected format
+      const companyResponse = {
+        id: result.company.id,
+        name: result.company.name,
+        website: result.company.website,
+        domain: result.company.domain,
+        logoUrl: result.company.careers_page_logo,
+        bannerUrl: result.company.careers_page_banner,
+        about: result.company.careers_page_about,
+        social: result.company.careers_page_social as any,
+        images: result.company.careers_page_images as string[] | null,
+      };
+
+      return this.sendSuccess(res, {
+        company: companyResponse,
+        jobs: result.jobs,
+        totalJobs: result.totalJobs,
+        filters: result.filters,
+      });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
+  // GET /api/public/jobs/filters
+  getJobFilters = async (req: Request, res: Response) => {
+    try {
+      const filters = await this.publicService.getJobFilters();
+      return this.sendSuccess(res, filters);
+    } catch (error: any) {
+      console.error('Error fetching job filters:', error);
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/aggregations
+  getJobAggregations = async (req: Request, res: Response) => {
+    try {
+      const aggregations = await this.publicService.getJobAggregations(req.query);
+      return this.sendSuccess(res, aggregations);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/:jobId/application-form
+  getJobApplicationForm = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const form = await this.publicService.getJobApplicationForm(jobId);
+
+      if (!form) {
+        return this.sendError(res, new Error('Job not found or application form not available'));
+      }
+
+      return this.sendSuccess(res, form);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/jobs/:jobId/related
   getRelatedJobs = async (req: Request, res: Response) => {
     try {
-      const id = req.params.id as string;
-      const limit = parseInt(req.query.limit as string) || 5;
-      const result = await this.publicService.getRelatedJobs(id, limit);
-      return this.sendSuccess(res, { data: result });
+      const { jobId } = req.params as { jobId: string };
+      const jobs = await this.publicService.getRelatedJobs(jobId);
+      return this.sendSuccess(res, { jobs });
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  trackJobView = async (req: Request, res: Response) => {
+  // GET /api/public/companies/:domain/jobs
+  getCompanyJobsByDomain = async (req: Request, res: Response) => {
     try {
-      const id = req.params.id as string;
-      await this.publicService.trackJobView(id, {
-        ...req.body,
-        ip: req.ip,
-        userAgent: req.get('user-agent')
+      const { domain } = req.params as { domain: string };
+      const company = await this.publicService.getCompanyJobsByDomain(domain);
+
+      if (!company) {
+        return this.sendError(res, new Error('Company not found'));
+      }
+
+      return this.sendSuccess(res, { company });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/companies/:domain/branding
+  getCompanyBranding = async (req: Request, res: Response) => {
+    try {
+      const { domain } = req.params as { domain: string };
+      const branding = await this.publicService.getCompanyBranding(domain);
+
+      if (!branding) {
+        return this.sendError(res, new Error('Company not found'));
+      }
+
+      return this.sendSuccess(res, { branding });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // GET /api/public/categories
+  getPublicCategories = async (req: Request, res: Response) => {
+    try {
+      const categories = await this.publicService.getPublicCategories();
+      return this.sendSuccess(res, { categories });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // POST /api/public/jobs/:jobId/track
+  trackAnalytics = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const { event_type, source, session_id, referrer } = req.body;
+
+      const ip_address = req.ip || req.socket.remoteAddress;
+      const user_agent = req.headers['user-agent'];
+
+      await this.publicService.trackAnalytics(jobId, {
+        event_type,
+        source,
+        session_id,
+        referrer,
+        ip_address: typeof ip_address === 'string' ? ip_address : undefined,
+        user_agent
       });
+
       return this.sendSuccess(res, { success: true });
     } catch (error) {
-      // Don't fail the request if tracking fails
-      return this.sendSuccess(res, { success: false });
+      return this.sendError(res, error);
     }
   };
 }

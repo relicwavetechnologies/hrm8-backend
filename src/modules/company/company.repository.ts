@@ -3,7 +3,7 @@ import { BaseRepository } from '../../core/repository';
 
 export class CompanyRepository extends BaseRepository {
   // --- Company ---
-  
+
   async create(data: Prisma.CompanyCreateInput): Promise<Company> {
     return this.prisma.company.create({ data });
   }
@@ -27,8 +27,9 @@ export class CompanyRepository extends BaseRepository {
     });
   }
 
-  async findAll(limit: number = 100, offset: number = 0): Promise<Company[]> {
+  async findAll(filters?: Prisma.CompanyWhereInput, limit: number = 100, offset: number = 0): Promise<Company[]> {
     return this.prisma.company.findMany({
+      where: filters,
       orderBy: { created_at: 'desc' },
       take: limit,
       skip: offset,
