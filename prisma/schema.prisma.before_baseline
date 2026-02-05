@@ -45,6 +45,7 @@ model Company {
   careers_page_images     Json?                      @map("careers_page_images")
   account_team            AccountTeam[]
   activity                Activity[]
+  AssessmentRole          AssessmentRole[]
   bill                    Bill[]
   price_book              PriceBook?                 @relation(fields: [price_book_id], references: [id])
   region                  Region?                    @relation(fields: [region_id], references: [id])
@@ -121,6 +122,7 @@ model User {
   hiring_teams             JobHiringTeamMember[]
   alert_rules              UserAlertRule[]              @relation("UserAlertRules")
   notification_preferences UserNotificationPreferences? @relation("UserNotificationPreferences")
+  AssessmentRole           AssessmentRole[]
 
   @@index([email])
   @@index([company_id])
@@ -295,6 +297,9 @@ model Job {
   posted_at                           DateTime                    @default(now()) @map("posted_at")
   benefits                            String?
   category_id                         String?                     @map("category_id")
+  hrm8_hidden                         Boolean                     @default(false) @map("hrm8_hidden")
+  hrm8_notes                          String?                     @map("hrm8_notes")
+  hrm8_status                         JobStatus?                  @map("hrm8_status")
   applications                        Application[]
   commissions                         Commission[]
   consultant_assignments              ConsultantJobAssignment[]
@@ -774,32 +779,33 @@ model JobTemplate {
 }
 
 model Assessment {
-  id                  String               @id @default(uuid())
-  application_id      String
-  candidate_id        String
-  job_id              String
-  assessment_type     AssessmentType
-  provider            String?
-  status              AssessmentStatus     @default(PENDING_INVITATION)
-  invited_by          String
-  invited_at          DateTime             @default(now())
-  expiry_date         DateTime?
-  completed_at        DateTime?
-  results             Json?
-  pass_threshold      Float?
-  cost                Float?               @default(0)
-  payment_status      String?              @default("pending")
-  notes               String?
-  created_at          DateTime             @default(now())
-  updated_at          DateTime             @default(now()) @updatedAt
-  invitation_token    String?              @unique
-  job_round_id        String?
-  started_at          DateTime?
-  application         Application          @relation(fields: [application_id], references: [id], onDelete: Cascade)
-  user                User                 @relation(fields: [invited_by], references: [id])
-  assessment_comment  AssessmentComment[]
-  assessment_question AssessmentQuestion[]
-  assessment_response AssessmentResponse[]
+  id                     String               @id @default(uuid())
+  application_id         String
+  candidate_id           String
+  job_id                 String
+  assessment_type        AssessmentType
+  provider               String?
+  status                 AssessmentStatus     @default(PENDING_INVITATION)
+  invited_by             String
+  invited_at             DateTime             @default(now())
+  expiry_date            DateTime?
+  completed_at           DateTime?
+  results                Json?
+  pass_threshold         Float?
+  cost                   Float?               @default(0)
+  payment_status         String?              @default("pending")
+  notes                  String?
+  created_at             DateTime             @default(now())
+  updated_at             DateTime             @default(now()) @updatedAt
+  invitation_token       String?              @unique
+  job_round_id           String?
+  started_at             DateTime?
+  required_graders_count Int?
+  application            Application          @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user                   User                 @relation(fields: [invited_by], references: [id])
+  assessment_comment     AssessmentComment[]
+  assessment_question    AssessmentQuestion[]
+  assessment_response    AssessmentResponse[]
 
   @@index([application_id])
   @@index([assessment_type])
@@ -1353,10 +1359,10 @@ model ApplicationRoundProgress {
 }
 
 model AssessmentConfiguration {
-  id                      String   @id @default(uuid())
-  job_round_id            String   @unique
-  enabled                 Boolean  @default(false)
-  auto_assign             Boolean  @default(true) @map("autoAssign")
+  id                      String           @id @default(uuid())
+  job_round_id            String           @unique
+  enabled                 Boolean          @default(false)
+  auto_assign             Boolean          @default(true) @map("autoAssign")
   deadline_days           Int?
   time_limit_minutes      Int?
   pass_threshold          Float?
@@ -1365,15 +1371,20 @@ model AssessmentConfiguration {
   assessment_template_id  String?
   questions               Json?
   instructions            String?
-  created_at              DateTime @default(now())
-  updated_at              DateTime @default(now()) @updatedAt
-  auto_move_on_pass       Boolean  @default(false)
-  auto_reject_on_deadline Boolean  @default(false)
-  auto_reject_on_fail     Boolean  @default(false)
-  job_round               JobRound @relation(fields: [job_round_id], references: [id], onDelete: Cascade)
+  created_at              DateTime         @default(now())
+  updated_at              DateTime         @default(now()) @updatedAt
+  auto_move_on_pass       Boolean          @default(false)
+  auto_reject_on_deadline Boolean          @default(false)
+  auto_reject_on_fail     Boolean          @default(false)
+  grading_role_id         String?
+  score_calculation       ScoreCalculation @default(AVERAGE)
+  voting_logic            VotingLogic      @default(ANYONE_SCORES)
+  AssessmentRole          AssessmentRole?  @relation(fields: [grading_role_id], references: [id])
+  job_round               JobRound         @relation(fields: [job_round_id], references: [id], onDelete: Cascade)
 
   @@index([job_round_id])
   @@index([provider])
+  @@index([grading_role_id])
 }
 
 model CompanySettings {
@@ -2353,6 +2364,19 @@ model CandidateEvaluation {
   @@index([application_id])
 }
 
+model AssessmentRole {
+  id                      String                    @id
+  company_id              String
+  name                    String
+  created_at              DateTime                  @default(now())
+  updated_at              DateTime                  @default(now())
+  AssessmentConfiguration AssessmentConfiguration[]
+  Company                 Company                   @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  User                    User[]
+
+  @@index([company_id])
+}
+
 enum HiringTeamRole {
   ADMIN
   SHORTLISTING
@@ -2448,6 +2472,7 @@ enum HiringMode {
   FULL_SERVICE
   EXECUTIVE_SEARCH
   ASSESSMENT_ONLY
+  RPO
 }
 
 enum WorkArrangement {
@@ -2510,6 +2535,8 @@ enum AssessmentStatus {
   COMPLETED
   EXPIRED
   CANCELLED
+  PASSED
+  FAILED
 }
 
 enum AssessmentType {
@@ -2568,6 +2595,7 @@ enum ConsultantStatus {
   ON_LEAVE
   INACTIVE
   SUSPENDED
+  PENDING
 }
 
 enum HRM8UserRole {
@@ -2651,6 +2679,7 @@ enum VideoInterviewType {
 enum JobRoundType {
   ASSESSMENT
   INTERVIEW
+  SCREENING
 }
 
 enum NotificationType {
@@ -2667,7 +2696,6 @@ enum UniversalNotificationType {
   APPLICATION_SHORTLISTED
   APPLICATION_REJECTED
   JOB_CREATED
-  JOB_PUBLISHED
   JOB_STATUS_CHANGED
   JOB_ASSIGNED
   JOB_FILLED
@@ -2683,6 +2711,7 @@ enum UniversalNotificationType {
   SYSTEM_ANNOUNCEMENT
   NEW_MESSAGE
   JOB_ALERT
+  JOB_PUBLISHED
   REFUND_STATUS_CHANGED
   SUBSCRIPTION_RENEWAL_FAILED
   WITHDRAWAL_APPROVED
@@ -2691,6 +2720,7 @@ enum UniversalNotificationType {
   COMMISSION_EARNED
   LEAD_CONVERSION_REQUESTED
   LEAD_CONVERSION_DECLINED
+  INVITATION_SENT
 }
 
 enum NotificationRecipientType {
@@ -3026,4 +3056,15 @@ enum EvaluationDecision {
   APPROVE
   REJECT
   PENDING
+}
+
+enum ScoreCalculation {
+  AVERAGE
+  HIGHEST
+  LOWEST
+}
+
+enum VotingLogic {
+  ANYONE_SCORES
+  ALL_REQUIRE_SCORE
 }

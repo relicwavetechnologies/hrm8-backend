@@ -1,2 +1,0 @@
--- AlterEnum
-ALTER TYPE "AssignmentSource" ADD VALUE 'MANUAL_REASSIGNMENT';
