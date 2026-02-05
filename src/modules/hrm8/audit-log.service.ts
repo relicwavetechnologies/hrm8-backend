@@ -17,17 +17,17 @@ export interface CreateAuditLogInput {
 
 export interface AuditLogEntry {
     id: string;
-    entityType: string;
-    entityId: string;
+    entity_type: string;
+    entity_id: string;
     action: string;
-    performedBy: string;
-    performedByEmail: string;
-    performedByRole: string;
+    performed_by: string;
+    performed_by_email: string;
+    performed_by_role: string;
     changes?: Record<string, unknown>;
-    ipAddress?: string;
-    userAgent?: string;
+    ip_address?: string;
+    user_agent?: string;
     description?: string;
-    performedAt: Date;
+    performed_at: Date;
 }
 
 export class AuditLogService extends BaseService {
@@ -72,23 +72,28 @@ export class AuditLogService extends BaseService {
     }
 
     async getStats() {
-        return this.auditLogRepository.getStats();
+        const stats = await this.auditLogRepository.getStats();
+        return {
+            total_logs: stats.totalLogs,
+            today_logs: stats.todayLogs,
+            top_actions: stats.topActions,
+        };
     }
 
     private mapToEntry(log: AuditLog): AuditLogEntry {
         return {
             id: log.id,
-            entityType: log.entity_type,
-            entityId: log.entity_id,
+            entity_type: log.entity_type,
+            entity_id: log.entity_id,
             action: log.action,
-            performedBy: log.performed_by,
-            performedByEmail: log.performed_by_email || 'unknown',
-            performedByRole: log.performed_by_role || 'SYSTEM',
+            performed_by: log.performed_by,
+            performed_by_email: log.performed_by_email || 'unknown',
+            performed_by_role: log.performed_by_role || 'SYSTEM',
             changes: log.changes as Record<string, unknown> | undefined,
-            ipAddress: log.ip_address || undefined,
-            userAgent: log.user_agent || undefined,
+            ip_address: log.ip_address || undefined,
+            user_agent: log.user_agent || undefined,
             description: log.description || undefined,
-            performedAt: log.performed_at,
+            performed_at: log.performed_at,
         };
     }
 }

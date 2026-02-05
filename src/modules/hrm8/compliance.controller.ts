@@ -56,12 +56,8 @@ export class ComplianceController extends BaseController {
     getRecentAudit = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const limit = parseInt(req.query.limit as string) || 100;
-            const entries = await this.complianceService.getRecentAudit(limit);
-            // Service returns { logs, total } so adjust response if needed
-            // Correcting expectation: AuditLogService.getRecent returns { logs, total }
-            // Old controller returned { data: { entries } } where entries was likely array.
-            // Let's stick to standard { success: true, data: { entries } } wrapper via sendSuccess
-            return this.sendSuccess(res, { entries });
+            const result = await this.complianceService.getRecentAudit(limit);
+            return this.sendSuccess(res, { entries: result.logs, total: result.total });
         } catch (error) {
             return this.sendError(res, error);
         }

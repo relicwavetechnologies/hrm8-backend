@@ -72,6 +72,9 @@ export class PublicService extends BaseService {
   // Get public companies with careers pages
   async getCareersCompanies() {
     const companies = await this.prisma.company.findMany({
+      where: {
+        careers_page_status: 'APPROVED'
+      },
       select: {
         id: true,
         name: true,
@@ -94,6 +97,7 @@ export class PublicService extends BaseService {
     const company = await this.prisma.company.findFirst({
       where: {
         id: companyId,
+        careers_page_status: 'APPROVED'
       },
     });
 
@@ -105,6 +109,8 @@ export class PublicService extends BaseService {
     const jobWhere: any = {
       company_id: companyId,
       status: 'OPEN',
+      hrm8_hidden: false,
+      stealth: false
     };
 
     // Apply filters

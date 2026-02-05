@@ -26,7 +26,7 @@ export class SalesService extends BaseService {
       website: data.website || null,
       country: data.country,
       city: data.city || null,
-      state_province: data.state_province ?? data.state || null,
+      state_province: data.state_province ?? data.state ?? null,
       creator: { connect: { id: consultantId } },
       assigned_consultant: { connect: { id: consultantId } },
       status: 'NEW',
@@ -118,7 +118,7 @@ export class SalesService extends BaseService {
       website: data.website || null,
       country: data.country,
       city: data.city || null,
-      state_province: data.state_province ?? data.state || null,
+      state_province: data.state_province ?? data.state ?? null,
       agent_notes: data.notes || null,
       status: 'PENDING'
     });

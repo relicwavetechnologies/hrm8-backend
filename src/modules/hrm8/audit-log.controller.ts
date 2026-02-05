@@ -14,14 +14,18 @@ export class AuditLogController extends BaseController {
 
     getRecent = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { entityType, action, actorId, limit, offset } = req.query;
+            const entityType = (req.query.entity_type ?? req.query.entityType) as string | undefined;
+            const action = (req.query.action ?? req.query.action) as string | undefined;
+            const actorId = (req.query.actor_id ?? req.query.actorId) as string | undefined;
+            const limitParam = (req.query.limit ?? req.query.limit) as string | undefined;
+            const offsetParam = (req.query.offset ?? req.query.offset) as string | undefined;
 
             const result = await this.auditLogService.getRecent({
-                entityType: entityType as string | undefined,
-                action: action as string | undefined,
-                actorId: actorId as string | undefined,
-                limit: limit ? parseInt(limit as string, 10) : 50,
-                offset: offset ? parseInt(offset as string, 10) : 0,
+                entityType,
+                action,
+                actorId,
+                limit: limitParam ? parseInt(limitParam, 10) : 50,
+                offset: offsetParam ? parseInt(offsetParam, 10) : 0,
             });
 
             return this.sendSuccess(res, result);

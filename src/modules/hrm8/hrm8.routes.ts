@@ -84,10 +84,10 @@ router.put('/commissions/:id/confirm', authenticateHrm8, commissionController.co
 router.put('/commissions/:id/pay', authenticateHrm8, commissionController.markAsPaid);
 
 // Compliance Routes
-router.get('/compliance/alerts', authenticateHrm8, complianceController.getAlerts);
-router.get('/compliance/summary', authenticateHrm8, complianceController.getAlertSummary);
-router.get('/compliance/audit/recent', authenticateHrm8, complianceController.getRecentAudit);
-router.get('/compliance/audit/:entityType/:entityId', authenticateHrm8, complianceController.getAuditHistory);
+router.get('/compliance/alerts', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), complianceController.getAlerts);
+router.get('/compliance/summary', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), complianceController.getAlertSummary);
+router.get('/compliance/audit/recent', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), complianceController.getRecentAudit);
+router.get('/compliance/audit/:entityType/:entityId', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), complianceController.getAuditHistory);
 
 // Job Allocation Routes
 router.get('/job-allocation/stats', authenticateHrm8, jobAllocationController.getStats);
@@ -280,6 +280,6 @@ router.get('/finance/settlements', authenticateHrm8, requireHrm8Role(['GLOBAL_AD
 router.get('/revenue', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), revenueController.getAll);
 router.get('/revenue/companies', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), revenueController.getCompanyBreakdown);
 router.get('/pricing/books', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.getPriceBooks);
-router.get('/jobs/companies', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), analyticsController.getJobBoardStats); // Job board company stats
+router.get('/analytics/job-board/companies', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), analyticsController.getJobBoardStats); // Job board company stats
 
 export default router;

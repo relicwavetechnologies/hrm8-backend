@@ -29,10 +29,13 @@ export class CompanyCareersController extends BaseController {
 
             // Return subset of fields related to careers
             return this.sendSuccess(res, {
-                careersPageUrl: `${env.FRONTEND_URL}/careers/${company?.id}`,
+                careers_page_url: `${env.FRONTEND_URL}/careers/${company?.id}`,
+                careers_page_status: company?.careers_page_status,
+                careers_pending_changes: company?.careers_pending_changes,
+                careers_review_notes: company?.careers_review_notes,
                 about: company?.careers_page_about,
-                banner: company?.careers_page_banner,
-                logo: company?.careers_page_logo,
+                banner_url: company?.careers_page_banner,
+                logo_url: company?.careers_page_logo,
                 social: company?.careers_page_social
             });
         } catch (error) {
@@ -47,14 +50,20 @@ export class CompanyCareersController extends BaseController {
         try {
             if (!req.user?.companyId) return this.sendError(res, new Error('Unauthorized'), 401);
 
+            const pendingChanges = {
+                about: req.body.about,
+                logo_url: req.body.logo_url ?? req.body.logo,
+                banner_url: req.body.banner_url ?? req.body.banner,
+                social: req.body.social
+            };
+
             const updated = await this.repo.update(req.user.companyId as string, {
-                careers_page_about: req.body.about,
-                careers_page_logo: req.body.logo,
-                careers_page_banner: req.body.banner,
-                careers_page_social: req.body.social
+                careers_pending_changes: pendingChanges,
+                careers_page_status: 'PENDING',
+                careers_review_notes: null
             });
 
-            return this.sendSuccess(res, updated, 'Careers page updated');
+            return this.sendSuccess(res, updated, 'Careers page changes submitted for approval');
         } catch (error) {
             return this.sendError(res, error);
         }

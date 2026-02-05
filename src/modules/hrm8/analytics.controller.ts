@@ -39,12 +39,12 @@ export class AnalyticsController extends BaseController {
 
     getPlatformOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { startDate, endDate, companyId, regionId } = req.query;
+            const { startDate, endDate, companyId, regionId, start_date, end_date, company_id, region_id } = req.query as Record<string, string | undefined>;
             const result = await this.analyticsService.getPlatformOverview({
-                startDate: startDate as string,
-                endDate: endDate as string,
-                companyId: companyId as string,
-                regionId: regionId as string,
+                startDate: (start_date || startDate) as string,
+                endDate: (end_date || endDate) as string,
+                companyId: (company_id || companyId) as string,
+                regionId: (region_id || regionId) as string,
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -54,12 +54,12 @@ export class AnalyticsController extends BaseController {
 
     getPlatformTrends = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { period, companyId, regionId } = req.query;
+            const { period, companyId, regionId, company_id, region_id } = req.query as Record<string, string | undefined>;
             const result = await this.analyticsService.getPlatformTrends(
                 period as string,
                 {
-                    companyId: companyId as string,
-                    regionId: regionId as string,
+                    companyId: (company_id || companyId) as string,
+                    regionId: (region_id || regionId) as string,
                 }
             );
             return this.sendSuccess(res, result);

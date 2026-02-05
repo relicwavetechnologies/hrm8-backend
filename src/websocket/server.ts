@@ -181,13 +181,7 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
       userEmail: auth.email,
       userName: auth.name,
       userType: auth.userType,
-      message: 'Authentication successful',
-    type: 'authentication_success',
-    payload: {
-      message: 'Connected',
-      userEmail: auth.email,
-      userName: auth.name,
-      userType: auth.userType === 'CANDIDATE' ? 'CANDIDATE' : 'USER'
+      message: 'Authentication successful'
     }
   }));
 

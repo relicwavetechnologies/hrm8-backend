@@ -7,14 +7,14 @@ export interface ComplianceAlert {
     id: string;
     type: 'OVERDUE_PAYOUT' | 'INACTIVE_REGION' | 'REVENUE_DECLINE' | 'EXPIRED_AGREEMENT';
     severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-    entityType: 'LICENSEE' | 'REGION';
-    entityId: string;
-    entityName: string;
+    entity_type: 'LICENSEE' | 'REGION';
+    entity_id: string;
+    entity_name: string;
     title: string;
     description: string;
     value?: number;
     threshold?: number;
-    detectedAt: Date;
+    detected_at: Date;
 }
 
 export class ComplianceService extends BaseService {
@@ -62,14 +62,14 @@ export class ComplianceService extends BaseService {
                 id: `overdue-${settlement.id}`,
                 type: 'OVERDUE_PAYOUT' as const,
                 severity: daysOverdue > 60 ? 'CRITICAL' : daysOverdue > 45 ? 'HIGH' : 'MEDIUM',
-                entityType: 'LICENSEE' as const,
-                entityId: settlement.licensee_id,
-                entityName: settlement.licensee?.name || 'Unknown',
+                entity_type: 'LICENSEE' as const,
+                entity_id: settlement.licensee_id,
+                entity_name: settlement.licensee?.name || 'Unknown',
                 title: 'Overdue Payout',
                 description: `Settlement of $${settlement.licensee_share.toLocaleString()} is ${daysOverdue} days overdue`,
                 value: settlement.licensee_share,
                 threshold: thresholdDays,
-                detectedAt: new Date(),
+                detected_at: new Date(),
             };
         });
     }
@@ -88,14 +88,14 @@ export class ComplianceService extends BaseService {
                     id: `inactive-${region.id}`,
                     type: 'INACTIVE_REGION',
                     severity: 'MEDIUM',
-                    entityType: 'REGION',
-                    entityId: region.id,
-                    entityName: region.name,
+                    entity_type: 'REGION',
+                    entity_id: region.id,
+                    entity_name: region.name,
                     title: 'Inactive Region',
                     description: `No placements in the last ${thresholdDays} days`,
                     value: 0,
                     threshold: thresholdDays,
-                    detectedAt: new Date(),
+                    detected_at: new Date(),
                 });
             }
         }
@@ -125,20 +125,20 @@ export class ComplianceService extends BaseService {
                 const declinePercent = ((previous - current) / previous) * 100;
                 if (declinePercent >= thresholdPercent) {
                     alerts.push({
-                        id: `decline-${region.id}`,
-                        type: 'REVENUE_DECLINE',
-                        severity: declinePercent > 40 ? 'HIGH' : 'MEDIUM',
-                        entityType: 'REGION',
-                        entityId: region.id,
-                        entityName: region.name,
-                        title: 'Revenue Decline',
-                        description: `Revenue dropped ${declinePercent.toFixed(1)}% from $${previous.toLocaleString()} to $${current.toLocaleString()}`,
-                        value: declinePercent,
-                        threshold: thresholdPercent,
-                        detectedAt: new Date(),
-                    });
-                }
+                    id: `decline-${region.id}`,
+                    type: 'REVENUE_DECLINE',
+                    severity: declinePercent > 40 ? 'HIGH' : 'MEDIUM',
+                    entity_type: 'REGION',
+                    entity_id: region.id,
+                    entity_name: region.name,
+                    title: 'Revenue Decline',
+                    description: `Revenue dropped ${declinePercent.toFixed(1)}% from $${previous.toLocaleString()} to $${current.toLocaleString()}`,
+                    value: declinePercent,
+                    threshold: thresholdPercent,
+                    detected_at: new Date(),
+                });
             }
+        }
         }
         return alerts;
     }
@@ -158,14 +158,14 @@ export class ComplianceService extends BaseService {
                 id: `agreement-${licensee.id}`,
                 type: 'EXPIRED_AGREEMENT' as const,
                 severity: isExpired ? 'CRITICAL' : daysUntil < 7 ? 'HIGH' : 'MEDIUM',
-                entityType: 'LICENSEE' as const,
-                entityId: licensee.id,
-                entityName: licensee.name,
+                entity_type: 'LICENSEE' as const,
+                entity_id: licensee.id,
+                entity_name: licensee.name,
                 title: isExpired ? 'Agreement Expired' : 'Agreement Expiring Soon',
                 description: isExpired
                     ? `Agreement expired ${Math.abs(daysUntil)} days ago`
                     : `Agreement expires in ${daysUntil} days`,
-                detectedAt: new Date(),
+                detected_at: new Date(),
             };
         });
     }
@@ -178,10 +178,10 @@ export class ComplianceService extends BaseService {
             high: alerts.filter((a) => a.severity === 'HIGH').length,
             medium: alerts.filter((a) => a.severity === 'MEDIUM').length,
             low: alerts.filter((a) => a.severity === 'LOW').length,
-            byType: {} as Record<string, number>,
+            by_type: {} as Record<string, number>,
         };
         alerts.forEach((alert) => {
-            summary.byType[alert.type] = (summary.byType[alert.type] || 0) + 1;
+            summary.by_type[alert.type] = (summary.by_type[alert.type] || 0) + 1;
         });
         return summary;
     }
