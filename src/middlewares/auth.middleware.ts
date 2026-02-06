@@ -1,7 +1,18 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { UserRole } from '@prisma/client';
 import { AuthenticatedRequest } from '../types';
 import { sessionRepository } from '../modules/auth/session.repository';
 import { getSessionCookieOptions } from '../utils/session';
+
+interface DecodedToken {
+  userId: string;
+  email: string;
+  companyId: string;
+  role: string;
+  type: string;
+  name?: string;
+}
 
 export async function authenticate(
   req: AuthenticatedRequest,
@@ -9,56 +20,68 @@ export async function authenticate(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sessionId = req.cookies?.sessionId;
+    const authHeader = req.headers.authorization;
+    let token = req.cookies.auth_token;
+    const sessionId = req.cookies.sessionId;
 
-    console.log('[authenticate] Checking authentication');
-    console.log('[authenticate] All cookies:', req.cookies);
-    console.log('[authenticate] sessionId:', sessionId);
-    console.log('[authenticate] Request origin:', req.get('origin'));
-    console.log('[authenticate] Request headers:', req.headers);
-
-    if (!sessionId) {
-      console.error('[authenticate] No sessionId found in cookies');
-      res.status(401).json({
-        success: false,
-        error: 'Not authenticated. Please login.',
-      });
-      return;
+    // Bearer token helper (if we still support JWTs/Tokens directly)
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
     }
 
-    const session = await sessionRepository.findBySessionId(sessionId);
+    // console.log('[authenticate] Checking authentication');
+    // console.log('[authenticate] All cookies:', req.cookies);
 
-    if (!session) {
-      res.clearCookie('sessionId', getSessionCookieOptions());
+    // 1. Try Session ID (Primary for Web App)
+    if (sessionId) {
+      const session = await sessionRepository.findBySessionId(sessionId);
 
-      res.status(401).json({
-        success: false,
-        error: 'Invalid or expired session. Please login again.',
-      });
-      return;
+      if (!session) {
+        console.warn('[authenticate] Session not found or expired for ID:', sessionId);
+        res.clearCookie('sessionId', getSessionCookieOptions());
+        res.status(401).json({
+          success: false,
+          error: 'Session expired or invalid',
+        });
+        return;
+      }
+
+      req.user = {
+        id: session.userId,
+        email: session.email,
+        companyId: session.companyId,
+        role: session.userRole as UserRole,
+        type: 'COMPANY', // Defaulting to COMPANY for now, schema might differ
+      };
+
+      return next();
     }
 
-    // sessionRepository already handles expiration check in findBySessionId? 
-    // Yes, I implemented it to delete if expired.
+    // 2. Fallback: Try JWT Token (if needed for API/mobile)
+    if (token) {
+      // ... existing JWT logic if we want to keep it ...
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as DecodedToken;
+        req.user = {
+          id: decoded.userId,
+          email: decoded.email,
+          companyId: decoded.companyId,
+          role: decoded.role as UserRole,
+          type: decoded.type as 'COMPANY' | 'CONSULTANT' | 'SALES_AGENT',
+        };
+        return next();
+      } catch (e) {
+        console.warn('[authenticate] Invalid JWT token');
+      }
+    }
 
-    // Update activity - handled in SessionModel? 
-    // SessionRepository doesn't have updateLastActivity exposed? 
-    // I should check SessionRepository.
-    // I didn't implement updateLastActivity in SessionRepository. I should.
-    
-    // For now, skip updateLastActivity or add it.
-    // I'll add it to repository if I can, but for now just proceed.
+    console.error('[authenticate] No valid session or token found');
+    res.status(401).json({
+      success: false,
+      error: 'Not authenticated. Please login.',
+    });
+    return;
 
-    req.user = {
-      id: session.userId,
-      email: session.email,
-      name: session.name,
-      companyId: session.companyId,
-      role: session.userRole,
-      type: session.companyId ? 'COMPANY' : undefined,
-    };
-
-    next();
   } catch (error) {
     console.error('[authenticate] Error during authentication:', error);
     res.status(401).json({

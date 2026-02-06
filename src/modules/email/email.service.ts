@@ -3,6 +3,8 @@ import { BaseService } from '../../core/service';
 import { env } from '../../config/env';
 import { EmailTemplateService } from './email-template.service';
 import { prisma } from '../../utils/prisma';
+import { getNotificationEmailTemplate } from './templates/notification.templates';
+import { getPasswordResetTemplate, getVerificationEmailTemplate, getInvitationEmailTemplate } from './templates/auth.templates';
 
 interface EmailAttachment {
   filename: string;
