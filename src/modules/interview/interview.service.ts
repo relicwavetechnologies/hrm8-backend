@@ -242,7 +242,7 @@ export class InterviewService {
       await notificationService.createNotification({
         recipientType: NotificationRecipientType.CANDIDATE,
         recipientId: updated.application.candidate_id,
-        type: UniversalNotificationType.INTERVIEW_UPDATE,
+        type: UniversalNotificationType.INTERVIEW_SCHEDULED,
         title: 'Interview Update',
         message: `Your interview status has been updated to ${status}.`,
         actionUrl: `/candidate/interviews/${id}`

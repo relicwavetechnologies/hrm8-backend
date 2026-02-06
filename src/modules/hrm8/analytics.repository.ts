@@ -2,8 +2,8 @@ import { prisma } from '../../utils/prisma';
 import { JobStatus, ConsultantStatus, CommissionType } from '@prisma/client';
 
 export class AnalyticsRepository {
-    async getOperationalStats(regionId: string) {
-        const regionFilter = (regionId && regionId !== 'all') ? { region_id: regionId } : {};
+    async getOperationalStats(regionId?: string) {
+        const regionFilter = regionId ? { region_id: regionId } : {};
 
         const [
             openJobsCount,
@@ -58,7 +58,7 @@ export class AnalyticsRepository {
         };
     }
 
-    async getHistoricalTrends(regionId: string) {
+    async getHistoricalTrends(regionId?: string) {
         const trends = [];
         for (let i = 5; i >= 0; i--) {
             const date = new Date();
@@ -66,7 +66,7 @@ export class AnalyticsRepository {
             const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
             const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
 
-            const regionFilter = (regionId && regionId !== 'all') ? { region_id: regionId } : {};
+            const regionFilter = regionId ? { region_id: regionId } : {};
 
             const [jobs, consultants, placements] = await Promise.all([
                 prisma.job.count({ where: { ...regionFilter, status: 'OPEN', created_at: { gte: monthStart, lte: monthEnd } } }),
@@ -84,8 +84,8 @@ export class AnalyticsRepository {
         return trends;
     }
 
-    async getRegionalCompanies(regionId: string, status?: string) {
-        const where: any = { region_id: regionId };
+    async getRegionalCompanies(regionId?: string, status?: string) {
+        const where: any = regionId ? { region_id: regionId } : {};
         if (status === 'new') {
             where.created_at = { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) };
         }

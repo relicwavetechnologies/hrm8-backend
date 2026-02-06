@@ -4,10 +4,6 @@ import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
 
 export class CareersRequestRepository extends BaseRepository {
-    constructor() {
-        super(prisma.company);
-    }
-
     async findMany(params: { where?: Prisma.CompanyWhereInput; orderBy?: Prisma.CompanyOrderByWithRelationInput }) {
         return prisma.company.findMany({
             ...params,

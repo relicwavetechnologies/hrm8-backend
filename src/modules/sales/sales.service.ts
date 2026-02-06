@@ -352,7 +352,7 @@ export class SalesService extends BaseService {
     SalesValidators.validatePaymentMethod(paymentMethod);
 
     const balance = await this.withdrawalService.calculateBalance(consultantId);
-    SalesValidators.validateWithdrawalAmount(amount, balance.balance);
+    SalesValidators.validateWithdrawalAmount(amount, balance.availableBalance);
 
     return this.withdrawalService.requestWithdrawal(consultantId, {
       amount,

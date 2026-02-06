@@ -82,7 +82,7 @@ export class CompanyRepository extends BaseRepository {
   async findTransactions(companyId: string, limit?: number, offset?: number) {
     return this.prisma.virtualTransaction.findMany({
       where: {
-        account: {
+        virtual_account: {
           owner_type: 'COMPANY',
           owner_id: companyId
         }
@@ -91,7 +91,7 @@ export class CompanyRepository extends BaseRepository {
       take: limit,
       skip: offset,
       include: {
-        account: {
+        virtual_account: {
           select: {
             id: true,
             owner_type: true,
@@ -106,7 +106,7 @@ export class CompanyRepository extends BaseRepository {
   async getTransactionStats(companyId: string) {
     const transactions = await this.prisma.virtualTransaction.findMany({
       where: {
-        account: {
+        virtual_account: {
           owner_type: 'COMPANY',
           owner_id: companyId
         }
@@ -114,6 +114,7 @@ export class CompanyRepository extends BaseRepository {
       select: {
         amount: true,
         type: true,
+        direction: true,
         status: true,
         created_at: true
       }
@@ -121,10 +122,10 @@ export class CompanyRepository extends BaseRepository {
 
     const totalTransactions = transactions.length;
     const totalDebited = transactions
-      .filter(t => t.type === 'DEBIT' && t.status === 'COMPLETED')
+      .filter(t => t.direction === 'DEBIT' && t.status === 'COMPLETED')
       .reduce((sum, t) => sum + t.amount, 0);
     const totalCredited = transactions
-      .filter(t => t.type === 'CREDIT' && t.status === 'COMPLETED')
+      .filter(t => t.direction === 'CREDIT' && t.status === 'COMPLETED')
       .reduce((sum, t) => sum + t.amount, 0);
     const pendingAmount = transactions
       .filter(t => t.status === 'PENDING')
@@ -141,11 +142,11 @@ export class CompanyRepository extends BaseRepository {
 
   // --- Refund Requests ---
   async createRefundRequest(data: any) {
-    return this.prisma.refundRequest.create({ data });
+    return this.prisma.transactionRefundRequest.create({ data });
   }
 
   async findRefundRequests(filters: any, limit?: number, offset?: number) {
-    return this.prisma.refundRequest.findMany({
+    return this.prisma.transactionRefundRequest.findMany({
       where: filters,
       orderBy: { created_at: 'desc' },
       take: limit,
@@ -162,7 +163,7 @@ export class CompanyRepository extends BaseRepository {
   }
 
   async findRefundRequestById(id: string) {
-    return this.prisma.refundRequest.findUnique({
+    return this.prisma.transactionRefundRequest.findUnique({
       where: { id },
       include: {
         company: {
@@ -176,7 +177,7 @@ export class CompanyRepository extends BaseRepository {
   }
 
   async updateRefundRequest(id: string, data: any) {
-    return this.prisma.refundRequest.update({
+    return this.prisma.transactionRefundRequest.update({
       where: { id },
       data,
       include: {
@@ -191,6 +192,6 @@ export class CompanyRepository extends BaseRepository {
   }
 
   async deleteRefundRequest(id: string) {
-    return this.prisma.refundRequest.delete({ where: { id } });
+    return this.prisma.transactionRefundRequest.delete({ where: { id } });
   }
 }

@@ -81,8 +81,7 @@ export class FinanceController {
                     company: {
                         select: {
                             id: true,
-                            name: true,
-                            email: true
+                            name: true
                         }
                     }
                 },
@@ -149,7 +148,7 @@ export class FinanceController {
             });
 
             const totalRevenue = paidBills.reduce((sum, bill) => sum + Number(bill.amount), 0);
-            const commissionRate = licensee.commission_rate ? Number(licensee.commission_rate) : 0.3;
+            const commissionRate = licensee.revenue_share_percent ? Number(licensee.revenue_share_percent) / 100 : 0.3;
             const licenseeShare = totalRevenue * commissionRate;
             const platformShare = totalRevenue - licenseeShare;
 
