@@ -102,9 +102,7 @@ export class RegionService extends BaseService {
     }
 
     async getTransferImpact(id: string) {
-        const region = await this.getById(id);
-
-        const [companies, jobs, consultants, opportunities] = await Promise.all([
+        const [companies, jobs, consultants, opportunities, openInvoices] = await Promise.all([
             prisma.company.count({ where: { region_id: id } }),
             prisma.job.count({ where: { region_id: id, status: { in: ['OPEN', 'ON_HOLD'] } } }),
             prisma.consultant.count({ where: { region_id: id, status: 'ACTIVE' } }),
@@ -114,6 +112,12 @@ export class RegionService extends BaseService {
                     stage: { notIn: ['CLOSED_WON', 'CLOSED_LOST'] }
                 }
             }),
+            prisma.bill.count({
+                where: {
+                    status: { in: ['PENDING', 'OVERDUE'] },
+                    company: { region_id: id },
+                }
+            })
         ]);
 
         return {
@@ -121,15 +125,46 @@ export class RegionService extends BaseService {
             jobs,
             consultants,
             opportunities,
+            openInvoices,
         };
     }
 
-    async transferOwnership(regionId: string, targetLicenseeId: string) {
+    async transferOwnership(regionId: string, targetLicenseeId: string, auditNote?: string, performedBy?: string) {
         const impact = await this.getTransferImpact(regionId);
 
-        const updatedRegion = await this.regionRepository.update(regionId, {
-            licensee: { connect: { id: targetLicenseeId } },
-            owner_type: 'LICENSEE',
+        const updatedRegion = await prisma.$transaction(async (tx) => {
+            const region = await tx.region.findUnique({ where: { id: regionId } });
+            if (!region) throw new HttpException(404, 'Region not found');
+
+            const updated = await tx.region.update({
+                where: { id: regionId },
+                data: {
+                    licensee: { connect: { id: targetLicenseeId } },
+                    owner_type: 'LICENSEE',
+                }
+            });
+
+            await tx.company.updateMany({
+                where: { region_id: regionId },
+                data: { licensee_id: targetLicenseeId }
+            });
+
+            await tx.auditLog.create({
+                data: {
+                    entity_type: 'REGION',
+                    entity_id: regionId,
+                    action: 'TRANSFER_OWNERSHIP',
+                    performed_by: performedBy || 'system',
+                    description: auditNote || 'Region ownership transferred',
+                    changes: {
+                        from_licensee_id: region.licensee_id || null,
+                        to_licensee_id: targetLicenseeId,
+                        impact
+                    }
+                }
+            });
+
+            return updated;
         });
 
         return {

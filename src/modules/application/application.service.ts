@@ -121,7 +121,17 @@ export class ApplicationService extends BaseService {
   }
 
   async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
-    const applications = await this.applicationRepository.findByJobId(jobId, filters);
+    let applications = await this.applicationRepository.findByJobId(jobId, filters);
+
+    if (applications.length === 0) {
+      const jobByCode = await prisma.job.findFirst({
+        where: { job_code: jobId },
+        select: { id: true }
+      });
+      if (jobByCode?.id) {
+        applications = await this.applicationRepository.findByJobId(jobByCode.id, filters);
+      }
+    }
 
     // Extract round progress and map applications
     const roundProgress: Record<string, any> = {};

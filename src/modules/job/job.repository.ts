@@ -20,6 +20,13 @@ export class JobRepository extends BaseRepository {
     });
   }
 
+  async findByJobCode(jobCode: string): Promise<Job | null> {
+    if (!jobCode) return null;
+    return this.prisma.job.findFirst({
+      where: { job_code: jobCode },
+    });
+  }
+
   async findByCompanyId(companyId: string): Promise<Job[]> {
     return this.prisma.job.findMany({
       where: { company_id: companyId },

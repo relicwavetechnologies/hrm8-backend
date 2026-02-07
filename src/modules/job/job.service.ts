@@ -64,6 +64,16 @@ export class JobService extends BaseService {
     return this.mapToResponse(job);
   }
 
+  async resolveJobId(idOrCode: string, companyId: string): Promise<string> {
+    let job = await this.jobRepository.findById(idOrCode);
+    if (!job) {
+      job = await this.jobRepository.findByJobCode(idOrCode);
+    }
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
+    return job.id;
+  }
+
   async getCompanyJobs(companyId: string, filters: any) {
     const jobs = await this.jobRepository.findByCompanyIdWithFilters(companyId, filters);
 
@@ -93,12 +103,19 @@ export class JobService extends BaseService {
   private mapToResponse(job: any): any {
     if (!job) return null;
 
+    // Return ONLY camelCase fields (no duplication)
     return {
-      ...job,
-      // Map snake_case to camelCase
+      id: job.id,
       companyId: job.company_id,
       createdBy: job.created_by,
       jobCode: job.job_code,
+      title: job.title,
+      description: job.description,
+      requirements: job.requirements,
+      responsibilities: job.responsibilities,
+      department: job.department,
+      location: job.location,
+      country: job.country,
       hiringMode: job.hiring_mode,
       workArrangement: job.work_arrangement,
       employmentType: job.employment_type,
@@ -108,6 +125,10 @@ export class JobService extends BaseService {
       salaryCurrency: job.salary_currency,
       salaryPeriod: job.salary_period,
       salaryDescription: job.salary_description,
+      experienceLevel: job.experience_level,
+      status: job.status,
+      visibility: job.visibility,
+      stealth: job.stealth,
       promotionalTags: job.promotional_tags,
       videoInterviewingEnabled: job.video_interviewing_enabled,
       assignmentMode: job.assignment_mode,
@@ -115,6 +136,7 @@ export class JobService extends BaseService {
       updatedAt: job.updated_at,
       postingDate: job.posting_date,
       closeDate: job.close_date,
+      archived: job.archived,
       archivedAt: job.archived_at,
       archivedBy: job.archived_by,
       savedAsTemplate: job.saved_as_template,

@@ -121,6 +121,17 @@ export class ApplicationController extends BaseController {
       const filters = req.query;
 
       const result = await this.applicationService.getJobApplications(jobId, filters);
+      this.logger.info('Job applications fetched', {
+        jobId,
+        count: result.applications?.length || 0,
+        companyId: req.user?.companyId || null,
+        sample: (result.applications || []).slice(0, 5).map((app: any) => ({
+          id: app.id,
+          status: app.status,
+          stage: app.stage,
+          roundId: app.roundId || app.round_id,
+        })),
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);

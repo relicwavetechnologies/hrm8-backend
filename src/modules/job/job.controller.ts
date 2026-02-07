@@ -285,10 +285,9 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      const resolvedJobId = await this.jobService.resolveJobId(id, req.user.companyId);
 
-      const result = await this.jobRoundService.getJobRounds(id);
+      const result = await this.jobRoundService.getJobRounds(resolvedJobId);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -299,10 +298,9 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      const resolvedJobId = await this.jobService.resolveJobId(id, req.user.companyId);
 
-      const result = await this.jobRoundService.createRound(id, req.body);
+      const result = await this.jobRoundService.createRound(resolvedJobId, req.body);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -313,10 +311,9 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string, roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      const resolvedJobId = await this.jobService.resolveJobId(id, req.user.companyId);
 
-      const result = await this.jobRoundService.updateRound(id, roundId, req.body);
+      const result = await this.jobRoundService.updateRound(resolvedJobId, roundId, req.body);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -327,10 +324,9 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string, roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      const resolvedJobId = await this.jobService.resolveJobId(id, req.user.companyId);
 
-      const result = await this.jobRoundService.deleteRound(id, roundId);
+      const result = await this.jobRoundService.deleteRound(resolvedJobId, roundId);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
@@ -343,8 +339,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string; roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      await this.jobService.resolveJobId(id, req.user.companyId);
 
       const config = await this.jobRoundService.getInterviewConfig(roundId);
       return this.sendSuccess(res, { config: config || null });
@@ -357,8 +352,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string; roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      await this.jobService.resolveJobId(id, req.user.companyId);
 
       await this.jobRoundService.saveInterviewConfig(roundId, req.body);
       return this.sendSuccess(res, { message: 'Interview configuration saved successfully' });
@@ -373,8 +367,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string; roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      await this.jobService.resolveJobId(id, req.user.companyId);
 
       const config = await this.jobRoundService.getAssessmentConfig(roundId);
       return this.sendSuccess(res, { config: config || null });
@@ -387,8 +380,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string; roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      await this.jobService.resolveJobId(id, req.user.companyId);
 
       await this.jobRoundService.saveAssessmentConfig(roundId, req.body);
       return this.sendSuccess(res, { message: 'Assessment configuration saved successfully' });
@@ -401,8 +393,7 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id, roundId } = req.params as { id: string; roundId: string };
-      // Verify job access
-      await this.jobService.getJob(id, req.user.companyId);
+      await this.jobService.resolveJobId(id, req.user.companyId);
 
       const assessments = await this.assessmentService.getRoundAssessments(roundId);
       return this.sendSuccess(res, assessments);
