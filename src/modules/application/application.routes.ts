@@ -49,4 +49,8 @@ router.put('/:id/read', authenticate, applicationController.markAsRead);
 router.post('/:id/evaluate', authenticate, applicationController.addEvaluation);
 router.get('/:id/evaluations', authenticate, applicationController.getEvaluations);
 
+// Notes Routes
+router.get('/:id/notes', authenticate, applicationController.getNotes);
+router.post('/:id/notes', authenticate, applicationController.addNote);
+
 export default router;

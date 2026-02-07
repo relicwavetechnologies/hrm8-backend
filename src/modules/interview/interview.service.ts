@@ -252,6 +252,31 @@ export class InterviewService {
     return updated;
   }
 
+  static async updateInterview(id: string, updates: {
+    interviewerIds?: string[];
+    scheduledDate?: Date;
+    duration?: number;
+    type?: string;
+    meetingLink?: string;
+    notes?: string;
+  }) {
+    const data: any = {};
+    if (updates.interviewerIds !== undefined) data.interviewer_ids = updates.interviewerIds;
+    if (updates.scheduledDate !== undefined) data.scheduled_date = updates.scheduledDate;
+    if (updates.duration !== undefined) data.duration = updates.duration;
+    if (updates.type !== undefined) data.type = updates.type;
+    if (updates.meetingLink !== undefined) data.meeting_link = updates.meetingLink;
+    if (updates.notes !== undefined) data.notes = updates.notes;
+
+    const updated = await prisma.videoInterview.update({
+      where: { id },
+      data,
+      include: { application: { include: { candidate: true } }, job_round: true }
+    });
+
+    return this.mapToDTO(updated);
+  }
+
   static async addFeedback(interviewId: string, feedback: any) {
     // Save feedback logic here (simplified)
     await prisma.interviewFeedback.create({
