@@ -16,9 +16,9 @@ export class AdminBillingService extends BaseService {
   async getConsultantCommissions(consultantId: string) {
     const commissions = await this.repository.findCommissionsByConsultant(consultantId);
     const total = commissions.length;
-    const pending = commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + (c.amount || 0), 0);
-    const confirmed = commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.amount || 0), 0);
-    const paid = commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (c.amount || 0), 0);
+    const pending = commissions.filter(c => c.status === 'PENDING').reduce((sum: number, c) => sum + (c.amount || 0), 0);
+    const confirmed = commissions.filter(c => c.status === 'CONFIRMED').reduce((sum: number, c) => sum + (c.amount || 0), 0);
+    const paid = commissions.filter(c => c.status === 'PAID').reduce((sum: number, c) => sum + (c.amount || 0), 0);
 
     return { commissions, stats: { total, pending, confirmed, paid } };
   }
@@ -74,7 +74,7 @@ export class AdminBillingService extends BaseService {
     if (!region) throw new HttpException(404, 'Region not found');
 
     const revenue = await this.repository.findRevenueByRegion(regionId);
-    const total = revenue.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const total = revenue.reduce((sum: number, r: any) => sum + (r.total_revenue || 0), 0);
 
     return { region, revenue, totalPendingRevenue: total };
   }
@@ -83,26 +83,37 @@ export class AdminBillingService extends BaseService {
     const region = await this.repository.findRegion(regionId);
     if (!region) throw new HttpException(404, 'Region not found');
 
-    const revenue = await this.repository.findRevenueByRegion(regionId);
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    const monthlyRevenue = {
-      regionId,
-      period: new Date().toISOString().slice(0, 7),
-      totalAmount: revenue.reduce((sum, r) => sum + (r.amount || 0), 0),
-      transactionCount: revenue.length,
-      timestamp: new Date()
-    };
+    const paidBills = await prisma.bill.findMany({
+      where: {
+        status: 'PAID',
+        paid_at: { gte: periodStart, lte: periodEnd },
+        company: { region_id: regionId }
+      }
+    });
 
-    return this.repository.createRevenue(monthlyRevenue);
+    const totalRevenue = paidBills.reduce((sum: number, bill) => sum + Number(bill.amount || 0), 0);
+
+    return this.repository.createRevenue({
+      region_id: regionId,
+      licensee_id: region.licensee_id || null,
+      period_start: periodStart,
+      period_end: periodEnd,
+      total_revenue: totalRevenue,
+      licensee_share: 0,
+      hrm8_share: totalRevenue,
+      status: 'PENDING'
+    });
   }
 
   async processAllRegionsRevenue() {
-    const regions = await this.repository.findAllLicensees();
+    const regions = await this.repository.findAllRegions();
 
     const results = await Promise.all(
-      regions.map(region =>
-        this.calculateMonthlyRevenue(region.region_id)
-      )
+      regions.map(region => this.calculateMonthlyRevenue(region.id))
     );
 
     return {
@@ -130,7 +141,7 @@ export class AdminBillingService extends BaseService {
       this.repository.findSettlementsByStatus('FAILED')
     ]);
 
-    const totalAmount = total.reduce((sum, s) => sum + (s.amount || 0), 0);
+    const totalAmount = total.reduce((sum: number, s: any) => sum + (s.total_revenue || 0), 0);
 
     return {
       totalSettlements: total.length,
@@ -145,15 +156,38 @@ export class AdminBillingService extends BaseService {
     const licensee = await this.repository.findLicensee(licenseeId);
     if (!licensee) throw new HttpException(404, 'Licensee not found');
 
-    // Calculate settlement amount based on revenue/commission data
-    const revenues = await this.repository.findRevenueByRegion(licensee.region_id);
-    const settlementAmount = revenues.reduce((sum, r) => sum + (r.amount || 0), 0);
+    const regions = await prisma.region.findMany({
+      where: { licensee_id: licenseeId },
+      select: { id: true }
+    });
+    const regionIds = regions.map(r => r.id);
+    if (!regionIds.length) {
+      throw new HttpException(400, 'Licensee has no regions assigned');
+    }
+
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const paidBills = await prisma.bill.findMany({
+      where: {
+        status: 'PAID',
+        paid_at: { gte: periodStart, lte: periodEnd },
+        company: { region_id: { in: regionIds } }
+      }
+    });
+    const totalRevenue = paidBills.reduce((sum: number, bill) => sum + Number(bill.amount || 0), 0);
+    const licenseeShareRate = Number(licensee.revenue_share_percent || 0) / 100;
+    const licenseeShare = totalRevenue * licenseeShareRate;
+    const hrm8Share = totalRevenue - licenseeShare;
 
     return this.repository.createSettlement({
       licensee: { connect: { id: licenseeId } },
-      amount: settlementAmount,
-      currency: 'USD',
-      period: new Date().toISOString().slice(0, 7),
+      period_start: periodStart,
+      period_end: periodEnd,
+      total_revenue: totalRevenue,
+      licensee_share: licenseeShare,
+      hrm8_share: hrm8Share,
       status: 'PENDING',
       generated_at: new Date()
     });
@@ -168,7 +202,7 @@ export class AdminBillingService extends BaseService {
       )
     );
 
-    const totalAmount = results.reduce((sum, s) => sum + (s.amount || 0), 0);
+    const totalAmount = results.reduce((sum: number, s: any) => sum + (s.total_revenue || 0), 0);
 
     return {
       generatedSettlements: results.length,
@@ -187,7 +221,7 @@ export class AdminBillingService extends BaseService {
 
     return this.repository.updateSettlement(settlementId, {
       status: 'COMPLETED',
-      paid_at: new Date()
+      payment_date: new Date()
     });
   }
 
@@ -196,26 +230,26 @@ export class AdminBillingService extends BaseService {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
 
-    let attribution = await this.repository.findAttribution(companyId);
+    const attribution = await this.repository.findCompanyAttribution(companyId);
+    if (!attribution) throw new HttpException(404, 'Company not found');
 
-    if (!attribution) {
-      attribution = await this.repository.createAttribution({
-        company: { connect: { id: companyId } },
-        source: company.sales_agent_id ? 'SALES_AGENT' : 'DIRECT',
-        sales_agent_id: company.sales_agent_id,
-        region_id: company.region_id,
-        status: 'ACTIVE'
-      });
-    }
-
-    return attribution;
+    return {
+      companyId: attribution.id,
+      regionId: attribution.region_id,
+      salesAgentId: attribution.sales_agent_id,
+      status: attribution.attribution_locked ? 'LOCKED' : 'ACTIVE',
+      source: attribution.sales_agent_id ? 'SALES_AGENT' : 'DIRECT'
+    };
   }
 
   async getAttributionHistory(companyId: string) {
     const company = await this.repository.findCompany(companyId);
     if (!company) throw new HttpException(404, 'Company not found');
 
-    return this.repository.findAttributionHistory(companyId);
+    return prisma.auditLog.findMany({
+      where: { entity_type: 'company_attribution', entity_id: companyId },
+      orderBy: { performed_at: 'desc' }
+    });
   }
 
   async lockAttribution(companyId: string) {
@@ -224,17 +258,21 @@ export class AdminBillingService extends BaseService {
 
     const attribution = await this.getAttribution(companyId);
 
-    await this.repository.createAttributionHistory({
-      company: { connect: { id: companyId } },
-      previous_source: attribution.source,
-      new_source: attribution.source,
-      reason: 'LOCKED_BY_ADMIN',
-      changed_by: 'ADMIN',
-      changed_at: new Date()
+    await this.repository.createAuditLog({
+      entity_type: 'company_attribution',
+      entity_id: companyId,
+      action: 'LOCK',
+      performed_by: 'ADMIN',
+      changes: {
+        previous_source: attribution.source,
+        new_source: attribution.source,
+        reason: 'LOCKED_BY_ADMIN'
+      }
     });
 
-    return this.repository.updateAttribution(companyId, {
-      status: 'LOCKED'
+    return this.repository.updateCompanyAttribution(companyId, {
+      attribution_locked: true,
+      attribution_locked_at: new Date()
     });
   }
 
@@ -248,19 +286,22 @@ export class AdminBillingService extends BaseService {
 
     const attribution = await this.getAttribution(companyId);
 
-    await this.repository.createAttributionHistory({
-      company: { connect: { id: companyId } },
-      previous_source: attribution.source,
-      new_source: data.source,
-      reason: data.reason,
-      changed_by: 'ADMIN',
-      changed_at: new Date()
+    await this.repository.createAuditLog({
+      entity_type: 'company_attribution',
+      entity_id: companyId,
+      action: 'OVERRIDE',
+      performed_by: 'ADMIN',
+      changes: {
+        previous_source: attribution.source,
+        new_source: data.source,
+        reason: data.reason
+      }
     });
 
-    return this.repository.updateAttribution(companyId, {
-      source: data.source,
-      sales_agent_id: data.salesAgentId,
-      status: 'OVERRIDDEN'
+    return this.repository.updateCompanyAttribution(companyId, {
+      sales_agent_id: data.salesAgentId || null,
+      attribution_locked: true,
+      attribution_locked_at: new Date()
     });
   }
 }

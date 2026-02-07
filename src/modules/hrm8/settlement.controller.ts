@@ -11,6 +11,10 @@ export class SettlementController extends BaseController {
         super();
         this.settlementService = new SettlementService(new SettlementRepository());
     }
+    private getParam(value: string | string[] | undefined): string {
+        if (Array.isArray(value)) return value[0];
+        return value || '';
+    }
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
@@ -40,7 +44,7 @@ export class SettlementController extends BaseController {
     };
     markAsPaid = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { id } = req.params;
+            const id = this.getParam(req.params.id);
             const { paymentDate, paymentReference } = req.body;
             const result = await this.settlementService.markAsPaid(id, {
                 paymentDate: new Date(paymentDate),

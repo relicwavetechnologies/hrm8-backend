@@ -110,7 +110,7 @@ router.put('/licensees/:id/status', authenticateHrm8, regionalLicenseeController
 router.post('/licensees/:id/terminate', authenticateHrm8, regionalLicenseeController.terminate);
 router.post('/licensees/:id/suspend', authenticateHrm8, (req, res, next) => {
     req.body.status = 'SUSPENDED';
-    regionalLicenseeController.updateStatus(req, res, next);
+    return regionalLicenseeController.updateStatus(req, res);
 });
 router.get('/licensees/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
 

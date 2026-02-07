@@ -10,6 +10,10 @@ export class EmailTemplateController extends BaseController {
         super();
         this.service = new EmailTemplateService();
     }
+    private getParam(value: string | string[] | undefined): string {
+        if (Array.isArray(value)) return value[0];
+        return value || '';
+    }
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
@@ -35,7 +39,7 @@ export class EmailTemplateController extends BaseController {
 
     update = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { id } = req.params;
+            const id = this.getParam(req.params.id);
             const template = await this.service.update(id, req.body);
             return this.sendSuccess(res, template);
         } catch (error) {
@@ -45,7 +49,7 @@ export class EmailTemplateController extends BaseController {
 
     delete = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { id } = req.params;
+            const id = this.getParam(req.params.id);
             await this.service.delete(id);
             return this.sendSuccess(res, { message: 'Template deleted successfully' });
         } catch (error) {
@@ -64,7 +68,7 @@ export class EmailTemplateController extends BaseController {
 
     preview = async (req: Request, res: Response) => {
         try {
-            const { id } = req.params;
+            const id = this.getParam(req.params.id);
             const preview = await this.service.preview(id, req.body);
             return this.sendSuccess(res, preview);
         } catch (error) {

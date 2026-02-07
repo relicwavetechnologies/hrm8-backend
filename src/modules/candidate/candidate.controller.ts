@@ -6,6 +6,10 @@ import { CandidateAuthenticatedRequest } from '../../types';
 import { getSessionCookieOptions } from '../../utils/session';
 
 export class CandidateController extends BaseController {
+  private getParam(value: string | string[] | undefined): string {
+    if (Array.isArray(value)) return value[0];
+    return value || '';
+  }
   private candidateService: CandidateService;
 
   constructor() {
@@ -343,7 +347,7 @@ export class CandidateController extends BaseController {
   deleteWorkHistory = async (req: CandidateAuthenticatedRequest, res: Response) => {
     try {
       if (!req.candidate) return this.sendError(res, new Error('Not authenticated'));
-      const id = req.params.id;
+      const id = this.getParam(req.params.id);
       await this.candidateService.deleteWorkExperience(id);
       return this.sendSuccess(res, { message: 'Experience deleted' });
     } catch (error) {

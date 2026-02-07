@@ -18,6 +18,10 @@ export class AdminBillingController extends BaseController {
       throw new HttpException(403, 'Unauthorized: Admin only');
     }
   }
+  private getParam(value: string | string[] | undefined): string {
+    if (Array.isArray(value)) return value[0];
+    return value || '';
+  }
 
   // --- Commissions ---
   getCommissions = async (req: AuthenticatedRequest, res: Response) => {
@@ -38,7 +42,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { consultantId } = req.params;
+      const consultantId = this.getParam(req.params.consultantId);
       const result = await this.service.getConsultantCommissions(consultantId);
       return this.sendSuccess(res, result);
     } catch (error) {
@@ -50,7 +54,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { commissionId } = req.params;
+      const commissionId = this.getParam(req.params.commissionId);
       const commission = await this.service.payCommission(commissionId);
       return this.sendSuccess(res, { commission });
     } catch (error) {
@@ -86,7 +90,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { regionId } = req.params;
+      const regionId = this.getParam(req.params.regionId);
       const result = await this.service.getRegionalRevenue(regionId);
       return this.sendSuccess(res, result);
     } catch (error) {
@@ -98,7 +102,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { regionId } = req.params;
+      const regionId = this.getParam(req.params.regionId);
       const result = await this.service.calculateMonthlyRevenue(regionId);
       return this.sendSuccess(res, { result });
     } catch (error) {
@@ -136,7 +140,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { settlementId } = req.params;
+      const settlementId = this.getParam(req.params.settlementId);
       const settlement = await this.service.getSettlementById(settlementId);
       return this.sendSuccess(res, { settlement });
     } catch (error) {
@@ -159,9 +163,10 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { licenseeId } = req.params;
+      const licenseeId = this.getParam(req.params.licenseeId);
       const settlement = await this.service.generateSettlement(licenseeId);
-      return this.sendSuccess(res, { settlement }, 201);
+      res.status(201);
+      return this.sendSuccess(res, { settlement });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -182,7 +187,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { settlementId } = req.params;
+      const settlementId = this.getParam(req.params.settlementId);
       const settlement = await this.service.markSettlementPaid(settlementId);
       return this.sendSuccess(res, { settlement });
     } catch (error) {
@@ -195,7 +200,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyId = this.getParam(req.params.companyId);
       const attribution = await this.service.getAttribution(companyId);
       return this.sendSuccess(res, { attribution });
     } catch (error) {
@@ -207,7 +212,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyId = this.getParam(req.params.companyId);
       const history = await this.service.getAttributionHistory(companyId);
       return this.sendSuccess(res, { history });
     } catch (error) {
@@ -219,7 +224,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyId = this.getParam(req.params.companyId);
       const attribution = await this.service.lockAttribution(companyId);
       return this.sendSuccess(res, { attribution });
     } catch (error) {
@@ -231,7 +236,7 @@ export class AdminBillingController extends BaseController {
     try {
       this.requireAdmin(req);
 
-      const { companyId } = req.params;
+      const companyId = this.getParam(req.params.companyId);
       const attribution = await this.service.overrideAttribution(companyId, req.body);
       return this.sendSuccess(res, { attribution });
     } catch (error) {

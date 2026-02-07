@@ -65,10 +65,8 @@ export class AssessmentService extends BaseService {
 
     if (assessment.status === 'INVITED' || assessment.status === 'PENDING_INVITATION') {
       return this.assessmentRepository.update(assessment.id, {
-        data: {
-          status: 'IN_PROGRESS',
-          startedAt: new Date(),
-        },
+        status: 'IN_PROGRESS',
+        started_at: new Date(),
       });
     }
     return assessment;

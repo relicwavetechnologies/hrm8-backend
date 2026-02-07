@@ -8,31 +8,47 @@ export class AnalyticsService extends BaseService {
     }
 
     async getOperationalStats(regionId: string, assignedRegionIds?: string[]) {
-        if (assignedRegionIds && assignedRegionIds.length > 0 && !assignedRegionIds.includes(regionId)) {
-            throw new HttpException(403, 'Access denied to this region');
+        if (assignedRegionIds && assignedRegionIds.length > 0) {
+            const isAll = regionId === 'all';
+            if (!isAll && !assignedRegionIds.includes(regionId)) {
+                throw new HttpException(403, 'Access denied to this region');
+            }
         }
 
+        const statsRegionId = regionId === 'all' ? undefined : regionId;
         const [stats, trendsData] = await Promise.all([
-            this.analyticsRepository.getOperationalStats(regionId),
-            this.analyticsRepository.getHistoricalTrends(regionId)
+            this.analyticsRepository.getOperationalStats(statsRegionId),
+            this.analyticsRepository.getHistoricalTrends(statsRegionId)
         ]);
 
-        // Transform trends to match frontend expectation
+        // Transform to snake_case for frontend consistency
         const trends = {
-            openJobs: trendsData.map(t => ({ name: t.month, value: t.jobs })),
-            activeConsultants: trendsData.map(t => ({ name: t.month, value: t.consultants })),
+            open_jobs: trendsData.map(t => ({ name: t.month, value: t.jobs })),
+            active_consultants: trendsData.map(t => ({ name: t.month, value: t.consultants })),
             placements: trendsData.map(t => ({ name: t.month, value: t.placements }))
         };
 
-        return { ...stats, trends };
+        return {
+            open_jobs_count: stats.openJobsCount,
+            active_consultants_count: stats.activeConsultantsCount,
+            placements_this_month: stats.placementsThisMonth,
+            active_employer_count: stats.activeEmployerCount,
+            new_employer_count: stats.newEmployerCount,
+            inactive_employer_count: stats.inactiveEmployerCount,
+            trends
+        };
     }
 
     async getRegionalCompanies(regionId: string, status?: string, assignedRegionIds?: string[]) {
-        if (assignedRegionIds && assignedRegionIds.length > 0 && !assignedRegionIds.includes(regionId)) {
-            throw new HttpException(403, 'Access denied to this region');
+        if (assignedRegionIds && assignedRegionIds.length > 0) {
+            const isAll = regionId === 'all';
+            if (!isAll && !assignedRegionIds.includes(regionId)) {
+                throw new HttpException(403, 'Access denied to this region');
+            }
         }
 
-        return this.analyticsRepository.getRegionalCompanies(regionId, status);
+        const resolvedRegionId = regionId === 'all' ? undefined : regionId;
+        return this.analyticsRepository.getRegionalCompanies(resolvedRegionId as any, status);
     }
 
     async getPlatformOverview(filters: { startDate?: string; endDate?: string; companyId?: string; regionId?: string }) {

@@ -63,7 +63,7 @@ export class JobAllocationService extends BaseService {
   }
 
   async getJobsForAllocation(filters: any) {
-    const { limit = 10, offset = 0, search, regionId, assignmentStatus } = filters;
+    const { limit = 10, offset = 0, search, regionId, assignmentStatus, companyId, company, industry } = filters;
     const where: any = {
       status: { in: ['OPEN', 'ON_HOLD'] },
     };
@@ -78,8 +78,20 @@ export class JobAllocationService extends BaseService {
       }
     }
 
-    if (regionId) {
+    if (regionId && regionId !== 'all') {
       where.region_id = regionId;
+    }
+
+    if (companyId) {
+      where.company_id = companyId;
+    } else if (company) {
+      where.company = {
+        name: { contains: company, mode: 'insensitive' }
+      };
+    }
+
+    if (industry) {
+      where.category = { contains: industry, mode: 'insensitive' };
     }
 
     if (search) {
@@ -115,21 +127,23 @@ export class JobAllocationService extends BaseService {
 
   private mapToDTO(job: any) {
     return {
-      ...job,
+      id: job.id,
+      title: job.title,
+      location: job.location,
+      category: job.category,
+      status: job.status,
+      assignmentMode: job.assignment_mode,
+      assignmentSource: job.assignment_source,
+      companyId: job.company?.id || job.company_id,
+      companyName: job.company?.name,
+      regionId: job.region_id || job.company?.region_id,
       createdAt: job.created_at,
       postedAt: job.posted_at,
-      assignedConsultant: job.assigned_consultant ? {
-        id: job.assigned_consultant.id,
-        firstName: job.assigned_consultant.first_name,
-        lastName: job.assigned_consultant.last_name,
-        email: job.assigned_consultant.email,
-      } : null,
+      assignedConsultantId: job.assigned_consultant?.id || job.assigned_consultant_id,
+      assignedConsultantName: job.assigned_consultant
+        ? `${job.assigned_consultant.first_name} ${job.assigned_consultant.last_name}`
+        : null,
       assignedRegion: job.region ? job.region.name : 'Unassigned',
-      company: job.company ? {
-        id: job.company.id,
-        name: job.company.name,
-        regionId: job.company.region_id
-      } : null,
     };
   }
 

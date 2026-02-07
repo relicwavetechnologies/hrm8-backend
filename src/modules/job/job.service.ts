@@ -4,6 +4,9 @@ import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType, InvitationStatus } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
+import { EmailService } from '../email/email.service';
+import { JobAlertService } from '../candidate/job-alert.service';
+import { prisma } from '../../utils/prisma';
 
 export class JobService extends BaseService {
   constructor(
@@ -258,7 +261,7 @@ export class JobService extends BaseService {
     if (this.notificationService) {
       const emailService = new EmailService();
       const jobAlertService = new JobAlertService(this.notificationService, emailService);
-      jobAlertService.processJobAlerts(updatedJob).catch(error => {
+      jobAlertService.processJobAlerts(updatedJob).catch((error: unknown) => {
         console.error('[JobService] Failed to process job alerts:', error);
       });
     }
@@ -287,6 +290,66 @@ export class JobService extends BaseService {
     });
 
     return this.mapToResponse(updatedJob);
+  }
+
+  async submitAndActivate(id: string, companyId: string, userId: string, paymentId?: string): Promise<Job> {
+    const job = await this.getJob(id, companyId);
+    if (job.status !== 'DRAFT') {
+      return job;
+    }
+
+    const updatedJob = await this.jobRepository.update(id, {
+      status: 'OPEN',
+      posting_date: new Date(),
+      payment_status: paymentId ? 'PAID' : job.payment_status,
+      stripe_payment_intent_id: paymentId || job.stripe_payment_intent_id,
+    });
+
+    if (this.notificationService && userId) {
+      await this.notificationService.createNotification({
+        recipientType: NotificationRecipientType.USER,
+        recipientId: userId,
+        type: UniversalNotificationType.JOB_PUBLISHED,
+        title: 'Job Published',
+        message: `Your job "${updatedJob.title}" has been successfully published.`,
+        data: { jobId: id, companyId },
+        actionUrl: `/ats/jobs/${id}`
+      });
+    }
+
+    return this.mapToResponse(updatedJob);
+  }
+
+  async updateAlerts(id: string, companyId: string, alertsConfig: any): Promise<Job> {
+    await this.getJob(id, companyId);
+    const updatedJob = await this.jobRepository.update(id, {
+      alerts_enabled: alertsConfig
+    });
+    return this.mapToResponse(updatedJob);
+  }
+
+  async saveAsTemplate(id: string, companyId: string, templateName: string, templateDescription?: string) {
+    const job = await this.jobRepository.findById(id);
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
+
+    const template = await prisma.jobTemplate.create({
+      data: {
+        company_id: companyId,
+        created_by: job.created_by,
+        name: templateName,
+        description: templateDescription,
+        source_job_id: job.id,
+        job_data: job
+      }
+    });
+
+    await this.jobRepository.update(id, {
+      saved_as_template: true,
+      template_id: template.id
+    });
+
+    return { job: this.mapToResponse(job), templateId: template.id };
   }
 
   private async generateJobCode(companyId: string): Promise<string> {

@@ -49,24 +49,12 @@ export class EmailService extends BaseService {
       if (candidate) {
         variables.candidate = {
           ...candidate,
-          // Flatten first_name/last_name to camelCase if needed, but schema has them as snake_case mapped to camelCase in Prisma client?
-          // Prisma client uses camelCase by default for mapped fields. 
-          // Schema says: first_name String @map("first_name"). Prisma generate creates firstName.
-          // Let's ensure we provide what the template expects.
-
-          firstName: candidate.first_name, // Prisma Client maps this to first_name? No, defaults to camelCase usually unless configured otherwise. 
-          // Wait, if @map is used, the DB column is snake_case, but the Model field name is the one before the type.
-          // In schema: first_name String @map("first_name") -> Field name is first_name.
-          // So variables.candidate.first_name exists. 
-          // But template uses candidate.firstName. We need to map it.
-          // Actually, let's check standard prisma behavior. "first_name String" means the JS property is "first_name".
-
           firstName: candidate.first_name,
           lastName: candidate.last_name,
 
           // Logic for current company/designation from work experience
-          current_company: candidate.work_experience?.[0]?.company_name || '',
-          current_designation: candidate.work_experience?.[0]?.job_title || ''
+          current_company: candidate.work_experience?.[0]?.company || '',
+          current_designation: candidate.work_experience?.[0]?.role || ''
         };
       }
     }
@@ -226,6 +214,34 @@ export class EmailService extends BaseService {
   async sendInvitationEmail(data: { to: string; companyName: string; invitationUrl: string }) {
     const html = getInvitationEmailTemplate(data);
     await this.sendEmail(data.to, `Invitation to join ${data.companyName}`, html);
+  }
+
+  async sendJobAlertEmail(data: {
+    to: string;
+    candidateName: string;
+    jobTitle: string;
+    jobUrl: string;
+    companyName?: string;
+    location?: string;
+    employmentType?: string;
+    workArrangement?: string;
+    salaryRange?: string;
+    jobDescription?: string;
+    alertName?: string;
+    matchScore?: number;
+  }) {
+    const message = `
+      <p>Hi ${data.candidateName},</p>
+      <p>A new job matching your alerts has been posted: <strong>${data.jobTitle}</strong>${data.companyName ? ` at <strong>${data.companyName}</strong>` : ''}.</p>
+      ${data.location ? `<p><strong>Location:</strong> ${data.location}</p>` : ''}
+      ${data.employmentType ? `<p><strong>Type:</strong> ${data.employmentType}</p>` : ''}
+      ${data.workArrangement ? `<p><strong>Arrangement:</strong> ${data.workArrangement}</p>` : ''}
+      ${data.salaryRange ? `<p><strong>Salary:</strong> ${data.salaryRange}</p>` : ''}
+      ${data.jobDescription ? `<p>${data.jobDescription}</p>` : ''}
+      <p><a href="${data.jobUrl}">View Job</a></p>
+    `;
+    const html = getNotificationEmailTemplate({ title: 'New Job Alert', message, actionUrl: data.jobUrl });
+    await this.sendEmail(data.to, `New Job Alert: ${data.jobTitle}`, html);
   }
 
   // Interview Emails
