@@ -2,11 +2,16 @@ import { Router } from 'express';
 import { JobController } from './job.controller';
 import { RoundConfigController } from './round-config.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
+import multer from 'multer';
+import { jobDocumentController } from './job-document.controller';
 
 const router = Router();
 const jobController = new JobController();
+const upload = multer({ storage: multer.memoryStorage() });
 
 router.post('/', authenticate, jobController.createJob);
+router.post('/generate-description', authenticate, jobController.generateDescription);
+router.post('/parse-document', authenticate, upload.single('file'), jobDocumentController.parseDocument);
 router.get('/', authenticate, jobController.getJobs);
 router.post('/bulk-delete', authenticate, jobController.bulkDeleteJobs);
 router.post('/bulk-archive', authenticate, jobController.bulkArchiveJobs);

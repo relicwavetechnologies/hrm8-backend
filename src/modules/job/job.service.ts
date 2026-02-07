@@ -7,6 +7,8 @@ import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
+import { jobPaymentService, JobPaymentService } from './job-payment.service';
+import { jobAllocationService } from './job-allocation.service';
 
 export class JobService extends BaseService {
   constructor(
@@ -25,23 +27,53 @@ export class JobService extends BaseService {
     // Assuming defaults for now or logic to be injected
     const assignmentMode = data.assignmentMode || 'AUTO';
 
-    const job = await this.jobRepository.create({
-      ...data,
+    console.log('[JobService] createJob received data:', JSON.stringify(data, null, 2));
+
+    const jobPayload = {
+      // Explicitly map all fields to ensure no data loss
       company: { connect: { id: companyId } },
-      created_by: createdBy,
+      creator: { connect: { id: createdBy } },
       job_code: jobCode,
-      status: 'DRAFT',
-      assignment_mode: assignmentMode,
-      // Map other fields as necessary from data...
-      // Ensure camelCase to snake_case mapping or rely on Prisma types matching
+      status: 'DRAFT' as JobStatus,
+      assignment_mode: assignmentMode as AssignmentMode,
+
+      title: data.title,
+      description: data.description,
+      department: data.department,
+      location: data.location,
+
       hiring_mode: data.hiringMode,
-      work_arrangement: data.workArrangement,
-      employment_type: data.employmentType,
+      work_arrangement: (data.workArrangement?.toUpperCase().replace('-', '_')) || 'ON_SITE',
+      employment_type: (data.employmentType?.toUpperCase().replace('-', '_')) || 'FULL_TIME',
+      // experience_level: data.experienceLevel, // Removed: Not in schema
+
       number_of_vacancies: data.numberOfVacancies || 1,
+
+      // Salary Fields
+      salary_min: data.salaryMin,
+      salary_max: data.salaryMax,
       salary_currency: data.salaryCurrency || 'USD',
-      promotional_tags: data.promotionalTags || [],
+      // salary_period: data.salaryPeriod, // Removed as per schema constraints
+      salary_description: data.salaryDescription,
+      // hide_salary: data.hideSalary, // Removed: Not in schema
+
+      // Content Arrays
+      requirements: data.requirements || [],
+      responsibilities: data.responsibilities || [],
+      promotional_tags: data.tags || data.promotionalTags || [], // Map tags to promotional_tags
+
+      // Configs
       video_interviewing_enabled: data.videoInterviewingEnabled || false,
-    });
+      application_form: data.applicationForm ? data.applicationForm : undefined,
+
+      // Logistic
+      close_date: data.closeDate,
+      visibility: data.visibility || 'public',
+    };
+
+    console.log('[JobService] Transformed Payload:', JSON.stringify(jobPayload, null, 2));
+
+    const job = await this.jobRepository.create(jobPayload as any);
 
     return this.mapToResponse(job);
   }
@@ -52,8 +84,32 @@ export class JobService extends BaseService {
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
     // Map fields for update
-    // Note: In a real scenario, use a mapper or cleaner input object
-    const updatedJob = await this.jobRepository.update(id, data);
+    const updateData: any = {
+      ...data,
+      // Manual mapping for updates
+      hiring_mode: data.hiringMode,
+      work_arrangement: data.workArrangement ? (data.workArrangement.toUpperCase().replace('-', '_')) : undefined,
+      employment_type: data.employmentType ? (data.employmentType.toUpperCase().replace('-', '_')) : undefined,
+      // experience_level: data.experienceLevel,
+      number_of_vacancies: data.numberOfVacancies,
+      salary_min: data.salaryMin,
+      salary_max: data.salaryMax,
+      salary_currency: data.salaryCurrency,
+      // salary_period: data.salaryPeriod,
+      salary_description: data.salaryDescription,
+      // hide_salary: data.hideSalary,
+      requirements: data.requirements,
+      responsibilities: data.responsibilities,
+      promotional_tags: data.tags || data.promotionalTags,
+      application_form: data.applicationForm,
+      close_date: data.closeDate,
+      video_interviewing_enabled: data.videoInterviewingEnabled,
+    };
+
+    // Remove undefined
+    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+    const updatedJob = await this.jobRepository.update(id, updateData);
     return this.mapToResponse(updatedJob);
   }
 
@@ -236,12 +292,37 @@ export class JobService extends BaseService {
       throw new HttpException(400, 'Only draft jobs can be published');
     }
 
-    // TODO: Implement wallet payment logic here
-    // For now, just change status to OPEN
-    const updatedJob = await this.jobRepository.update(id, {
+    const servicePackage = job.service_package || 'self-managed';
+
+    // 1. Process payment if required
+    if (JobPaymentService.requiresPayment(servicePackage) && job.payment_status !== 'PAID') {
+      const paymentResult = await jobPaymentService.payForJobFromWallet(
+        companyId,
+        id,
+        servicePackage,
+        userId || job.created_by
+      );
+
+      if (!paymentResult.success) {
+        throw new HttpException(402, paymentResult.error || 'Payment required to publish this job');
+      }
+    }
+
+    // 2. Build update data
+    const updateData: any = {
       status: 'OPEN',
       posting_date: new Date(),
-    });
+    };
+
+    // 3. Update job status
+    const updatedJob = await this.jobRepository.update(id, updateData);
+
+    // 4. Auto-allocate to consultant if applicable
+    if (updatedJob.assignment_mode === 'AUTO' || updatedJob.hiring_mode !== 'SELF_MANAGED') {
+      await jobAllocationService.autoAssignJob(id).catch(err => {
+        console.error(`[JobService] Auto-allocation failed for job ${id}:`, err);
+      });
+    }
 
     // Trigger notification
     if (this.notificationService && userId) {

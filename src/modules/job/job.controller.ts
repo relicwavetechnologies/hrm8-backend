@@ -11,6 +11,7 @@ import { JobRoundService } from './job-round.service';
 import { JobRoundRepository } from './job-round.repository';
 import { AssessmentService } from '../assessment/assessment.service';
 import { AssessmentRepository } from '../assessment/assessment.repository';
+import { jobDescriptionGeneratorService } from '../ai/job-description-generator.service';
 
 export class JobController extends BaseController {
   private jobService: JobService;
@@ -476,6 +477,26 @@ export class JobController extends BaseController {
 
       await this.jobService.resendInvite(id, memberId, req.user.companyId);
       return this.sendSuccess(res, { message: 'Invitation resent successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  /**
+   * Generate job description using AI
+   * POST /api/jobs/generate-description
+   */
+  generateDescription = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+
+      const requestData = req.body;
+      if (!requestData.title) {
+        return this.sendError(res, new Error('Job title is required'), 400);
+      }
+
+      const generated = await jobDescriptionGeneratorService.generateWithAI(requestData);
+      return this.sendSuccess(res, generated);
     } catch (error) {
       return this.sendError(res, error);
     }
