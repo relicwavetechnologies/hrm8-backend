@@ -29,6 +29,7 @@ export async function authenticate(
       token = authHeader.split(' ')[1];
     }
 
+
     // console.log('[authenticate] Checking authentication');
     // console.log('[authenticate] All cookies:', req.cookies);
 

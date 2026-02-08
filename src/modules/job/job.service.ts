@@ -5,8 +5,10 @@ import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipien
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
+import { emailService } from '../email/email.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
+import { env } from '../../config/env';
 import { jobPaymentService, JobPaymentService } from './job-payment.service';
 import { jobAllocationService } from './job-allocation.service';
 
@@ -69,11 +71,22 @@ export class JobService extends BaseService {
       // Logistic
       close_date: data.closeDate,
       visibility: data.visibility || 'public',
+
+      // Post-job setup flow (Simple vs Advanced)
+      ...(data.setupType && { setup_type: data.setupType.toUpperCase() === 'SIMPLE' ? 'SIMPLE' : 'ADVANCED' }),
+      ...(data.managementType && { management_type: data.managementType }),
     };
 
     console.log('[JobService] Transformed Payload:', JSON.stringify(jobPayload, null, 2));
 
     const job = await this.jobRepository.create(jobPayload as any);
+
+    // Create default per-job roles for post-job setup (production-grade)
+    await this.jobRepository.createJobRoles(job.id, [
+      { name: 'Hiring Manager', isDefault: true },
+      { name: 'Recruiter', isDefault: true },
+      { name: 'Interviewer', isDefault: true },
+    ]);
 
     return this.mapToResponse(job);
   }
@@ -104,10 +117,15 @@ export class JobService extends BaseService {
       application_form: data.applicationForm,
       close_date: data.closeDate,
       video_interviewing_enabled: data.videoInterviewingEnabled,
+      setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
+      management_type: data.managementType ?? undefined,
     };
 
-    // Remove undefined
-    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+    // Remove undefined and camelCase keys we mapped to snake_case (Prisma expects schema field names)
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) delete updateData[key];
+      if (key === 'setupType' || key === 'managementType') delete updateData[key];
+    });
 
     const updatedJob = await this.jobRepository.update(id, updateData);
     return this.mapToResponse(updatedJob);
@@ -118,6 +136,16 @@ export class JobService extends BaseService {
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
     return this.mapToResponse(job);
+  }
+
+  async resolveJobId(idOrCode: string, companyId: string): Promise<string> {
+    let job = await this.jobRepository.findById(idOrCode);
+    if (!job) {
+      job = await this.jobRepository.findByJobCode(idOrCode);
+    }
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
+    return job.id;
   }
 
   async getCompanyJobs(companyId: string, filters: any) {
@@ -149,12 +177,19 @@ export class JobService extends BaseService {
   private mapToResponse(job: any): any {
     if (!job) return null;
 
+    // Return ONLY camelCase fields (no duplication)
     return {
-      ...job,
-      // Map snake_case to camelCase
+      id: job.id,
       companyId: job.company_id,
       createdBy: job.created_by,
       jobCode: job.job_code,
+      title: job.title,
+      description: job.description,
+      requirements: job.requirements,
+      responsibilities: job.responsibilities,
+      department: job.department,
+      location: job.location,
+      country: job.country,
       hiringMode: job.hiring_mode,
       workArrangement: job.work_arrangement,
       employmentType: job.employment_type,
@@ -164,6 +199,10 @@ export class JobService extends BaseService {
       salaryCurrency: job.salary_currency,
       salaryPeriod: job.salary_period,
       salaryDescription: job.salary_description,
+      experienceLevel: job.experience_level,
+      status: job.status,
+      visibility: job.visibility,
+      stealth: job.stealth,
       promotionalTags: job.promotional_tags,
       videoInterviewingEnabled: job.video_interviewing_enabled,
       assignmentMode: job.assignment_mode,
@@ -171,6 +210,7 @@ export class JobService extends BaseService {
       updatedAt: job.updated_at,
       postingDate: job.posting_date,
       closeDate: job.close_date,
+      archived: job.archived,
       archivedAt: job.archived_at,
       archivedBy: job.archived_by,
       savedAsTemplate: job.saved_as_template,
@@ -182,6 +222,8 @@ export class JobService extends BaseService {
       assignedConsultantId: job.assigned_consultant_id,
       assignedConsultantName: job.assigned_consultant_name,
       applicantsCount: job._count?.applications || 0,
+      setupType: job.setup_type ? job.setup_type.toLowerCase() : 'advanced',
+      managementType: job.management_type ?? undefined,
     };
   }
 
@@ -439,7 +481,7 @@ export class JobService extends BaseService {
   }
 
   async inviteTeamMember(jobId: string, companyId: string, data: any): Promise<void> {
-    const { email, name, role } = data;
+    const { email, name, role, roles: roleIds, inviterId } = data;
     await this.getJob(jobId, companyId); // Verify access
 
     // Check if already in team
@@ -451,20 +493,96 @@ export class JobService extends BaseService {
     // Check if user exists
     const user = await this.jobRepository.findUserByEmail(email);
 
+    const ids = Array.isArray(roleIds) ? roleIds : (role ? [] : []);
     await this.jobRepository.addTeamMember(jobId, {
       email,
       name: name || user?.name,
-      role,
+      role: role || 'MEMBER',
       user_id: user?.id,
-      status: 'ACTIVE', // Auto-activate for now if added by admin
+      status: 'ACTIVE',
+      roleIds: ids,
     });
 
-    // TODO: Send email invitation
+    // Send hiring team invitation email (non-blocking)
+    this.sendHiringTeamInvitationEmail(jobId, companyId, {
+      to: email,
+      role: role || 'MEMBER',
+      inviterId,
+    }).catch((err) => console.error('[JobService] Failed to send hiring team invitation email', err));
+  }
+
+  /**
+   * Sends hiring team invitation email. Does not throw; logs errors.
+   */
+  private async sendHiringTeamInvitationEmail(
+    jobId: string,
+    companyId: string,
+    opts: { to: string; role: string; inviterId?: string }
+  ): Promise<void> {
+    const jobWithCompany = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { title: true, company_id: true, company: { select: { name: true } } },
+    });
+    if (!jobWithCompany || jobWithCompany.company_id !== companyId) return;
+
+    const jobTitle = jobWithCompany.title ?? 'Job';
+    const companyName = jobWithCompany.company?.name ?? 'Company';
+    let inviterName = 'A colleague';
+    if (opts.inviterId) {
+      const inviter = await prisma.user.findUnique({
+        where: { id: opts.inviterId },
+        select: { name: true, email: true },
+      });
+      if (inviter?.name) inviterName = inviter.name;
+      else if (inviter?.email) inviterName = inviter.email;
+    }
+
+    const inviteLink = `${env.FRONTEND_URL}/jobs/${jobId}`;
+    await emailService.sendHiringTeamInvitation({
+      to: opts.to,
+      inviterName,
+      jobTitle,
+      companyName,
+      role: opts.role,
+      inviteLink,
+    });
+  }
+
+  async getJobRoles(jobId: string, companyId: string) {
+    await this.getJob(jobId, companyId);
+    const roles = await this.jobRepository.getJobRoles(jobId);
+    return roles.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      isDefault: r.is_default,
+    }));
+  }
+
+  async createJobRole(jobId: string, companyId: string, data: { name: string; isDefault?: boolean }) {
+    await this.getJob(jobId, companyId);
+    if (!data.name?.trim()) throw new HttpException(400, 'Role name is required');
+    const role = await this.jobRepository.createJobRole(jobId, {
+      name: data.name.trim(),
+      isDefault: data.isDefault ?? false,
+    });
+    return { id: role.id, name: role.name, isDefault: role.is_default };
   }
 
   async getTeamMembers(jobId: string, companyId: string) {
     await this.getJob(jobId, companyId);
-    return this.jobRepository.getTeamMembers(jobId);
+    const rows = await this.jobRepository.getTeamMembers(jobId);
+    return rows.map((m: any) => ({
+      id: m.id,
+      userId: m.user_id,
+      email: m.email,
+      name: m.name,
+      role: m.role,
+      status: m.status,
+      invitedAt: m.invited_at,
+      joinedAt: m.joined_at,
+      roles: (m.member_roles || []).map((mr: any) => mr.job_role?.id ?? mr.job_role_id).filter(Boolean),
+      roleDetails: (m.member_roles || []).map((mr: any) => mr.job_role ? { id: mr.job_role.id, name: mr.job_role.name } : null).filter(Boolean),
+    }));
   }
 
   async removeTeamMember(jobId: string, memberId: string, companyId: string) {
@@ -478,20 +596,25 @@ export class JobService extends BaseService {
     await this.jobRepository.updateTeamMember(memberId, { role });
   }
 
-  async resendInvite(jobId: string, memberId: string, companyId: string) {
+  async updateTeamMemberRoles(jobId: string, memberId: string, companyId: string, roleIds: string[]) {
+    await this.getJob(jobId, companyId);
+    await this.jobRepository.setMemberJobRoles(memberId, roleIds ?? []);
+  }
+
+  async resendInvite(jobId: string, memberId: string, companyId: string, inviterId?: string) {
     await this.getJob(jobId, companyId);
 
-    // Get member to verify exists and get details
-    // Ideally we should have a getTeamMemberById method but we can just update blindly or fetch all
-    // For now, let's update the invited_at timestamp to "resend"
+    const member = await this.jobRepository.getTeamMember(memberId);
+    if (!member || member.job_id !== jobId) throw new HttpException(404, 'Team member not found');
 
-    // Verify member exists (implicit in update)
     await this.jobRepository.updateTeamMember(memberId, {
-      invited_at: new Date()
+      invited_at: new Date(),
     });
 
-    // TODO: Trigger actual email sending logic here
-    // const member = await this.jobRepository.getTeamMember(memberId);
-    // this.emailService.sendInvite(member.email, ...);
+    this.sendHiringTeamInvitationEmail(jobId, companyId, {
+      to: member.email,
+      role: member.role ?? 'MEMBER',
+      inviterId,
+    }).catch((err) => console.error('[JobService] Failed to resend hiring team invitation email', err));
   }
 }

@@ -100,9 +100,17 @@ export class RegionController extends BaseController {
 
     transferOwnership = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
+            if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                return this.sendError(res, new Error('Access denied. Required roles: GLOBAL_ADMIN'), 403);
+            }
             const { regionId } = req.params;
-            const { targetLicenseeId } = req.body;
-            const result = await this.regionService.transferOwnership(regionId as string, targetLicenseeId as string);
+            const { targetLicenseeId, auditNote } = req.body;
+            const result = await this.regionService.transferOwnership(
+                regionId as string,
+                targetLicenseeId as string,
+                auditNote,
+                req.hrm8User?.id
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

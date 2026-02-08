@@ -148,6 +148,8 @@ router.delete('/regions/:id', authenticateHrm8, regionController.delete);
 router.post('/regions/:regionId/assign-licensee', authenticateHrm8, regionController.assignLicensee);
 router.post('/regions/:regionId/unassign-licensee', authenticateHrm8, regionController.unassignLicensee);
 router.get('/regions/:regionId/transfer-impact', authenticateHrm8, regionController.getTransferImpact);
+// Legacy alias for ATS compatibility
+router.post('/regions/:regionId/transfer', authenticateHrm8, regionController.transferOwnership);
 router.post('/regions/:regionId/transfer-ownership', authenticateHrm8, regionController.transferOwnership);
 
 // Staff Management Routes

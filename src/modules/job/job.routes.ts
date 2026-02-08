@@ -47,6 +47,10 @@ router.get('/:id/rounds/:roundId/assessment-config', authenticate, jobController
 router.post('/:id/rounds/:roundId/assessment-config', authenticate, jobController.configureAssessment);
 router.get('/:id/rounds/:roundId/assessments', authenticate, jobController.getRoundAssessments);
 
+// Job Roles (per-job, for post-job setup)
+router.get('/:id/roles', authenticate, jobController.getJobRoles);
+router.post('/:id/roles', authenticate, jobController.createJobRole);
+
 // Hiring Team
 router.post('/:id/hiring-team/invite', authenticate, jobController.inviteHiringTeamMember); // Legacy?
 router.get('/:id/team', authenticate, jobController.getHiringTeam);

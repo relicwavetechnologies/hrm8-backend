@@ -20,6 +20,13 @@ export class JobRepository extends BaseRepository {
     });
   }
 
+  async findByJobCode(jobCode: string): Promise<Job | null> {
+    if (!jobCode) return null;
+    return this.prisma.job.findFirst({
+      where: { job_code: jobCode },
+    });
+  }
+
   async findByCompanyId(companyId: string): Promise<Job[]> {
     return this.prisma.job.findMany({
       where: { company_id: companyId },
@@ -286,15 +293,65 @@ export class JobRepository extends BaseRepository {
     };
   }
 
+  // Job Roles (per-job, production-grade)
+
+  async createJobRoles(jobId: string, roles: Array<{ name: string; isDefault?: boolean }>): Promise<void> {
+    await this.prisma.jobRole.createMany({
+      data: roles.map((r) => ({
+        job_id: jobId,
+        name: r.name,
+        is_default: r.isDefault ?? false,
+      })),
+    });
+  }
+
+  async createJobRole(jobId: string, data: { name: string; isDefault?: boolean }): Promise<any> {
+    return this.prisma.jobRole.create({
+      data: {
+        job_id: jobId,
+        name: data.name,
+        is_default: data.isDefault ?? false,
+      },
+    });
+  }
+
+  async getJobRoles(jobId: string): Promise<any[]> {
+    return this.prisma.jobRole.findMany({
+      where: { job_id: jobId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /** Returns user IDs of hiring team members who have the given job role (for round auto-assign). */
+  async getMemberUserIdsByJobRoleId(jobId: string, jobRoleId: string): Promise<string[]> {
+    const members = await this.prisma.jobHiringTeamMemberRole.findMany({
+      where: {
+        job_role_id: jobRoleId,
+        member: { job_id: jobId },
+      },
+      include: { member: { select: { user_id: true } } },
+    });
+    return members.map((m) => m.member.user_id).filter((id): id is string => id != null);
+  }
+
   // Team Management Methods
 
   async addTeamMember(jobId: string, data: any): Promise<any> {
-    return this.prisma.jobHiringTeamMember.create({
+    const { roleIds, user_id: userId, ...rest } = data;
+    const member = await this.prisma.jobHiringTeamMember.create({
       data: {
-        ...data,
+        ...rest,
         job: { connect: { id: jobId } },
-      }
+        ...(userId ? { user: { connect: { id: userId } } } : {}),
+      },
     });
+    if (Array.isArray(roleIds) && roleIds.length > 0) {
+      await this.prisma.jobHiringTeamMemberRole.createMany({
+        data: roleIds.map((rid: string) => ({ member_id: member.id, job_role_id: rid })),
+        skipDuplicates: true,
+      });
+    }
+    return member;
   }
 
   async getTeamMembers(jobId: string): Promise<any[]> {
@@ -306,23 +363,43 @@ export class JobRepository extends BaseRepository {
             id: true,
             name: true,
             email: true,
-            role: true
-          }
-        }
-      }
+            role: true,
+          },
+        },
+        member_roles: {
+          include: { job_role: { select: { id: true, name: true } } },
+        },
+      },
     });
   }
 
   async updateTeamMember(id: string, data: any): Promise<any> {
     return this.prisma.jobHiringTeamMember.update({
       where: { id },
-      data
+      data,
     });
+  }
+
+  /** Set job-role assignments for a member (replaces existing). */
+  async setMemberJobRoles(memberId: string, jobRoleIds: string[]): Promise<void> {
+    await this.prisma.jobHiringTeamMemberRole.deleteMany({ where: { member_id: memberId } });
+    if (jobRoleIds.length > 0) {
+      await this.prisma.jobHiringTeamMemberRole.createMany({
+        data: jobRoleIds.map((rid) => ({ member_id: memberId, job_role_id: rid })),
+        skipDuplicates: true,
+      });
+    }
   }
 
   async removeTeamMember(id: string): Promise<any> {
     return this.prisma.jobHiringTeamMember.delete({
       where: { id }
+    });
+  }
+
+  async getTeamMember(memberId: string): Promise<any | null> {
+    return this.prisma.jobHiringTeamMember.findUnique({
+      where: { id: memberId },
     });
   }
 
