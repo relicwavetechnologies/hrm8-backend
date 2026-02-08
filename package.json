@@ -9,10 +9,12 @@
     "start": "tsx src/server.ts",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "echo \"Blocked: do not run prisma migrate dev. Use pnpm prisma:dev:push on dev and pnpm prisma:main:deploy on main.\" && exit 1",
     "prisma:push": "prisma db push",
+    "prisma:dev:push": "sh -c 'set -a; [ -f ./.env.dev ] && . ./.env.dev; set +a; prisma db push'",
     "prisma:studio": "prisma studio",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:main:deploy": "sh -c 'set -a; [ -f ./.env.main ] && . ./.env.main; set +a; prisma migrate deploy'"
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",

@@ -69,6 +69,10 @@ Each feature (e.g., `auth`, `user`, `company`) is a self-contained module contai
 -   `BaseRepository`: Wrapper around Prisma client.
 -   `HttpException`: Standardized error class.
 
+## Prisma Branch Workflow
+
+See `PRISMA_WORKFLOW.md` for the required Prisma workflow on `dev` and `main`.
+
 ## 🤖 AI-Assisted Development & Contribution
 
 We strongly encourage using AI IDEs (like Trae, Cursor, or VS Code with Copilot) to contribute to this project. To maximize efficiency and maintain context, we use a **Task-Based Workflow**.
