@@ -58,6 +58,7 @@ export class JobRoundRepository extends BaseRepository {
     }
 
     async upsertInterviewConfig(roundId: string, data: any) {
+        const assignedIds = Array.isArray(data.assignedInterviewerIds) ? data.assignedInterviewerIds : (Array.isArray(data.assigned_interviewer_ids) ? data.assigned_interviewer_ids : []);
         return this.prisma.interviewConfiguration.upsert({
             where: { job_round_id: roundId },
             create: {
@@ -89,6 +90,7 @@ export class JobRoundRepository extends BaseRepository {
                 template_id: data.templateId,
                 questions: data.questions,
                 agenda: data.agenda,
+                assigned_interviewer_ids: assignedIds,
             },
             update: {
                 enabled: data.enabled,
@@ -118,6 +120,7 @@ export class JobRoundRepository extends BaseRepository {
                 template_id: data.templateId,
                 questions: data.questions,
                 agenda: data.agenda,
+                assigned_interviewer_ids: assignedIds,
             },
         });
     }

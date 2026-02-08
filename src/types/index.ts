@@ -29,6 +29,12 @@ import {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
+  TemplateCategory,
 } from '@prisma/client';
 
 export {
@@ -55,6 +61,12 @@ export {
   RegionOwnerType,
   CommissionStatus,
   ConsultantRole,
+  InterviewStatus,
+  VideoInterviewType,
+  VideoInterview,
+  InterviewFeedback,
+  OfferStatus,
+  TemplateCategory,
 };
 
 // ============================================================================
@@ -367,13 +379,22 @@ export interface RejectSignupRequest {
 // ============================================================================
 
 export interface AuthenticatedRequest extends Request {
+  params: Record<string, string>;
   user?: {
     id: string;
     email: string;
-    name: string;
     companyId: string;
     role: UserRole;
     type?: 'COMPANY' | 'CONSULTANT' | 'SALES_AGENT';
+  };
+}
+
+export interface UnifiedAuthenticatedRequest extends AuthenticatedRequest {
+  candidate?: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
   };
 }
 
