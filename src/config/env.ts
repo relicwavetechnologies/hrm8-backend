@@ -45,6 +45,6 @@ export const env = {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
-  FRONTEND_URL: getEnv('FRONTEND_URL', 'http://localhost:5173')
+  FRONTEND_URL: getEnv('FRONTEND_URL', 'http://localhost:5173'),
+  ATS_FRONTEND_URL: getEnv('ATS_FRONTEND_URL', 'http://localhost:8080')
 };
-

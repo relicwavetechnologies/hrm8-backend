@@ -18,6 +18,7 @@ export class LeadConversionController extends BaseController {
             const { status } = req.query;
             const result = await this.leadConversionService.getAll({
                 status: status as ConversionRequestStatus,
+                regionIds: req.assignedRegionIds,
             });
             return this.sendSuccess(res, { requests: result });
         } catch (error) {
@@ -41,8 +42,16 @@ export class LeadConversionController extends BaseController {
             const { adminNotes } = req.body;
             const result = await this.leadConversionService.approve(
                 id as string,
-                req.hrm8User?.id || 'unknown',
-                adminNotes
+                {
+                    id: req.hrm8User?.id || 'unknown',
+                    email: req.hrm8User?.email || 'unknown',
+                    role: req.hrm8User?.role || 'UNKNOWN'
+                },
+                adminNotes,
+                {
+                    ip: req.ip,
+                    userAgent: req.get('user-agent') || undefined
+                }
             );
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -56,8 +65,16 @@ export class LeadConversionController extends BaseController {
             const { declineReason } = req.body;
             const result = await this.leadConversionService.decline(
                 id as string,
-                req.hrm8User?.id || 'unknown',
-                declineReason
+                {
+                    id: req.hrm8User?.id || 'unknown',
+                    email: req.hrm8User?.email || 'unknown',
+                    role: req.hrm8User?.role || 'UNKNOWN'
+                },
+                declineReason,
+                {
+                    ip: req.ip,
+                    userAgent: req.get('user-agent') || undefined
+                }
             );
             return this.sendSuccess(res, result);
         } catch (error) {

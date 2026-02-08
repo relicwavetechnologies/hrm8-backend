@@ -65,45 +65,45 @@ export class AnalyticsService extends BaseService {
         // Aggregate metrics
         const sources = ['HRM8_BOARD', 'CAREER_PAGE', 'EXTERNAL', 'CANDIDATE_PORTAL'];
         const overview = {
-            totalJobs: jobs.length,
-            activeJobs: jobs.filter(j => j.status === 'OPEN').length,
-            totalCompanies: uniqueCompaniesCount,
-            totalViews: jobs.reduce((sum, j) => sum + (j.views_count || 0), 0),
-            totalClicks: jobs.reduce((sum, j) => sum + (j.clicks_count || 0), 0),
-            totalApplications,
-            conversionRates: {
-                viewToClick: 0,
-                clickToApply: 0,
-                viewToApply: 0,
+            total_jobs: jobs.length,
+            active_jobs: jobs.filter(j => j.status === 'OPEN').length,
+            total_companies: uniqueCompaniesCount,
+            total_views: jobs.reduce((sum, j) => sum + (j.views_count || 0), 0),
+            total_clicks: jobs.reduce((sum, j) => sum + (j.clicks_count || 0), 0),
+            total_applications: totalApplications,
+            conversion_rates: {
+                view_to_click: 0,
+                click_to_apply: 0,
+                view_to_apply: 0,
             },
-            bySource: {} as Record<string, { views: number; clicks: number }>,
+            by_source: {} as Record<string, { views: number; clicks: number }>,
         };
 
         // Initialize sources
         sources.forEach(source => {
-            overview.bySource[source] = { views: 0, clicks: 0 };
+            overview.by_source[source] = { views: 0, clicks: 0 };
         });
 
         // Fill from analytics
         analytics.forEach(row => {
             const source = row.source || 'HRM8_BOARD';
-            if (!overview.bySource[source]) {
-                overview.bySource[source] = { views: 0, clicks: 0 };
+            if (!overview.by_source[source]) {
+                overview.by_source[source] = { views: 0, clicks: 0 };
             }
             if (row.event_type === 'DETAIL_VIEW' || row.event_type === 'VIEW') {
-                overview.bySource[source].views += row._count.id;
+                overview.by_source[source].views += row._count.id;
             } else if (row.event_type === 'APPLY_CLICK') {
-                overview.bySource[source].clicks += row._count.id;
+                overview.by_source[source].clicks += row._count.id;
             }
         });
 
         // Calculate conversion rates
-        if (overview.totalViews > 0) {
-            overview.conversionRates.viewToClick = Math.round((overview.totalClicks / overview.totalViews) * 100 * 10) / 10;
-            overview.conversionRates.viewToApply = Math.round((overview.totalApplications / overview.totalViews) * 100 * 10) / 10;
+        if (overview.total_views > 0) {
+            overview.conversion_rates.view_to_click = Math.round((overview.total_clicks / overview.total_views) * 100 * 10) / 10;
+            overview.conversion_rates.view_to_apply = Math.round((overview.total_applications / overview.total_views) * 100 * 10) / 10;
         }
-        if (overview.totalClicks > 0) {
-            overview.conversionRates.clickToApply = Math.round((overview.totalApplications / overview.totalClicks) * 100 * 10) / 10;
+        if (overview.total_clicks > 0) {
+            overview.conversion_rates.click_to_apply = Math.round((overview.total_applications / overview.total_clicks) * 100 * 10) / 10;
         }
 
         return overview;
@@ -189,16 +189,16 @@ export class AnalyticsService extends BaseService {
             .map(stat => {
                 const company = companyMap.get(stat.company_id);
                 return {
-                    companyId: stat.company_id,
-                    companyName: company?.name || 'Unknown',
-                    hasCareerPage: company?.careers_page_status === 'APPROVED',
-                    totalJobs: stat._count.id,
-                    totalViews: stat._sum.views_count || 0,
-                    totalClicks: stat._sum.clicks_count || 0,
-                    totalApplications: appCountsMap.get(stat.company_id) || 0,
+                    company_id: stat.company_id,
+                    company_name: company?.name || 'Unknown',
+                    has_career_page: company?.careers_page_status === 'APPROVED',
+                    total_jobs: stat._count.id,
+                    total_views: stat._sum.views_count || 0,
+                    total_clicks: stat._sum.clicks_count || 0,
+                    total_applications: appCountsMap.get(stat.company_id) || 0,
                 };
             })
-            .sort((a, b) => b.totalViews - a.totalViews);
+            .sort((a, b) => b.total_views - a.total_views);
 
         return result;
     }

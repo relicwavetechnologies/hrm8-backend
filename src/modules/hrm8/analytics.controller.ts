@@ -40,12 +40,14 @@ export class AnalyticsController extends BaseController {
     getPlatformOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { startDate, endDate, companyId, regionId } = req.query;
+
             const result = await this.analyticsService.getPlatformOverview({
                 startDate: startDate as string,
                 endDate: endDate as string,
                 companyId: companyId as string,
                 regionId: regionId as string,
             });
+
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

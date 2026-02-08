@@ -13,6 +13,16 @@ export class UserRepository extends BaseRepository {
     });
   }
 
+  async updatePassword(id: string, passwordHash: string, status?: string): Promise<User> {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        password_hash: passwordHash,
+        ...(status ? { status } : {}),
+      },
+    });
+  }
+
   async delete(id: string): Promise<User> {
     return this.prisma.user.delete({
       where: { id },

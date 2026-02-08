@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
 import { getSessionCookieOptions } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
+import { passwordResetService } from './password-reset.service';
 
 export class AuthController extends BaseController {
   private authService: AuthService;
@@ -62,6 +63,28 @@ export class AuthController extends BaseController {
           ...userData, 
           companyId: user.company_id 
         } 
+      });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  acceptLeadConversionInvite = async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) {
+        return this.sendError(res, new Error('Token and password are required'));
+      }
+
+      const user = await passwordResetService.acceptLeadConversionInvite(token, password);
+      const { sessionId } = await this.authService.createSessionForUser(user);
+
+      const cookieOptions = getSessionCookieOptions();
+      res.cookie('sessionId', sessionId, cookieOptions);
+
+      const { password_hash, ...userData } = user;
+      return this.sendSuccess(res, {
+        user: { ...userData, companyId: user.company_id }
       });
     } catch (error) {
       return this.sendError(res, error);

@@ -71,11 +71,19 @@ export class RegionalSalesController extends BaseController {
         try {
             const { leadId } = req.params;
             const { newConsultantId } = req.body;
-            // TODO: Authorization check - is user allowed to manage this lead/region?
             const result = await this.regionalSalesService.reassignLead(
                 leadId as string,
                 newConsultantId as string,
-                req.hrm8User?.id || 'system'
+                {
+                    id: req.hrm8User?.id || 'system',
+                    email: req.hrm8User?.email || 'unknown',
+                    role: req.hrm8User?.role || 'UNKNOWN'
+                },
+                req.assignedRegionIds,
+                {
+                    ip: req.ip,
+                    userAgent: req.get('user-agent') || undefined
+                }
             );
             return this.sendSuccess(res, result);
         } catch (error) {

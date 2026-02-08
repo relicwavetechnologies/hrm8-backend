@@ -46,6 +46,24 @@ export class AuthService extends BaseService {
     return { user, sessionId };
   }
 
+  async createSessionForUser(user: User) {
+    await this.authRepository.updateLastLogin(user.id);
+
+    const sessionId = generateSessionId();
+    const expiresAt = getSessionExpiration();
+
+    await this.authRepository.createSession({
+      session_id: sessionId,
+      user: { connect: { id: user.id } },
+      email: user.email,
+      expires_at: expiresAt,
+      company_id: user.company_id,
+      user_role: user.role
+    });
+
+    return { user, sessionId };
+  }
+
   async logout(sessionId: string) {
     await this.authRepository.deleteSession(sessionId);
   }

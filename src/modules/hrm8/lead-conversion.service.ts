@@ -2,12 +2,21 @@ import { BaseService } from '../../core/service';
 import { LeadConversionRepository } from './lead-conversion.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
-import { ConversionRequestStatus, LeadStatus } from '@prisma/client';
+import { ConversionRequestStatus } from '@prisma/client';
 import { hashPassword } from '../../utils/password';
+import { UserRepository } from '../user/user.repository';
+import { passwordResetService } from '../auth/password-reset.service';
+import { AuditLogService } from './audit-log.service';
+import { AuditLogRepository } from './audit-log.repository';
 
 export class LeadConversionService extends BaseService {
+    private userRepository: UserRepository;
+    private auditLogService: AuditLogService;
+
     constructor(private leadConversionRepository: LeadConversionRepository) {
         super();
+        this.userRepository = new UserRepository();
+        this.auditLogService = new AuditLogService(new AuditLogRepository());
     }
 
     async getAll(filters: { status?: ConversionRequestStatus; regionIds?: string[] }) {
@@ -27,7 +36,12 @@ export class LeadConversionService extends BaseService {
         return request;
     }
 
-    async approve(id: string, adminId: string, adminNotes?: string) {
+    async approve(
+        id: string,
+        admin: { id: string; email: string; role: string },
+        adminNotes?: string,
+        metadata?: { ip?: string; userAgent?: string }
+    ) {
         const request = await this.getOne(id);
         if (request.status !== 'PENDING') {
             throw new HttpException(400, `Request cannot be approved in ${request.status} status`);
@@ -39,11 +53,11 @@ export class LeadConversionService extends BaseService {
         // 3. Update lead status
         // 4. Update request status
 
-        return prisma.$transaction(async (tx) => {
-            const tempPassword = request.temp_password || 'vAbhi2678';
-            // const passwordHash = await hashPassword(tempPassword); // If needed for creating user
+        const tempPassword = request.temp_password || 'vAbhi2678';
+        const domain = request.website ? request.website.replace(/^https?:\/\//, '').split('/')[0] : `company-${request.id}.local`;
 
-            const domain = request.website ? request.website.replace(/^https?:\/\//, '').split('/')[0] : `company-${request.id}.local`;
+        const { updatedRequest, company, userId } = await prisma.$transaction(async (tx) => {
+            // const passwordHash = await hashPassword(tempPassword); // If needed for creating user
 
             // Create Company
             const company = await tx.company.create({
@@ -59,7 +73,11 @@ export class LeadConversionService extends BaseService {
             // Update Lead
             await tx.lead.update({
                 where: { id: request.lead_id },
-                data: { status: 'CONVERTED' },
+                data: {
+                    status: 'CONVERTED',
+                    converted_to_company_id: company.id,
+                    converted_at: new Date(),
+                },
             });
 
             // Update Request
@@ -67,7 +85,7 @@ export class LeadConversionService extends BaseService {
                 where: { id },
                 data: {
                     status: 'APPROVED',
-                    reviewed_by: adminId,
+                    reviewed_by: admin.id,
                     reviewed_at: new Date(),
                     admin_notes: adminNotes,
                     company_id: company.id,
@@ -75,21 +93,91 @@ export class LeadConversionService extends BaseService {
                 },
             });
 
-            return { request: updatedRequest, company, tempPassword };
+            // Create company admin user if not exists
+            const existingUser = await this.userRepository.findByEmail(request.email);
+            let userId = existingUser?.id;
+            if (!existingUser) {
+                const passwordHash = await hashPassword(tempPassword);
+                const newUser = await tx.user.create({
+                    data: {
+                        email: request.email,
+                        name: `${request.company_name} Admin`,
+                        password_hash: passwordHash,
+                        company_id: company.id,
+                        role: 'ADMIN',
+                        status: 'INVITED',
+                    },
+                });
+                userId = newUser.id;
+            }
+            return { updatedRequest, company, userId };
         });
+
+        if (request.email) {
+            await passwordResetService.requestLeadConversionInvite(
+                request.email,
+                company.name,
+                {
+                    ip: metadata?.ip,
+                    userAgent: metadata?.userAgent,
+                }
+            );
+        }
+
+        await this.auditLogService.log({
+            entityType: 'lead_conversion_request',
+            entityId: updatedRequest.id,
+            action: 'LEAD_CONVERSION_APPROVED',
+            performedBy: admin.id,
+            performedByEmail: admin.email,
+            performedByRole: admin.role,
+            changes: {
+                leadId: request.lead_id,
+                companyId: company.id,
+                userId,
+            },
+            ipAddress: metadata?.ip,
+            userAgent: metadata?.userAgent,
+            description: `Approved lead conversion for ${request.company_name}`,
+        });
+
+        return { request: updatedRequest, company, inviteSent: Boolean(request.email) };
     }
 
-    async decline(id: string, adminId: string, declineReason: string) {
+    async decline(
+        id: string,
+        admin: { id: string; email: string; role: string },
+        declineReason: string,
+        metadata?: { ip?: string; userAgent?: string }
+    ) {
         const request = await this.getOne(id);
         if (request.status !== 'PENDING') {
             throw new HttpException(400, `Request cannot be declined in ${request.status} status`);
         }
 
-        return this.leadConversionRepository.update(id, {
+        const updated = await this.leadConversionRepository.update(id, {
             status: 'DECLINED',
-            reviewer: { connect: { id: adminId } },
+            reviewer: { connect: { id: admin.id } },
             reviewed_at: new Date(),
             decline_reason: declineReason,
         });
+
+        await this.auditLogService.log({
+            entityType: 'lead_conversion_request',
+            entityId: updated.id,
+            action: 'LEAD_CONVERSION_DECLINED',
+            performedBy: admin.id,
+            performedByEmail: admin.email,
+            performedByRole: admin.role,
+            changes: {
+                leadId: updated.lead_id,
+                declineReason,
+            },
+            ipAddress: metadata?.ip,
+            userAgent: metadata?.userAgent,
+            description: `Declined lead conversion for ${updated.company_name}`,
+        });
+
+        return updated;
     }
 }

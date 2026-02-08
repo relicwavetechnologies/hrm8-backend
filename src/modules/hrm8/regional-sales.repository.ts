@@ -2,6 +2,18 @@ import { prisma } from '../../utils/prisma';
 import { OpportunityStage, ConsultantRole } from '@prisma/client';
 
 export class RegionalSalesRepository {
+    async findLeadById(id: string) {
+        return prisma.lead.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                region_id: true,
+                assigned_consultant_id: true,
+                company_name: true,
+            }
+        });
+    }
+
     async findRegionalConsultants(regionId?: string, regionIds?: string[]) {
         const where: any = {
             role: { in: ['SALES_AGENT', 'CONSULTANT_360'] }
