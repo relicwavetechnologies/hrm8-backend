@@ -2126,7 +2126,7 @@ model Settlement {
   payment_date   DateTime?        @map("payment_date")
   reference      String?
   generated_at   DateTime         @default(now()) @map("generated_at")
-  licensee       RegionalLicensee @relation(fields: [licensee_id], references: [id])
+  licensee       RegionalLicensee @relation(fields: [licensee_id], references: [id], onDelete: Restrict)
 
   @@index([licensee_id])
   @@index([status])
