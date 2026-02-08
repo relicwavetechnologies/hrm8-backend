@@ -25,6 +25,7 @@ import consultant360Routes from '../modules/consultant360/consultant360.routes';
 import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
 import aiRoutes from '../modules/ai/ai.routes';
 import emailTemplateRoutes from '../modules/email/email-template.routes';
+import messagingRoutes from '../modules/messaging/messaging.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -79,6 +80,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/admin/billing', adminBillingRoutes);
   app.use('/api/ai', aiRoutes);
   app.use('/api/email-templates', emailTemplateRoutes);
+  app.use('/api/messaging', messagingRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

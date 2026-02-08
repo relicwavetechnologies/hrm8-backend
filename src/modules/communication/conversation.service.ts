@@ -1,6 +1,8 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
-import { ConversationStatus, ParticipantType, MessageContentType, ConversationChannelType } from '@prisma/client';
+import { ConversationStatus, ParticipantType, MessageContentType, ConversationChannelType, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationRepository } from '../notification/notification.repository';
 
 export class ConversationService {
 
@@ -120,6 +122,63 @@ export class ConversationService {
         contentType?: string;
         attachments?: any;
     }) {
+        // === MESSAGE RESTRICTION LOGIC ===
+        // 1. Skip system messages
+        if (data.senderType !== 'SYSTEM' as any) {
+            const messages = await prisma.message.findMany({
+                where: { conversation_id: data.conversationId },
+                orderBy: { created_at: 'asc' }, // Get all history to correctly identify HR/Candidate turns
+                take: 50 // Recent history should suffice
+            });
+
+            if (data.senderType === ParticipantType.CANDIDATE) {
+                // CANDIDATE RESTRICTION: Must wait for HR first and can only reply once
+                if (messages.length === 0) {
+                    throw new HttpException(403, 'You cannot start a conversation. Please wait for the hiring team to contact you first.', 4010);
+                }
+
+                // Find last message from HR (Employer/Consultant)
+                let lastHrMessageIndex = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].sender_type !== ParticipantType.CANDIDATE && messages[i].sender_type !== ('SYSTEM' as ParticipantType)) {
+                        lastHrMessageIndex = i;
+                        break;
+                    }
+                }
+
+                if (lastHrMessageIndex === -1) {
+                    throw new HttpException(403, 'You cannot send a message yet. Please wait for the hiring team to contact you first.', 4010);
+                }
+
+                // Count candidate messages AFTER the last HR message
+                let candidateRepliesAfterHr = 0;
+                for (let i = lastHrMessageIndex + 1; i < messages.length; i++) {
+                    if (messages[i].sender_type === ParticipantType.CANDIDATE) {
+                        candidateRepliesAfterHr++;
+                    }
+                }
+
+                if (candidateRepliesAfterHr >= 1) {
+                    throw new HttpException(403, 'You have already replied to this message. Please wait for the hiring team to respond.', 4011);
+                }
+
+            } else if (data.senderType === ParticipantType.EMPLOYER || data.senderType === ParticipantType.CONSULTANT) {
+                // HR RESTRICTION: Only allow one follow-up message after the initial HR message
+                let consecutiveHrMessages = 0;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].sender_type === ParticipantType.CANDIDATE) break;
+                    if (messages[i].sender_type === ParticipantType.EMPLOYER || messages[i].sender_type === ParticipantType.CONSULTANT) {
+                        consecutiveHrMessages++;
+                    }
+                }
+
+                if (consecutiveHrMessages >= 2) {
+                    throw new HttpException(403, 'You have already sent a follow-up message. Please wait for the candidate response.', 4011);
+                }
+            }
+        }
+        // === END MESSAGE RESTRICTION LOGIC ===
+
         const message = await prisma.message.create({
             data: {
                 conversation_id: data.conversationId,
@@ -140,6 +199,59 @@ export class ConversationService {
                 updated_at: new Date()
             }
         });
+
+        // Send notifications to all participants except the sender
+        if (data.senderType !== 'SYSTEM' as any) {
+            try {
+                const conversation = await prisma.conversation.findUnique({
+                    where: { id: data.conversationId },
+                    include: { participants: true, job: { select: { title: true } } }
+                });
+
+                if (conversation) {
+                    const notificationService = new NotificationService(new NotificationRepository());
+                    const senderName = data.senderEmail.split('@')[0]; // Simple fallback
+                    const jobTitle = conversation.job?.title || 'your application';
+                    const messagePreview = data.content.length > 50 ? data.content.substring(0, 50) + '...' : data.content;
+
+                    for (const participant of conversation.participants) {
+                        // Skip the sender
+                        if (participant.participant_id === data.senderId) continue;
+
+                        // Determine recipient type based on participant type
+                        let recipientType: NotificationRecipientType;
+                        if (participant.participant_type === ParticipantType.CANDIDATE) {
+                            recipientType = NotificationRecipientType.CANDIDATE;
+                        } else if (participant.participant_type === ParticipantType.EMPLOYER) {
+                            recipientType = NotificationRecipientType.USER;
+                        } else {
+                            recipientType = NotificationRecipientType.CONSULTANT;
+                        }
+
+                        await notificationService.createNotification({
+                            recipientType,
+                            recipientId: participant.participant_id,
+                            type: UniversalNotificationType.NEW_MESSAGE,
+                            title: 'New Message',
+                            message: `${senderName} sent you a message regarding ${jobTitle}: "${messagePreview}"`,
+                            data: {
+                                conversationId: data.conversationId,
+                                messageId: message.id,
+                                senderEmail: data.senderEmail,
+                                jobId: conversation.job_id
+                            },
+                            actionUrl: recipientType === NotificationRecipientType.CANDIDATE
+                                ? `/messages/${data.conversationId}`
+                                : `/jobs/${conversation.job_id}?tab=messages&conversationId=${data.conversationId}`,
+                            email: participant.participant_email || undefined
+                        });
+                    }
+                }
+            } catch (notifyError) {
+                console.error('[ConversationService] Error sending message notifications:', notifyError);
+                // Don't fail the message creation if notifications fail
+            }
+        }
 
         return message;
     }

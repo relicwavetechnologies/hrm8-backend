@@ -62,6 +62,18 @@ export class NotificationController extends BaseController {
     }
   };
 
+  getOne = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
+    try {
+      const { type, id: userId } = this.getRecipientInfo(req);
+      const { id } = req.params as { id: string };
+
+      const notification = await this.notificationService.getNotificationById(id, type, userId);
+      return this.sendSuccess(res, notification);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   markRead = async (req: AuthenticatedRequest & Hrm8AuthenticatedRequest, res: Response) => {
     try {
       const { type, id: userId } = this.getRecipientInfo(req);

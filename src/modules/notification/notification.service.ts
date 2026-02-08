@@ -111,6 +111,17 @@ export class NotificationService extends BaseService {
     return this.notificationRepository.findByRecipient(recipientType, recipientId, limit, offset);
   }
 
+  async getNotificationById(id: string, recipientType: NotificationRecipientType, recipientId: string) {
+    const notification = await this.notificationRepository.findById(id);
+    if (!notification) throw new HttpException(404, 'Notification not found');
+
+    if (notification.recipient_type !== recipientType || notification.recipient_id !== recipientId) {
+      throw new HttpException(403, 'Unauthorized access to notification');
+    }
+
+    return notification;
+  }
+
   async markAsRead(id: string, recipientType: NotificationRecipientType, recipientId: string) {
     const notification = await this.notificationRepository.findById(id);
     if (!notification) throw new HttpException(404, 'Notification not found');

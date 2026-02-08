@@ -1,8 +1,9 @@
 import { IncomingMessage } from 'http';
 import { parse } from 'cookie';
 import cookieParser from 'cookie-parser';
-import { prisma } from '../utils/prisma';
 import { env } from '../config/env';
+import { sessionRepository } from '../modules/auth/session.repository';
+import { UserRole } from '@prisma/client';
 
 export interface WebSocketAuthResult {
     email: string;
@@ -17,11 +18,10 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
         const cookies = cookieHeader ? parse(cookieHeader) : {};
 
         // 1. Try to find a sessionId from various possible cookie names
-        // Note: In development, these might be unsigned if set via res.cookie without secret
-        // or if cookieParser is not used in the same way for these specific cookies.
         let sessionId: string | null = null;
 
-        const possibleCookies = ['candidateSessionId', 'hrm8SessionId', 'sessionId', 'consultantToken'];
+        // Priority: 'sessionId' (Web App) > 'candidateSessionId' (Candidate App)
+        const possibleCookies = ['sessionId', 'candidateSessionId', 'hrm8SessionId', 'consultantToken'];
 
         for (const name of possibleCookies) {
             const value = cookies[name];
@@ -29,7 +29,7 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
                 // Try to unsign if it looks like a signed cookie (starts with s:)
                 if (value.startsWith('s:')) {
                     const unsigned = cookieParser.signedCookie(value, env.SESSION_SECRET);
-                    if (unsigned) {
+                    if (unsigned && typeof unsigned === 'string') {
                         sessionId = unsigned;
                         break;
                     }
@@ -48,19 +48,22 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
         }
 
         if (!sessionId) {
-            console.warn('WS Auth Failed: No valid session ID found');
+            // console.warn('WS Auth Failed: No valid session ID found');
             return null;
         }
 
-        // 3. Lookup in various session tables
+        console.log('[WS Auth] Session ID found:', sessionId.substring(0, 10) + '...');
 
-        // Try Candidate Session
+        // 3. Check Candidate Session FIRST (since candidateSessionId cookie exists)
+        const { prisma } = await import('../utils/prisma');
+
+        console.log('[WS Auth] Checking candidateSession table FIRST...');
         const candidateSession = await prisma.candidateSession.findUnique({
             where: { session_id: sessionId },
             include: { candidate: true }
         });
-
         if (candidateSession && candidateSession.expires_at > new Date()) {
+            console.log('[WS Auth] Found CANDIDATE session for:', candidateSession.email);
             return {
                 userId: candidateSession.candidate_id,
                 email: candidateSession.email,
@@ -68,43 +71,25 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
                 name: `${candidateSession.candidate.first_name} ${candidateSession.candidate.last_name}`
             };
         }
+        console.log('[WS Auth] No candidate session found, checking employer session...');
 
-        // Try HRM8 Session
-        const hrm8Session = await prisma.hRM8Session.findUnique({
-            where: { session_id: sessionId },
-            include: { user: true }
-        });
-
-        if (hrm8Session && hrm8Session.expires_at > new Date()) {
+        // 4. Lookup via SessionRepository (Employers/HR users)
+        const session = await sessionRepository.findBySessionId(sessionId);
+        if (session) {
+            console.log('[WS Auth] Found EMPLOYER session for:', session.email);
             return {
-                userId: hrm8Session.hrm8_user_id,
-                email: hrm8Session.user.email,
-                userType: 'HRM8',
-                name: `${hrm8Session.user.first_name} ${hrm8Session.user.last_name}`
+                userId: session.userId,
+                email: session.email,
+                name: session.name || session.email.split('@')[0],
+                userType: 'USER', // Employers use the main session table
             };
         }
 
-        // Try Regular User Session
-        const userSession = await prisma.session.findUnique({
-            where: { session_id: sessionId },
-            include: { user: true }
-        });
-
-        if (userSession && userSession.expires_at > new Date()) {
-            return {
-                userId: userSession.user_id,
-                email: userSession.email,
-                userType: 'USER',
-                name: userSession.user.name
-            };
-        }
-
-        // Try Consultant Session
+        // 5. Check Consultant Session
         const consultantSession = await prisma.consultantSession.findUnique({
             where: { session_id: sessionId },
             include: { consultant: true }
         });
-
         if (consultantSession && consultantSession.expires_at > new Date()) {
             return {
                 userId: consultantSession.consultant_id,

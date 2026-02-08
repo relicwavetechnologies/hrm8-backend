@@ -27,6 +27,10 @@ export class RoundConfigController {
                 return res.status(403).json({ success: false, message: 'Access denied' });
             }
 
+            if ((round.job as any)?.setup_type === 'SIMPLE') {
+                return res.status(403).json({ success: false, message: 'Email configuration is not available in Simple flow. Use Advanced flow for round email config.' });
+            }
+
             // 2. Validation Logic
             if (enabled && templateId) {
                 const template = await EmailTemplateService.findOne(templateId);

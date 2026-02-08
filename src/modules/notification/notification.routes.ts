@@ -10,6 +10,7 @@ const router = Router();
 const notificationController = new NotificationController();
 
 router.get('/', authenticateUnified, notificationController.list);
+router.get('/:id', authenticateUnified, notificationController.getOne);
 router.patch('/:id/read', authenticateUnified, notificationController.markRead);
 router.patch('/read-all', authenticateUnified, notificationController.markAllRead);
 
