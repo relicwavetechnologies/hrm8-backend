@@ -4,21 +4,22 @@ import { Prisma } from '@prisma/client';
 
 export class EmailTemplateService {
     static async create(data: any) {
-        return prisma.emailTemplate.create({
-            data: {
-                name: data.name,
-                type: data.type,
-                subject: data.subject,
-                body: data.body,
-                variables: data.variables,
-                attachments: data.attachments || [],
-                is_active: data.isActive,
-                is_default: data.isDefault,
-                is_ai_generated: data.isAiGenerated,
-                company: data.company,
-                user: data.user
-            }
-        });
+        const payload: any = {
+            name: data.name,
+            type: data.type,
+            subject: data.subject,
+            body: data.body,
+            variables: data.variables || [],
+            attachments: data.attachments || [],
+            is_active: data.isActive !== false,
+            is_default: data.isDefault === true,
+            is_ai_generated: data.isAiGenerated === true,
+            company: data.company,
+            user: data.user
+        };
+        if (data.jobId) payload.job = { connect: { id: data.jobId } };
+        if (data.jobRoundId) payload.job_round = { connect: { id: data.jobRoundId } };
+        return prisma.emailTemplate.create({ data: payload });
     }
 
     static async update(id: string, data: any) {

@@ -310,7 +310,6 @@ model Job {
   region                              Region?                     @relation(fields: [region_id], references: [id])
   job_invitations                     JobInvitation[]
   job_round                           JobRound[]
-  job_roles                           JobRole[]
   job_template                        JobTemplate[]
   offer_letter                        OfferLetter[]
   pre_interview_questionnaire         PreInterviewQuestionnaire[]
@@ -318,6 +317,7 @@ model Job {
   screening_criteria_rel              ScreeningCriteria[]
   job_analytics                       JobAnalytics[]
   team_members                        JobHiringTeamMember[]
+  job_roles                           JobRole[]
   tags                                JobTagAssignment[]
 
   @@index([status, posting_date])
@@ -1396,14 +1396,14 @@ model CompanySettings {
 }
 
 model JobRole {
-  id                         String                     @id @default(uuid())
-  job_id                     String                     @map("job_id")
-  name                       String
-  is_default                 Boolean                    @default(false) @map("is_default")
-  created_at                 DateTime                   @default(now()) @map("created_at")
-  job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  job_rounds                 JobRound[]
-  member_roles               JobHiringTeamMemberRole[]
+  id           String                    @id @default(uuid())
+  job_id       String                    @map("job_id")
+  name         String
+  is_default   Boolean                   @default(false) @map("is_default")
+  created_at   DateTime                  @default(now()) @map("created_at")
+  job_rounds   JobRound[]
+  member_roles JobHiringTeamMemberRole[]
+  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
   @@index([job_id])
   @@map("job_role")
@@ -1417,17 +1417,18 @@ model JobRound {
   type                       JobRoundType
   is_fixed                   Boolean                    @default(false) @map("isFixed")
   fixed_key                  String?                    @map("fixedKey")
-  assigned_role_id           String?                    @map("assigned_role_id")
   created_at                 DateTime                   @default(now())
   updated_at                 DateTime                   @default(now()) @updatedAt
   email_config               Json?                      @map("email_config")
+  assigned_role_id           String?                    @map("assigned_role_id")
+  auto_move_on_pass          Boolean                    @default(false) @map("auto_move_on_pass")
   application_round_progress ApplicationRoundProgress[]
   assessment_configuration   AssessmentConfiguration?
   email_template             EmailTemplate[]
   email_template_trigger     EmailTemplateTrigger[]
   interview_configuration    InterviewConfiguration?
+  assigned_role              JobRole?                   @relation(fields: [assigned_role_id], references: [id])
   job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  assigned_role              JobRole?                   @relation(fields: [assigned_role_id], references: [id], onDelete: SetNull)
   video_interview            VideoInterview[]
 
   @@index([is_fixed])
@@ -1435,7 +1436,6 @@ model JobRound {
   @@index([order])
   @@index([assigned_role_id])
 }
-
 
 model InterviewConfiguration {
   id                         String          @id @default(uuid())
@@ -1654,17 +1654,17 @@ model Integration {
 }
 
 model JobHiringTeamMember {
-  id           String                     @id @default(uuid())
-  job_id       String                     @map("job_id")
-  user_id      String?                    @map("user_id")
+  id           String                    @id @default(uuid())
+  job_id       String                    @map("job_id")
+  user_id      String?                   @map("user_id")
   email        String
   name         String?
   role         HiringTeamRole
-  status       HiringTeamMemberStatus     @default(PENDING)
-  invited_at   DateTime                   @default(now()) @map("invited_at")
-  joined_at    DateTime?                  @map("joined_at")
-  job          Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  user         User?                      @relation(fields: [user_id], references: [id])
+  status       HiringTeamMemberStatus    @default(PENDING)
+  invited_at   DateTime                  @default(now()) @map("invited_at")
+  joined_at    DateTime?                 @map("joined_at")
+  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  user         User?                     @relation(fields: [user_id], references: [id])
   member_roles JobHiringTeamMemberRole[]
 
   @@index([job_id])
@@ -1674,12 +1674,12 @@ model JobHiringTeamMember {
 }
 
 model JobHiringTeamMemberRole {
-  id         String                 @id @default(uuid())
-  member_id  String                 @map("member_id")
-  job_role_id String                @map("job_role_id")
-  created_at DateTime               @default(now()) @map("created_at")
-  member     JobHiringTeamMember    @relation(fields: [member_id], references: [id], onDelete: Cascade)
-  job_role   JobRole                @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
+  id          String              @id @default(uuid())
+  member_id   String              @map("member_id")
+  job_role_id String              @map("job_role_id")
+  created_at  DateTime            @default(now()) @map("created_at")
+  job_role    JobRole             @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
+  member      JobHiringTeamMember @relation(fields: [member_id], references: [id], onDelete: Cascade)
 
   @@unique([member_id, job_role_id])
   @@index([member_id])
@@ -2066,17 +2066,16 @@ model ResumeAnnotation {
 }
 
 model Product {
-  id          String      @id @default(uuid())
+  id          String          @id @default(uuid())
   name        String
-  code        String      @unique
+  code        String          @unique
   description String?
-  category    String
-  is_active   Boolean     @default(true) @map("isActive")
-  created_at  DateTime    @default(now()) @map("created_at")
-  updated_at  DateTime    @default(now()) @updatedAt @map("updated_at")
+  is_active   Boolean         @default(true) @map("isActive")
+  created_at  DateTime        @default(now()) @map("created_at")
+  updated_at  DateTime        @default(now()) @updatedAt @map("updated_at")
+  category    ProductCategory
   tiers       PriceTier[]
 
-  @@index([category])
   @@index([is_active])
 }
 
@@ -2162,7 +2161,7 @@ model Settlement {
   payment_date   DateTime?        @map("payment_date")
   reference      String?
   generated_at   DateTime         @default(now()) @map("generated_at")
-  licensee       RegionalLicensee @relation(fields: [licensee_id], references: [id], onDelete: Restrict)
+  licensee       RegionalLicensee @relation(fields: [licensee_id], references: [id])
 
   @@index([licensee_id])
   @@index([status])
@@ -3067,4 +3066,14 @@ enum EvaluationDecision {
   APPROVE
   REJECT
   PENDING
+}
+
+enum ProductCategory {
+  SUBSCRIPTION
+  JOB_POSTING
+  ASSESSMENT
+  ADDON_SERVICE
+  FEATURE_UNLOCK
+  SUPPORT
+  OTHER
 }

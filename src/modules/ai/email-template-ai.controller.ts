@@ -5,7 +5,7 @@ import { EmailTemplateAIService } from './email-template-ai.service';
 export class EmailTemplateAIController {
     static async generateTemplate(req: Request, res: Response) {
         try {
-            const { type, jobTitle, companyName, candidateName, context, tone } = req.body;
+            const { type, jobTitle, companyName, candidateName, context, tone, jobId, jobRoundId, roundName } = req.body;
 
             const template = await EmailTemplateAIService.generateTemplate({
                 type: type || 'custom',
@@ -13,7 +13,10 @@ export class EmailTemplateAIController {
                 companyName: companyName || 'Our Company',
                 candidateName: candidateName || 'Candidate',
                 context,
-                tone
+                tone,
+                jobId: jobId || undefined,
+                jobRoundId: jobRoundId || undefined,
+                roundName: roundName || undefined
             });
 
             res.json({ success: true, data: template });

@@ -3,15 +3,23 @@ import { EmailTemplateService } from './email-template.service';
 import { emailService } from './email.service';
 import { AuthenticatedRequest } from '../../types';
 
+function normalizeTemplateType(t: string | undefined): string {
+    if (!t) return 'CUSTOM';
+    const u = t.toUpperCase();
+    if (u === 'REJECTED') return 'REJECTION';
+    return u;
+}
+
 export class EmailTemplateController {
     static async create(req: AuthenticatedRequest, res: Response) {
         try {
             const template = await EmailTemplateService.create({
                 ...req.body,
-                type: req.body.type?.toUpperCase() || 'CUSTOM',
-                created_by: req.user?.id || 'system', // Falling back to allowed created_by relation logic if needed
+                type: normalizeTemplateType(req.body.type) || 'CUSTOM',
                 company: { connect: { id: req.user?.companyId } },
-                user: { connect: { id: req.user?.id } }
+                user: { connect: { id: req.user?.id } },
+                jobId: req.body.jobId || undefined,
+                jobRoundId: req.body.jobRoundId || undefined
             });
             res.json({ success: true, data: template });
         } catch (error) {
@@ -25,7 +33,7 @@ export class EmailTemplateController {
             const { id } = req.params as { id: string };
             const updateData = { ...req.body };
             if (updateData.type) {
-                updateData.type = updateData.type.toUpperCase();
+                updateData.type = normalizeTemplateType(updateData.type);
             }
             const template = await EmailTemplateService.update(id, updateData);
             res.json({ success: true, data: template });
@@ -57,7 +65,7 @@ export class EmailTemplateController {
             };
 
             if (type) {
-                filters.type = (type as string).toUpperCase();
+                filters.type = normalizeTemplateType(type as string);
             }
             if (jobId) {
                 filters.job_id = jobId as string;
