@@ -1,14 +1,22 @@
 import { BaseService } from '../../core/service';
+import { PrismaClient, CallOutcome, SmsStatus, EmailStatus } from '@prisma/client';
+import { EmailService } from '../email/email.service';
+import { HttpException } from '../../core/http-exception';
+import { EmailTemplateAIService } from '../ai/email-template-ai.service';
 import nodemailer from 'nodemailer';
 import { env } from '../../config/env';
 
+const prisma = new PrismaClient();
+
 export class CommunicationService extends BaseService {
   private transporter: nodemailer.Transporter;
+  private emailService: EmailService;
 
   constructor() {
     super();
+    this.emailService = new EmailService();
+
     // Initialize transporter with environment variables
-    // For now, using a placeholder or mock configuration if env vars are missing
     this.transporter = nodemailer.createTransport({
       host: env.SMTP_HOST || 'smtp.example.com',
       port: parseInt(env.SMTP_PORT || '587'),
@@ -20,7 +28,9 @@ export class CommunicationService extends BaseService {
     });
   }
 
-  async sendEmail(to: string, subject: string, html: string, text?: string) {
+  // ==================== LEGACY EMAIL METHODS ====================
+
+  async sendEmailDirect(to: string, subject: string, html: string, text?: string) {
     try {
       const info = await this.transporter.sendMail({
         from: env.SMTP_FROM || '"HRM8" <noreply@hrm8.io>',
@@ -37,11 +47,10 @@ export class CommunicationService extends BaseService {
     }
   }
 
-  // Template methods
   async sendWelcomeEmail(to: string, name: string) {
     const subject = 'Welcome to HRM8';
     const html = `<h1>Welcome, ${name}!</h1><p>We are excited to have you on board.</p>`;
-    return this.sendEmail(to, subject, html);
+    return this.sendEmailDirect(to, subject, html);
   }
 
   async sendInvitationEmail(to: string, companyName: string, inviteLink: string) {
@@ -51,7 +60,386 @@ export class CommunicationService extends BaseService {
       <p>${companyName} has invited you to join their team on HRM8.</p>
       <p><a href="${inviteLink}">Click here to accept the invitation</a></p>
     `;
-    return this.sendEmail(to, subject, html);
+    return this.sendEmailDirect(to, subject, html);
+  }
+
+  // ==================== CALL LOGS ====================
+
+  async logCall(data: {
+    applicationId: string;
+    userId: string;
+    callDate: Date;
+    outcome: CallOutcome;
+    phoneNumber?: string;
+    duration?: number;
+    notes?: string;
+  }) {
+    // Verify application exists
+    const application = await prisma.application.findUnique({
+      where: { id: data.applicationId },
+      include: { candidate: true }
+    });
+
+    if (!application) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    return prisma.callLog.create({
+      data: {
+        application_id: data.applicationId,
+        user_id: data.userId,
+        call_date: data.callDate,
+        outcome: data.outcome,
+        phone_number: data.phoneNumber || application.candidate.phone,
+        duration: data.duration,
+        notes: data.notes,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+  }
+
+  async getCallLogs(applicationId: string) {
+    return prisma.callLog.findMany({
+      where: { application_id: applicationId },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { call_date: 'desc' }
+    });
+  }
+
+  // ==================== EMAIL WITH LOGGING ====================
+
+  async sendCandidateEmail(data: {
+    applicationId: string;
+    userId: string;
+    subject: string;
+    body: string;
+    templateId?: string;
+  }) {
+    // Get application with candidate info
+    const application = await prisma.application.findUnique({
+      where: { id: data.applicationId },
+      include: {
+        candidate: true,
+        job: { include: { company: true } }
+      }
+    });
+
+    if (!application) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    if (!application.candidate.email) {
+      throw new HttpException(400, 'Candidate has no email address');
+    }
+
+    // Send the email
+    try {
+      await this.emailService.sendNotificationEmail({
+        to: application.candidate.email,
+        subject: data.subject,
+        name: application.candidate.first_name || 'Candidate',
+        message: data.body,
+        actionUrl: undefined,
+        actionText: undefined
+      });
+
+      // Log the email
+      return prisma.emailLog.create({
+        data: {
+          application_id: data.applicationId,
+          user_id: data.userId,
+          to_email: application.candidate.email,
+          subject: data.subject,
+          body: data.body,
+          template_id: data.templateId,
+          status: EmailStatus.SENT,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true } }
+        }
+      });
+    } catch (error) {
+      // Log failed email attempt
+      await prisma.emailLog.create({
+        data: {
+          application_id: data.applicationId,
+          user_id: data.userId,
+          to_email: application.candidate.email,
+          subject: data.subject,
+          body: data.body,
+          template_id: data.templateId,
+          status: EmailStatus.FAILED,
+        }
+      });
+      throw new HttpException(500, 'Failed to send email');
+    }
+  }
+
+  async getEmailLogs(applicationId: string) {
+    return prisma.emailLog.findMany({
+      where: { application_id: applicationId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        template: { select: { id: true, name: true, type: true } }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async getEmailTemplates(companyId: string) {
+    return prisma.emailTemplate.findMany({
+      where: {
+        company_id: companyId,
+        is_active: true
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        subject: true,
+        body: true,
+        variables: true
+      },
+      orderBy: { name: 'asc' }
+    });
+  }
+
+  async generateEmailWithAI(data: {
+    applicationId: string;
+    purpose: string;
+    tone?: 'professional' | 'friendly' | 'formal';
+  }) {
+    // Get application context
+    const application = await prisma.application.findUnique({
+      where: { id: data.applicationId },
+      include: {
+        candidate: true,
+        job: { include: { company: true } }
+      }
+    });
+
+    if (!application) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    try {
+      // Use the existing EmailTemplateAIService which uses OpenAI
+      const result = await EmailTemplateAIService.generateTemplate({
+        type: data.purpose,
+        jobTitle: application.job.title,
+        companyName: application.job.company.name,
+        candidateName: `${application.candidate.first_name} ${application.candidate.last_name}`,
+        context: `Application Status: ${application.status}`,
+        tone: data.tone || 'professional',
+      });
+
+      return result;
+    } catch (error) {
+      console.error('AI email generation error:', error);
+      throw new HttpException(500, 'Failed to generate email with AI');
+    }
+  }
+
+  // ==================== SMS ====================
+
+  async sendSms(data: {
+    applicationId: string;
+    userId: string;
+    message: string;
+  }) {
+    // Get application with candidate info
+    const application = await prisma.application.findUnique({
+      where: { id: data.applicationId },
+      include: { candidate: true }
+    });
+
+    if (!application) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    if (!application.candidate.phone) {
+      throw new HttpException(400, 'Candidate has no phone number');
+    }
+
+    // Check if Twilio is configured
+    const twilioConfigured = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN;
+
+    // Create log entry
+    const smsLog = await prisma.smsLog.create({
+      data: {
+        application_id: data.applicationId,
+        user_id: data.userId,
+        to_number: application.candidate.phone,
+        from_number: process.env.TWILIO_PHONE_NUMBER || null,
+        message: data.message,
+        status: twilioConfigured ? SmsStatus.PENDING : SmsStatus.FAILED,
+        error_message: twilioConfigured ? null : 'Twilio not configured. SMS will be logged but not sent.',
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+
+    // If Twilio is configured, attempt to send
+    if (twilioConfigured) {
+      try {
+        // Dynamic import of Twilio
+        const twilio = require('twilio');
+        const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+        const result = await client.messages.create({
+          body: data.message,
+          from: process.env.TWILIO_PHONE_NUMBER,
+          to: application.candidate.phone
+        });
+
+        // Update status to SENT
+        return prisma.smsLog.update({
+          where: { id: smsLog.id },
+          data: {
+            status: SmsStatus.SENT,
+            twilio_sid: result.sid
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        });
+      } catch (error: any) {
+        await prisma.smsLog.update({
+          where: { id: smsLog.id },
+          data: {
+            status: SmsStatus.FAILED,
+            error_message: error.message
+          }
+        });
+        throw new HttpException(500, `Failed to send SMS: ${error.message}`);
+      }
+    }
+
+    return smsLog;
+  }
+
+  async getSmsLogs(applicationId: string) {
+    return prisma.smsLog.findMany({
+      where: { application_id: applicationId },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  // ==================== SLACK ====================
+
+  async sendSlackMessage(data: {
+    applicationId: string;
+    userId: string;
+    recipientIds: string[];
+    message: string;
+  }) {
+    // Get application context for logging
+    const application = await prisma.application.findUnique({
+      where: { id: data.applicationId },
+      include: {
+        candidate: true,
+        job: true
+      }
+    });
+
+    if (!application) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    // Log the Slack message
+    const slackLog = await prisma.slackLog.create({
+      data: {
+        application_id: data.applicationId,
+        user_id: data.userId,
+        recipient_ids: data.recipientIds,
+        message: data.message,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      }
+    });
+
+    // If Slack is configured, send the message
+    if (process.env.SLACK_BOT_TOKEN) {
+      try {
+        const { WebClient } = await import('@slack/web-api');
+        const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+        // Send DM to each recipient
+        for (const recipientId of data.recipientIds) {
+          try {
+            // Open a conversation with the user
+            const conversation = await slack.conversations.open({
+              users: recipientId
+            });
+
+            if (conversation.channel?.id) {
+              await slack.chat.postMessage({
+                channel: conversation.channel.id,
+                text: `📋 *Re: ${application.candidate.first_name} ${application.candidate.last_name}* (${application.job.title})\n\n${data.message}`,
+                mrkdwn: true
+              });
+            }
+          } catch (slackError) {
+            console.error(`Failed to send Slack message to ${recipientId}:`, slackError);
+          }
+        }
+
+        // Update log with success
+        await prisma.slackLog.update({
+          where: { id: slackLog.id },
+          data: { channel_id: 'dm' }
+        });
+      } catch (error) {
+        console.error('Slack integration error:', error);
+        // Don't throw - we still logged the attempt
+      }
+    }
+
+    return slackLog;
+  }
+
+  async getSlackLogs(applicationId: string) {
+    return prisma.slackLog.findMany({
+      where: { application_id: applicationId },
+      include: {
+        user: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
+  async getHiringTeamForSlack(jobId: string) {
+    // Get hiring team members with their user info
+    const hiringTeam = await prisma.jobHiringTeamMember.findMany({
+      where: { job_id: jobId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+
+    return hiringTeam.map(member => ({
+      id: member.user.id,
+      name: member.user.name,
+      email: member.user.email,
+      role: member.user.role,
+      hiringRole: member.role
+    }));
   }
 }
 
