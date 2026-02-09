@@ -63,7 +63,7 @@ export class SalesService extends BaseService {
       title: 'New Opportunity Created',
       message: `Opportunity "${data.name}" has been created with an estimated value of ${data.currency || 'USD'} ${data.amount || 0}.`,
       type: 'SALES_OPPORTUNITY_CREATED',
-      actionUrl: `/sales-agent/pipeline/${opportunity.id}`
+      actionUrl: `/sales/opportunities/${opportunity.id}`
     });
 
     return opportunity;

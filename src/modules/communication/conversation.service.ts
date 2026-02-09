@@ -241,7 +241,9 @@ export class ConversationService {
                                 jobId: conversation.job_id
                             },
                             actionUrl: recipientType === NotificationRecipientType.CANDIDATE
-                                ? `/messages/${data.conversationId}`
+                                ? `/candidate/messages/${data.conversationId}`
+                                : recipientType === NotificationRecipientType.CONSULTANT
+                                ? `/consultant/messages?conversationId=${data.conversationId}`
                                 : `/jobs/${conversation.job_id}?tab=messages&conversationId=${data.conversationId}`,
                             email: participant.participant_email || undefined
                         });

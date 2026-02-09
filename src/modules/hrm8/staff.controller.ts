@@ -4,6 +4,8 @@ import { StaffService } from './staff.service';
 import { StaffRepository } from './staff.repository';
 import { Hrm8AuthenticatedRequest } from '../../types';
 import { ConsultantRole, ConsultantStatus } from '@prisma/client';
+import { env } from '../../config/env';
+import { generateInvitationToken } from '../../utils/token';
 
 export class StaffController extends BaseController {
     private staffService: StaffService;
@@ -163,10 +165,12 @@ export class StaffController extends BaseController {
     invite = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            // Simplified invitation logic for template
+            const token = generateInvitationToken();
+            const baseUrl = env.FRONTEND_URL || 'http://localhost:3000';
+            const inviteLink = `${baseUrl}/consultant/setup-account?token=${token}&consultantId=${id}`;
             return this.sendSuccess(res, {
                 message: 'Invitation link generated',
-                data: { inviteLink: `http://localhost:3000/consultant/setup-account?token=mock-token-${id}` }
+                data: { inviteLink }
             });
         } catch (error) {
             return this.sendError(res, error);

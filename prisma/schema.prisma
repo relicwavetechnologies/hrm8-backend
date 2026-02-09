@@ -104,7 +104,9 @@ model User {
   assessment               Assessment[]
   assessment_comment       AssessmentComment[]
   assessment_grade         AssessmentGrade[]
+  CallLog                  CallLog[]
   evaluations              CandidateEvaluation[]
+  EmailLog                 EmailLog[]
   email_template           EmailTemplate[]
   sent_invitations         Invitation[]                 @relation("InvitedBy")
   created_jobs             Job[]                        @relation("JobCreator")
@@ -115,6 +117,8 @@ model User {
   screening_result         ScreeningResult[]
   sessions                 Session[]
   reviewed_signup_requests SignupRequest[]              @relation("ReviewedBy")
+  SlackLog                 SlackLog[]
+  SmsLog                   SmsLog[]
   role_assigner            User?                        @relation("RoleAssigner", fields: [assigned_by], references: [id])
   assigned_users           User[]                       @relation("RoleAssigner")
   company                  Company                      @relation(fields: [company_id], references: [id], onDelete: Cascade)
@@ -704,13 +708,17 @@ model Application {
   job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
   application_round_progress ApplicationRoundProgress[]
   assessment                 Assessment[]
+  CallLog                    CallLog[]
   evaluations                CandidateEvaluation[]
+  EmailLog                   EmailLog[]
   email_message              EmailMessage[]
   job_invitation             JobInvitation?
   offer_document             OfferDocument[]
   offer_letter               OfferLetter[]
   questionnaire_response     QuestionnaireResponse[]
   screening_result           ScreeningResult[]
+  SlackLog                   SlackLog[]
+  SmsLog                     SmsLog[]
   video_interview            VideoInterview[]
 
   @@unique([candidate_id, job_id])
@@ -970,7 +978,7 @@ model Consultant {
   referred_leads             Lead[]                     @relation("ReferredLeads")
   opportunity                Opportunity[]
   subscription               Subscription[]
-  conversion_requests        LeadConversionRequest[]
+  conversion_requests        LeadConversionRequest[]    @relation("ConversionRequests")
 
   @@index([email])
   @@index([region_id])
@@ -1396,14 +1404,14 @@ model CompanySettings {
 }
 
 model JobRole {
-  id                         String                    @id @default(uuid())
-  job_id                     String                    @map("job_id")
-  name                       String
-  is_default                 Boolean                   @default(false) @map("is_default")
-  created_at                 DateTime                  @default(now()) @map("created_at")
-  job                        Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  job_rounds                 JobRound[]
-  member_roles               JobHiringTeamMemberRole[]
+  id           String                    @id @default(uuid())
+  job_id       String                    @map("job_id")
+  name         String
+  is_default   Boolean                   @default(false) @map("is_default")
+  created_at   DateTime                  @default(now()) @map("created_at")
+  job_rounds   JobRound[]
+  member_roles JobHiringTeamMemberRole[]
+  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
 
   @@index([job_id])
   @@map("job_role")
@@ -1417,7 +1425,6 @@ model JobRound {
   type                       JobRoundType
   is_fixed                   Boolean                    @default(false) @map("isFixed")
   fixed_key                  String?                    @map("fixedKey")
-  auto_move_on_pass          Boolean                    @default(false) @map("autoMoveOnPass")
   created_at                 DateTime                   @default(now())
   updated_at                 DateTime                   @default(now()) @updatedAt
   email_config               Json?                      @map("email_config")
@@ -1674,12 +1681,12 @@ model JobHiringTeamMember {
 }
 
 model JobHiringTeamMemberRole {
-  id          String                @id @default(uuid())
-  member_id   String                @map("member_id")
-  job_role_id String                @map("job_role_id")
-  created_at  DateTime              @default(now()) @map("created_at")
-  member      JobHiringTeamMember   @relation(fields: [member_id], references: [id], onDelete: Cascade)
-  job_role    JobRole               @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
+  id          String              @id @default(uuid())
+  member_id   String              @map("member_id")
+  job_role_id String              @map("job_role_id")
+  created_at  DateTime            @default(now()) @map("created_at")
+  job_role    JobRole             @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
+  member      JobHiringTeamMember @relation(fields: [member_id], references: [id], onDelete: Cascade)
 
   @@unique([member_id, job_role_id])
   @@index([member_id])
@@ -2016,6 +2023,7 @@ model EmailTemplate {
   created_at             DateTime               @default(now())
   updated_at             DateTime               @default(now()) @updatedAt
   attachments            Json?                  @map("attachments")
+  EmailLog               EmailLog[]
   email_message          EmailMessage[]
   company                Company                @relation(fields: [company_id], references: [id], onDelete: Cascade)
   user                   User                   @relation(fields: [created_by], references: [id], onDelete: Cascade)
@@ -2070,13 +2078,14 @@ model Product {
   name        String
   code        String          @unique
   description String?
-  category    ProductCategory
   is_active   Boolean         @default(true) @map("isActive")
   created_at  DateTime        @default(now()) @map("created_at")
   updated_at  DateTime        @default(now()) @updatedAt @map("updated_at")
+  category    ProductCategory
   tiers       PriceTier[]
 
   @@index([is_active])
+  @@index([category])
 }
 
 model PriceBook {
@@ -2386,6 +2395,79 @@ model CandidateEvaluation {
 
   @@unique([application_id, user_id])
   @@index([application_id])
+}
+
+model CallLog {
+  id             String      @id
+  application_id String
+  user_id        String
+  call_date      DateTime
+  outcome        CallOutcome
+  phone_number   String?
+  duration       Int?
+  notes          String?
+  created_at     DateTime    @default(now())
+  Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  User           User        @relation(fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([call_date])
+  @@index([user_id])
+}
+
+model EmailLog {
+  id             String         @id
+  application_id String
+  user_id        String
+  to_email       String
+  subject        String
+  body           String
+  template_id    String?
+  status         EmailStatus    @default(SENT)
+  created_at     DateTime       @default(now())
+  Application    Application    @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  EmailTemplate  EmailTemplate? @relation(fields: [template_id], references: [id])
+  User           User           @relation(fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([created_at])
+  @@index([user_id])
+}
+
+model SlackLog {
+  id             String      @id
+  application_id String
+  user_id        String
+  recipient_ids  String[]
+  message        String
+  channel_id     String?
+  thread_ts      String?
+  created_at     DateTime    @default(now())
+  Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  User           User        @relation(fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([created_at])
+  @@index([user_id])
+}
+
+model SmsLog {
+  id             String      @id
+  application_id String
+  user_id        String
+  to_number      String
+  from_number    String?
+  message        String
+  status         SmsStatus   @default(PENDING)
+  twilio_sid     String?
+  error_message  String?
+  created_at     DateTime    @default(now())
+  Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  User           User        @relation(fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([created_at])
+  @@index([user_id])
 }
 
 enum HiringTeamRole {
@@ -2986,6 +3068,8 @@ enum EmailStatus {
   OPENED
   BOUNCED
   FAILED
+  PENDING
+  CLICKED
 }
 
 enum EmailTemplateType {
@@ -3057,4 +3141,39 @@ enum EvaluationDecision {
   APPROVE
   REJECT
   PENDING
+}
+
+enum OpportunityStage {
+  NEW
+  QUALIFICATION
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum ProductCategory {
+  SUBSCRIPTION
+  JOB_POSTING
+  ASSESSMENT
+  ADDON_SERVICE
+  FEATURE_UNLOCK
+  SUPPORT
+  OTHER
+}
+
+enum CallOutcome {
+  PICKED_UP
+  BUSY
+  NO_ANSWER
+  LEFT_VOICEMAIL
+  WRONG_NUMBER
+  SCHEDULED_CALLBACK
+}
+
+enum SmsStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
 }
