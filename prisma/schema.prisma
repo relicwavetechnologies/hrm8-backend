@@ -1417,11 +1417,11 @@ model JobRound {
   type                       JobRoundType
   is_fixed                   Boolean                    @default(false) @map("isFixed")
   fixed_key                  String?                    @map("fixedKey")
+  auto_move_on_pass          Boolean                    @default(false) @map("autoMoveOnPass")
   created_at                 DateTime                   @default(now())
   updated_at                 DateTime                   @default(now()) @updatedAt
   email_config               Json?                      @map("email_config")
   assigned_role_id           String?                    @map("assigned_role_id")
-  auto_move_on_pass          Boolean                    @default(false) @map("auto_move_on_pass")
   application_round_progress ApplicationRoundProgress[]
   assessment_configuration   AssessmentConfiguration?
   email_template             EmailTemplate[]
