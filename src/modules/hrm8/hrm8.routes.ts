@@ -20,6 +20,7 @@ import { RegionalCompanyController } from './regional-company.controller';
 import { FinanceController } from './finance.controller';
 import { CapacityController } from './capacity.controller';
 import { AlertController } from './alert.controller';
+import { OverviewController } from './overview.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
 
 import { CareersRequestController } from './careers-request.controller';
@@ -46,6 +47,7 @@ const settingsController = new SettingsController();
 const financeController = new FinanceController();
 const capacityController = new CapacityController();
 const alertController = new AlertController();
+const overviewController = new OverviewController();
 const careersRequestController = new CareersRequestController();
 
 // Auth Routes
@@ -185,6 +187,7 @@ router.put('/consultants/:id/change-role', authenticateHrm8, staffController.cha
 router.post('/consultants/:id/invite', authenticateHrm8, staffController.invite);
 
 // Analytics Routes
+router.get('/overview', authenticateHrm8, overviewController.getOverview);
 router.get('/analytics/overview', authenticateHrm8, analyticsController.getPlatformOverview);
 router.get('/analytics/trends', authenticateHrm8, analyticsController.getPlatformTrends);
 router.get('/analytics/top-companies', authenticateHrm8, analyticsController.getTopCompanies);
