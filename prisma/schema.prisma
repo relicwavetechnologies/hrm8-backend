@@ -970,7 +970,7 @@ model Consultant {
   referred_leads             Lead[]                     @relation("ReferredLeads")
   opportunity                Opportunity[]
   subscription               Subscription[]
-  conversion_requests        LeadConversionRequest[]    @relation("ConversionRequests")
+  conversion_requests        LeadConversionRequest[]
 
   @@index([email])
   @@index([region_id])
@@ -1396,14 +1396,14 @@ model CompanySettings {
 }
 
 model JobRole {
-  id           String                    @id @default(uuid())
-  job_id       String                    @map("job_id")
-  name         String
-  is_default   Boolean                   @default(false) @map("is_default")
-  created_at   DateTime                  @default(now()) @map("created_at")
-  job_rounds   JobRound[]
-  member_roles JobHiringTeamMemberRole[]
-  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  id                         String                    @id @default(uuid())
+  job_id                     String                    @map("job_id")
+  name                       String
+  is_default                 Boolean                   @default(false) @map("is_default")
+  created_at                 DateTime                  @default(now()) @map("created_at")
+  job                        Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job_rounds                 JobRound[]
+  member_roles               JobHiringTeamMemberRole[]
 
   @@index([job_id])
   @@map("job_role")
@@ -1674,12 +1674,12 @@ model JobHiringTeamMember {
 }
 
 model JobHiringTeamMemberRole {
-  id          String              @id @default(uuid())
-  member_id   String              @map("member_id")
-  job_role_id String              @map("job_role_id")
-  created_at  DateTime            @default(now()) @map("created_at")
-  job_role    JobRole             @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
-  member      JobHiringTeamMember @relation(fields: [member_id], references: [id], onDelete: Cascade)
+  id          String                @id @default(uuid())
+  member_id   String                @map("member_id")
+  job_role_id String                @map("job_role_id")
+  created_at  DateTime              @default(now()) @map("created_at")
+  member      JobHiringTeamMember   @relation(fields: [member_id], references: [id], onDelete: Cascade)
+  job_role    JobRole               @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
 
   @@unique([member_id, job_role_id])
   @@index([member_id])
@@ -2070,10 +2070,10 @@ model Product {
   name        String
   code        String          @unique
   description String?
+  category    ProductCategory
   is_active   Boolean         @default(true) @map("isActive")
   created_at  DateTime        @default(now()) @map("created_at")
   updated_at  DateTime        @default(now()) @updatedAt @map("updated_at")
-  category    ProductCategory
   tiers       PriceTier[]
 
   @@index([is_active])
@@ -2951,15 +2951,6 @@ enum OfferStatus {
   WITHDRAWN
 }
 
-enum OpportunityStage {
-  NEW
-  QUALIFICATION
-  PROPOSAL
-  NEGOTIATION
-  CLOSED_WON
-  CLOSED_LOST
-}
-
 enum OpportunityType {
   SUBSCRIPTION
   RECRUITMENT_SERVICE
@@ -3066,14 +3057,4 @@ enum EvaluationDecision {
   APPROVE
   REJECT
   PENDING
-}
-
-enum ProductCategory {
-  SUBSCRIPTION
-  JOB_POSTING
-  ASSESSMENT
-  ADDON_SERVICE
-  FEATURE_UNLOCK
-  SUPPORT
-  OTHER
 }
