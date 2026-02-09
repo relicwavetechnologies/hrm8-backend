@@ -125,6 +125,10 @@ model User {
   hiring_teams             JobHiringTeamMember[]
   alert_rules              UserAlertRule[]              @relation("UserAlertRules")
   notification_preferences UserNotificationPreferences? @relation("UserNotificationPreferences")
+  call_logs                CallLog[]                    @relation("UserCallLogs")
+  sms_logs                 SmsLog[]                     @relation("UserSmsLogs")
+  email_logs               EmailLog[]                   @relation("UserEmailLogs")
+  slack_logs               SlackLog[]                   @relation("UserSlackLogs")
 
   @@index([email])
   @@index([company_id])
@@ -720,6 +724,10 @@ model Application {
   SlackLog                   SlackLog[]
   SmsLog                     SmsLog[]
   video_interview            VideoInterview[]
+  call_logs                  CallLog[]
+  sms_logs                   SmsLog[]
+  email_logs                 EmailLog[]
+  slack_logs                 SlackLog[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
@@ -2030,6 +2038,7 @@ model EmailTemplate {
   job                    Job?                   @relation(fields: [job_id], references: [id], onDelete: Cascade)
   job_round              JobRound?              @relation(fields: [job_round_id], references: [id], onDelete: Cascade)
   email_template_trigger EmailTemplateTrigger[]
+  email_logs             EmailLog[]
 
   @@index([company_id])
   @@index([created_by])
@@ -3063,9 +3072,11 @@ enum PaymentStatus {
 }
 
 enum EmailStatus {
+  PENDING
   SENT
   DELIVERED
   OPENED
+  CLICKED
   BOUNCED
   FAILED
   PENDING
@@ -3160,6 +3171,100 @@ enum ProductCategory {
   FEATURE_UNLOCK
   SUPPORT
   OTHER
+}
+
+enum CallOutcome {
+  PICKED_UP
+  BUSY
+  NO_ANSWER
+  LEFT_VOICEMAIL
+  WRONG_NUMBER
+  SCHEDULED_CALLBACK
+}
+
+enum SmsStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+// Communication Logs
+model CallLog {
+  id             String      @id @default(uuid())
+  application_id String      @map("application_id")
+  user_id        String      @map("user_id")
+  call_date      DateTime    @map("call_date")
+  outcome        CallOutcome
+  phone_number   String?     @map("phone_number")
+  duration       Int?        // in seconds
+  notes          String?
+  created_at     DateTime    @default(now()) @map("created_at")
+
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user        User        @relation("UserCallLogs", fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([user_id])
+  @@index([call_date])
+}
+
+model SmsLog {
+  id             String    @id @default(uuid())
+  application_id String    @map("application_id")
+  user_id        String    @map("user_id")
+  to_number      String    @map("to_number")
+  from_number    String?   @map("from_number")
+  message        String
+  status         SmsStatus @default(PENDING)
+  twilio_sid     String?   @map("twilio_sid")
+  error_message  String?   @map("error_message")
+  created_at     DateTime  @default(now()) @map("created_at")
+
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user        User        @relation("UserSmsLogs", fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model EmailLog {
+  id             String      @id @default(uuid())
+  application_id String      @map("application_id")
+  user_id        String      @map("user_id")
+  to_email       String      @map("to_email")
+  subject        String
+  body           String
+  template_id    String?     @map("template_id")
+  status         EmailStatus @default(SENT)
+  created_at     DateTime    @default(now()) @map("created_at")
+
+  application Application    @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user        User           @relation("UserEmailLogs", fields: [user_id], references: [id])
+  template    EmailTemplate? @relation(fields: [template_id], references: [id])
+
+  @@index([application_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model SlackLog {
+  id             String   @id @default(uuid())
+  application_id String   @map("application_id")
+  user_id        String   @map("user_id")
+  recipient_ids  String[] @map("recipient_ids")
+  message        String
+  channel_id     String?  @map("channel_id")
+  thread_ts      String?  @map("thread_ts")
+  created_at     DateTime @default(now()) @map("created_at")
+
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  user        User        @relation("UserSlackLogs", fields: [user_id], references: [id])
+
+  @@index([application_id])
+  @@index([user_id])
+  @@index([created_at])
 }
 
 enum CallOutcome {

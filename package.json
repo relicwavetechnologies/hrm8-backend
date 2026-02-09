@@ -20,6 +20,7 @@
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@prisma/client": "6.19.0",
+    "@slack/web-api": "^7.13.0",
     "@types/cookie": "^1.0.0",
     "@types/multer": "^2.0.0",
     "@types/pdf-parse": "^1.1.5",
@@ -44,6 +45,7 @@
     "prisma": "^6.19.0",
     "stripe": "^17.4.0",
     "tsx": "^4.19.2",
+    "twilio": "^5.12.1",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
