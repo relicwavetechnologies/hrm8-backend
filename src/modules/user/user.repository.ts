@@ -1,4 +1,4 @@
-import type { Prisma, User, UserNotificationPreferences, UserAlertRule } from '@prisma/client';
+import { Prisma, User, UserNotificationPreferences, UserAlertRule, UserStatus } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
 export class UserRepository extends BaseRepository {
@@ -13,7 +13,7 @@ export class UserRepository extends BaseRepository {
     });
   }
 
-  async updatePassword(id: string, passwordHash: string, status?: string): Promise<User> {
+  async updatePassword(id: string, passwordHash: string, status?: UserStatus): Promise<User> {
     return this.prisma.user.update({
       where: { id },
       data: {
@@ -75,7 +75,7 @@ export class UserRepository extends BaseRepository {
   }
 
   async updateNotificationPreferences(
-    userId: string, 
+    userId: string,
     data: Prisma.UserNotificationPreferencesCreateInput
   ): Promise<UserNotificationPreferences> {
     return this.prisma.userNotificationPreferences.upsert({

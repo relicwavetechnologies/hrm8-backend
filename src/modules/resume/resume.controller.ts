@@ -53,7 +53,7 @@ export class ResumeController extends BaseController {
             const annotation = await this.resumeService.createAnnotation({
                 resume_id: resumeId,
                 user_id: user_id || req.user?.id,
-                user_name: user_name || req.user?.name || 'Unknown',
+                user_name: user_name || (req.user as any)?.name || 'Unknown',
                 user_color,
                 type,
                 text,

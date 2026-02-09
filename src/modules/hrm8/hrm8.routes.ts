@@ -137,7 +137,23 @@ router.put('/refund-requests/:id/complete', authenticateHrm8, refundController.c
 
 // Pricing Routes
 router.get('/pricing/products', authenticateHrm8, pricingController.getProducts);
+router.post('/pricing/products', authenticateHrm8, pricingController.upsertProduct);
+router.delete('/pricing/products/:id', authenticateHrm8, pricingController.deleteProduct);
+
 router.get('/pricing/price-books', authenticateHrm8, pricingController.getPriceBooks);
+router.post('/pricing/price-books', authenticateHrm8, pricingController.createPriceBook);
+router.put('/pricing/price-books/:id', authenticateHrm8, pricingController.updatePriceBook);
+router.delete('/pricing/price-books/:id', authenticateHrm8, pricingController.deletePriceBook);
+
+router.post('/pricing/tiers/:priceBookId', authenticateHrm8, pricingController.createTier);
+router.put('/pricing/tiers/:id', authenticateHrm8, pricingController.updateTier);
+router.delete('/pricing/tiers/:id', authenticateHrm8, pricingController.deleteTier);
+
+router.get('/pricing/promo-codes', authenticateHrm8, pricingController.getPromoCodes);
+router.post('/pricing/promo-codes', authenticateHrm8, pricingController.createPromoCode);
+router.put('/pricing/promo-codes/:id', authenticateHrm8, pricingController.updatePromoCode);
+router.delete('/pricing/promo-codes/:id', authenticateHrm8, pricingController.deletePromoCode);
+router.post('/pricing/promo-codes/validate', authenticateHrm8, pricingController.validatePromoCode);
 
 // Region Routes
 router.get('/regions', authenticateHrm8, regionController.getAll);

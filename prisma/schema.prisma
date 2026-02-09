@@ -1396,14 +1396,14 @@ model CompanySettings {
 }
 
 model JobRole {
-  id                         String                     @id @default(uuid())
-  job_id                     String                     @map("job_id")
-  name                       String
-  is_default                 Boolean                    @default(false) @map("is_default")
-  created_at                 DateTime                   @default(now()) @map("created_at")
-  job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  job_rounds                 JobRound[]
-  member_roles               JobHiringTeamMemberRole[]
+  id           String                    @id @default(uuid())
+  job_id       String                    @map("job_id")
+  name         String
+  is_default   Boolean                   @default(false) @map("is_default")
+  created_at   DateTime                  @default(now()) @map("created_at")
+  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  job_rounds   JobRound[]
+  member_roles JobHiringTeamMemberRole[]
 
   @@index([job_id])
   @@map("job_role")
@@ -1435,7 +1435,6 @@ model JobRound {
   @@index([order])
   @@index([assigned_role_id])
 }
-
 
 model InterviewConfiguration {
   id                         String          @id @default(uuid())
@@ -1654,17 +1653,17 @@ model Integration {
 }
 
 model JobHiringTeamMember {
-  id           String                     @id @default(uuid())
-  job_id       String                     @map("job_id")
-  user_id      String?                    @map("user_id")
+  id           String                    @id @default(uuid())
+  job_id       String                    @map("job_id")
+  user_id      String?                   @map("user_id")
   email        String
   name         String?
   role         HiringTeamRole
-  status       HiringTeamMemberStatus     @default(PENDING)
-  invited_at   DateTime                   @default(now()) @map("invited_at")
-  joined_at    DateTime?                  @map("joined_at")
-  job          Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
-  user         User?                      @relation(fields: [user_id], references: [id])
+  status       HiringTeamMemberStatus    @default(PENDING)
+  invited_at   DateTime                  @default(now()) @map("invited_at")
+  joined_at    DateTime?                 @map("joined_at")
+  job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  user         User?                     @relation(fields: [user_id], references: [id])
   member_roles JobHiringTeamMemberRole[]
 
   @@index([job_id])
@@ -1674,12 +1673,12 @@ model JobHiringTeamMember {
 }
 
 model JobHiringTeamMemberRole {
-  id         String                 @id @default(uuid())
-  member_id  String                 @map("member_id")
-  job_role_id String                @map("job_role_id")
-  created_at DateTime               @default(now()) @map("created_at")
-  member     JobHiringTeamMember    @relation(fields: [member_id], references: [id], onDelete: Cascade)
-  job_role   JobRole                @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
+  id          String              @id @default(uuid())
+  member_id   String              @map("member_id")
+  job_role_id String              @map("job_role_id")
+  created_at  DateTime            @default(now()) @map("created_at")
+  member      JobHiringTeamMember @relation(fields: [member_id], references: [id], onDelete: Cascade)
+  job_role    JobRole             @relation(fields: [job_role_id], references: [id], onDelete: Cascade)
 
   @@unique([member_id, job_role_id])
   @@index([member_id])
@@ -2066,14 +2065,14 @@ model ResumeAnnotation {
 }
 
 model Product {
-  id          String      @id @default(uuid())
+  id          String          @id @default(uuid())
   name        String
-  code        String      @unique
+  code        String          @unique
   description String?
-  category    String
-  is_active   Boolean     @default(true) @map("isActive")
-  created_at  DateTime    @default(now()) @map("created_at")
-  updated_at  DateTime    @default(now()) @updatedAt @map("updated_at")
+  category    ProductCategory
+  is_active   Boolean         @default(true) @map("isActive")
+  created_at  DateTime        @default(now()) @map("created_at")
+  updated_at  DateTime        @default(now()) @updatedAt @map("updated_at")
   tiers       PriceTier[]
 
   @@index([category])
@@ -3067,4 +3066,14 @@ enum EvaluationDecision {
   APPROVE
   REJECT
   PENDING
+}
+
+enum ProductCategory {
+  SUBSCRIPTION // Subscription plans
+  JOB_POSTING // Job posting credits
+  ASSESSMENT // Assessment credits  
+  ADDON_SERVICE // Add-on services
+  FEATURE_UNLOCK // Feature unlocks
+  SUPPORT // Support packages
+  OTHER // Other/custom products
 }
