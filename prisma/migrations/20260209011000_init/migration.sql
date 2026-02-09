@@ -38,6 +38,9 @@ CREATE TYPE "SignupRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 CREATE TYPE "JobStatus" AS ENUM ('DRAFT', 'OPEN', 'CLOSED', 'ON_HOLD', 'FILLED', 'TEMPLATE', 'CANCELLED');
 
 -- CreateEnum
+CREATE TYPE "JobSetupType" AS ENUM ('SIMPLE', 'ADVANCED');
+
+-- CreateEnum
 CREATE TYPE "HiringMode" AS ENUM ('SELF_MANAGED', 'SHORTLISTING', 'FULL_SERVICE', 'EXECUTIVE_SEARCH', 'ASSESSMENT_ONLY');
 
 -- CreateEnum
@@ -481,6 +484,8 @@ CREATE TABLE "Job" (
     "posted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "benefits" TEXT,
     "category_id" TEXT,
+    "setup_type" "JobSetupType" NOT NULL DEFAULT 'ADVANCED',
+    "management_type" TEXT,
 
     CONSTRAINT "Job_pkey" PRIMARY KEY ("id")
 );
@@ -1364,6 +1369,17 @@ CREATE TABLE "CompanySettings" (
 );
 
 -- CreateTable
+CREATE TABLE "job_role" (
+    "id" TEXT NOT NULL,
+    "job_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_role_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "JobRound" (
     "id" TEXT NOT NULL,
     "job_id" TEXT NOT NULL,
@@ -1372,6 +1388,7 @@ CREATE TABLE "JobRound" (
     "type" "JobRoundType" NOT NULL,
     "isFixed" BOOLEAN NOT NULL DEFAULT false,
     "fixedKey" TEXT,
+    "assigned_role_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "email_config" JSONB,
@@ -1579,6 +1596,16 @@ CREATE TABLE "job_hiring_team_member" (
     "joined_at" TIMESTAMP(3),
 
     CONSTRAINT "job_hiring_team_member_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_hiring_team_member_role" (
+    "id" TEXT NOT NULL,
+    "member_id" TEXT NOT NULL,
+    "job_role_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_hiring_team_member_role_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -2793,6 +2820,9 @@ CREATE UNIQUE INDEX "CompanySettings_company_id_key" ON "CompanySettings"("compa
 CREATE INDEX "CompanySettings_company_id_idx" ON "CompanySettings"("company_id");
 
 -- CreateIndex
+CREATE INDEX "job_role_job_id_idx" ON "job_role"("job_id");
+
+-- CreateIndex
 CREATE INDEX "JobRound_isFixed_idx" ON "JobRound"("isFixed");
 
 -- CreateIndex
@@ -2800,6 +2830,9 @@ CREATE INDEX "JobRound_job_id_idx" ON "JobRound"("job_id");
 
 -- CreateIndex
 CREATE INDEX "JobRound_order_idx" ON "JobRound"("order");
+
+-- CreateIndex
+CREATE INDEX "JobRound_assigned_role_id_idx" ON "JobRound"("assigned_role_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "InterviewConfiguration_job_round_id_key" ON "InterviewConfiguration"("job_round_id");
@@ -2902,6 +2935,15 @@ CREATE INDEX "job_hiring_team_member_user_id_idx" ON "job_hiring_team_member"("u
 
 -- CreateIndex
 CREATE INDEX "job_hiring_team_member_email_idx" ON "job_hiring_team_member"("email");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_role_member_id_idx" ON "job_hiring_team_member_role"("member_id");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_role_job_role_id_idx" ON "job_hiring_team_member_role"("job_role_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_hiring_team_member_role_member_id_job_role_id_key" ON "job_hiring_team_member_role"("member_id", "job_role_id");
 
 -- CreateIndex
 CREATE INDEX "Lead_assigned_consultant_id_idx" ON "Lead"("assigned_consultant_id");
@@ -3450,7 +3492,13 @@ ALTER TABLE "AssessmentConfiguration" ADD CONSTRAINT "AssessmentConfiguration_jo
 ALTER TABLE "CompanySettings" ADD CONSTRAINT "CompanySettings_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "job_role" ADD CONSTRAINT "job_role_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "JobRound" ADD CONSTRAINT "JobRound_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "JobRound" ADD CONSTRAINT "JobRound_assigned_role_id_fkey" FOREIGN KEY ("assigned_role_id") REFERENCES "job_role"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "InterviewConfiguration" ADD CONSTRAINT "InterviewConfiguration_job_round_id_fkey" FOREIGN KEY ("job_round_id") REFERENCES "JobRound"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -3505,6 +3553,12 @@ ALTER TABLE "job_hiring_team_member" ADD CONSTRAINT "job_hiring_team_member_job_
 
 -- AddForeignKey
 ALTER TABLE "job_hiring_team_member" ADD CONSTRAINT "job_hiring_team_member_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member_role" ADD CONSTRAINT "job_hiring_team_member_role_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "job_hiring_team_member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member_role" ADD CONSTRAINT "job_hiring_team_member_role_job_role_id_fkey" FOREIGN KEY ("job_role_id") REFERENCES "job_role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Lead" ADD CONSTRAINT "Lead_assigned_consultant_id_fkey" FOREIGN KEY ("assigned_consultant_id") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;

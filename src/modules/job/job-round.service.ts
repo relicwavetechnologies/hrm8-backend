@@ -8,9 +8,19 @@ import { CreateJobRoundRequest, UpdateJobRoundRequest } from './job-round.model'
 export class JobRoundService extends BaseService {
   constructor(
     private jobRoundRepository: JobRoundRepository,
-    private jobRepository: JobRepository
+    private jobRepository: JobRepository,
   ) {
     super();
+  }
+
+  /** Resolve members by job role and assign them as round interviewers (Simple Flow). */
+  private async assignInterviewersByRole(jobId: string, roundId: string, assignedRoleId: string): Promise<void> {
+    const userIds = await this.jobRepository.getMemberUserIdsByJobRoleId(jobId, assignedRoleId);
+    if (userIds.length === 0) return;
+    await this.jobRoundRepository.upsertInterviewConfig(roundId, {
+      assignedInterviewerIds: userIds,
+    });
+    // TODO: Trigger "Added to Round" notifications/emails for userIds
   }
 
   async initializeFixedRounds(jobId: string): Promise<void> {
@@ -52,8 +62,9 @@ export class JobRoundService extends BaseService {
       type: round.type,
       isFixed: round.is_fixed,
       fixedKey: round.fixed_key,
+      assignedRoleId: round.assigned_role_id ?? undefined,
       createdAt: round.created_at,
-      updatedAt: round.updated_at
+      updatedAt: round.updated_at,
     };
   }
 
@@ -68,6 +79,10 @@ export class JobRoundService extends BaseService {
   async createRound(jobId: string, data: CreateJobRoundRequest) {
     const job = await this.jobRepository.findById(jobId);
     if (!job) throw new HttpException(404, 'Job not found');
+
+    if ((job as any).setup_type === 'SIMPLE' && data.type !== 'INTERVIEW') {
+      throw new HttpException(400, 'Simple flow allows only Interview rounds. Assessment and other types are available in Advanced flow.');
+    }
 
     const existingRounds = await this.jobRoundRepository.findByJobId(jobId);
     const fixedRounds = existingRounds.filter((r) => r.is_fixed);
@@ -90,9 +105,15 @@ export class JobRoundService extends BaseService {
       type: data.type,
       order: newOrder,
       is_fixed: false,
-      // If assessmentConfig is provided, we might need to create AssessmentConfiguration
-      // For now, ignoring deep nested creation unless required by schema constraints
+      ...(data.assignedRoleId
+        ? { assigned_role: { connect: { id: data.assignedRoleId } } }
+        : {}),
     });
+
+    // Simple Flow: auto-assign interviewers by role when round is INTERVIEW and has assignedRoleId
+    if (data.type === 'INTERVIEW' && data.assignedRoleId) {
+      await this.assignInterviewersByRole(jobId, round.id, data.assignedRoleId);
+    }
 
     return { round: this.mapToResponse(round) };
   }
@@ -101,6 +122,11 @@ export class JobRoundService extends BaseService {
     const target = await this.jobRoundRepository.findById(roundId);
     if (!target) throw new HttpException(404, 'Round not found');
     if (target.job_id !== jobId) throw new HttpException(403, 'Round does not belong to job');
+
+    const job = await this.jobRepository.findById(jobId);
+    if (job && (job as any).setup_type === 'SIMPLE' && data.type !== undefined && data.type !== 'INTERVIEW') {
+      throw new HttpException(400, 'Simple flow allows only Interview rounds.');
+    }
 
     if (target.is_fixed) {
       throw new HttpException(400, 'Fixed rounds cannot be updated');
@@ -158,13 +184,23 @@ export class JobRoundService extends BaseService {
         });
       }
       return { round: this.mapToResponse(updated) };
-    } else {
-      const updated = await this.jobRoundRepository.update(roundId, {
-        name: data.name,
-        type: data.type,
-      });
-      return { round: this.mapToResponse(updated) };
     }
+    const updatePayload: Record<string, unknown> = {
+      name: data.name,
+      type: data.type,
+    };
+    if (data.assignedRoleId !== undefined) {
+      updatePayload.assigned_role = data.assignedRoleId
+        ? { connect: { id: data.assignedRoleId } }
+        : { disconnect: true };
+    }
+    const updated = await this.jobRoundRepository.update(roundId, updatePayload as any);
+    // Simple Flow: when assignedRoleId is set on an INTERVIEW round, sync interviewers
+    if (updated.type === 'INTERVIEW' && (data.assignedRoleId ?? updated.assigned_role_id)) {
+      const roleId = data.assignedRoleId ?? updated.assigned_role_id!;
+      await this.assignInterviewersByRole(jobId, roundId, roleId);
+    }
+    return { round: this.mapToResponse(updated) };
   }
 
   async deleteRound(jobId: string, roundId: string) {
@@ -208,6 +244,12 @@ export class JobRoundService extends BaseService {
   }
 
   async saveAssessmentConfig(roundId: string, data: any) {
+    const round = await this.jobRoundRepository.findById(roundId);
+    if (!round) throw new HttpException(404, 'Round not found');
+    const job = await this.jobRepository.findById(round.job_id);
+    if (job && (job as any).setup_type === 'SIMPLE') {
+      throw new HttpException(403, 'Assessment configuration is not available in Simple flow. Use Advanced flow for assessments.');
+    }
     return this.jobRoundRepository.upsertAssessmentConfig(roundId, data);
   }
 }

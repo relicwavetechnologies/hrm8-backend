@@ -256,9 +256,11 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
           break;
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('WS Message Error:', err);
-      sendError(ws, 'Internal server error processing message');
+      const errorMessage = err.message || 'Internal server error processing message';
+      const statusCode = err.code || err.status || 4000;
+      sendError(ws, errorMessage, statusCode);
     }
   });
 

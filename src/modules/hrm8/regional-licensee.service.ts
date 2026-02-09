@@ -109,11 +109,24 @@ export class RegionalLicenseeService extends BaseService {
     }
 
     async delete(id: string) {
+        // Check if licensee has settlement history
+        const settlementCount = await prisma.settlement.count({
+            where: { licensee_id: id },
+        });
+
+        if (settlementCount > 0) {
+            throw new HttpException(
+                400,
+                `Cannot delete licensee with settlement history. Found ${settlementCount} settlement record(s). Settlements are historical records and cannot be removed.`
+            );
+        }
+
         // Check if it has regions
         const licensee = await this.regionalLicenseeRepository.findById(id);
         if (licensee && (licensee as any).regions?.length > 0) {
             throw new HttpException(400, 'Cannot delete licensee with assigned regions. Unassign regions first.');
         }
+
         return this.regionalLicenseeRepository.delete(id);
     }
 
