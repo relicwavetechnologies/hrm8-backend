@@ -6,6 +6,10 @@ export interface CreateJobRoundRequest {
     assessmentConfig?: any;
     /** When set (Simple Flow), members with this job role are auto-assigned as round interviewers */
     assignedRoleId?: string;
+    /** When true, all hiring team roles can move/manage in this round; default true */
+    syncPermissions?: boolean;
+    /** When true, enables auto-move on pass in Interview/Assessment config (Advanced) */
+    autoMoveOnPass?: boolean;
 }
 
 export interface UpdateJobRoundRequest {
@@ -14,4 +18,6 @@ export interface UpdateJobRoundRequest {
     order?: number;
     /** When set (Simple Flow), members with this job role are auto-assigned as round interviewers */
     assignedRoleId?: string;
+    syncPermissions?: boolean;
+    autoMoveOnPass?: boolean;
 }
