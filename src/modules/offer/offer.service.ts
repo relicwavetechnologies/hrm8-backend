@@ -19,26 +19,23 @@ export class OfferService {
         candidate_id: application.candidate_id,
         job_id: application.job_id,
         created_by: createdBy,
-        offer_type: data.offerType,
-        salary: data.salary,
+        offer_type: data.offerType || 'full-time',
+        salary: data.salary ?? 0,
         salary_currency: data.salaryCurrency || 'USD',
-        salary_period: data.salaryPeriod,
+        salary_period: data.salaryPeriod || 'annual',
         start_date: new Date(data.startDate),
-        benefits: data.benefits || [],
+        benefits: Array.isArray(data.benefits) ? data.benefits : (typeof data.benefits === 'string' ? data.benefits.split(',').map((b: string) => b.trim()) : []),
         bonus_structure: data.bonusStructure,
         equity_options: data.equityOptions,
-        work_location: data.workLocation,
-        work_arrangement: data.workArrangement,
+        work_location: data.workLocation ?? '',
+        work_arrangement: data.workArrangement ?? 'remote',
         probation_period: data.probationPeriod,
         vacation_days: data.vacationDays,
         custom_terms: data.customTerms,
         expiry_date: data.expiryDate ? new Date(data.expiryDate) : undefined,
         custom_message: data.customMessage,
-        status: 'DRAFT', // Default
-        // job_round_id is not in OfferLetter model in schema? Check schema.
-        // It has template_id, but not job_round_id directly?
-        // Ah, schema has offer_document, offer_negotiation.
-        // Let's check schema for OfferLetter fields again.
+        template_id: data.templateId || null,
+        status: 'DRAFT',
       }
     });
 

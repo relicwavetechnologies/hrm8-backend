@@ -104,9 +104,8 @@ model User {
   assessment               Assessment[]
   assessment_comment       AssessmentComment[]
   assessment_grade         AssessmentGrade[]
-  CallLog                  CallLog[]
+  assessment_vote          AssessmentVote[]
   evaluations              CandidateEvaluation[]
-  EmailLog                 EmailLog[]
   email_template           EmailTemplate[]
   sent_invitations         Invitation[]                 @relation("InvitedBy")
   created_jobs             Job[]                        @relation("JobCreator")
@@ -117,8 +116,6 @@ model User {
   screening_result         ScreeningResult[]
   sessions                 Session[]
   reviewed_signup_requests SignupRequest[]              @relation("ReviewedBy")
-  SlackLog                 SlackLog[]
-  SmsLog                   SmsLog[]
   role_assigner            User?                        @relation("RoleAssigner", fields: [assigned_by], references: [id])
   assigned_users           User[]                       @relation("RoleAssigner")
   company                  Company                      @relation(fields: [company_id], references: [id], onDelete: Cascade)
@@ -712,17 +709,13 @@ model Application {
   job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
   application_round_progress ApplicationRoundProgress[]
   assessment                 Assessment[]
-  CallLog                    CallLog[]
   evaluations                CandidateEvaluation[]
-  EmailLog                   EmailLog[]
   email_message              EmailMessage[]
   job_invitation             JobInvitation?
   offer_document             OfferDocument[]
   offer_letter               OfferLetter[]
   questionnaire_response     QuestionnaireResponse[]
   screening_result           ScreeningResult[]
-  SlackLog                   SlackLog[]
-  SmsLog                     SmsLog[]
   video_interview            VideoInterview[]
   call_logs                  CallLog[]
   sms_logs                   SmsLog[]
@@ -819,6 +812,7 @@ model Assessment {
   assessment_comment  AssessmentComment[]
   assessment_question AssessmentQuestion[]
   assessment_response AssessmentResponse[]
+  assessment_vote     AssessmentVote[]
 
   @@index([application_id])
   @@index([assessment_type])
@@ -1389,6 +1383,9 @@ model AssessmentConfiguration {
   auto_move_on_pass       Boolean  @default(false)
   auto_reject_on_deadline Boolean  @default(false)
   auto_reject_on_fail     Boolean  @default(false)
+  evaluation_mode         String?  @default("GRADING") @map("evaluation_mode")
+  voting_rule             String?  @map("voting_rule")
+  min_approvals_count     Int?     @map("min_approvals_count")
   job_round               JobRound @relation(fields: [job_round_id], references: [id], onDelete: Cascade)
 
   @@index([job_round_id])
@@ -1972,6 +1969,7 @@ model AssessmentGrade {
   assessment_response_id String
   user_id                String
   score                  Float?
+  vote                   String?
   comment                String?
   created_at             DateTime           @default(now())
   updated_at             DateTime           @default(now()) @updatedAt
@@ -1980,6 +1978,22 @@ model AssessmentGrade {
 
   @@unique([assessment_response_id, user_id])
   @@index([assessment_response_id])
+  @@index([user_id])
+}
+
+model AssessmentVote {
+  id            String     @id @default(uuid())
+  assessment_id String     @map("assessment_id")
+  user_id       String     @map("user_id")
+  vote          String
+  comment       String?
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @default(now()) @updatedAt
+  assessment    Assessment @relation(fields: [assessment_id], references: [id], onDelete: Cascade)
+  user          User       @relation(fields: [user_id], references: [id])
+
+  @@unique([assessment_id, user_id])
+  @@index([assessment_id])
   @@index([user_id])
 }
 
@@ -2034,7 +2048,6 @@ model EmailTemplate {
   created_at             DateTime               @default(now())
   updated_at             DateTime               @default(now()) @updatedAt
   attachments            Json?                  @map("attachments")
-  EmailLog               EmailLog[]
   email_message          EmailMessage[]
   company                Company                @relation(fields: [company_id], references: [id], onDelete: Cascade)
   user                   User                   @relation(fields: [created_by], references: [id], onDelete: Cascade)
@@ -2420,7 +2433,7 @@ model CallLog {
   notes          String?
   created_at     DateTime    @default(now())
   Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
-  User           User        @relation(fields: [user_id], references: [id])
+  User           User        @relation("UserCallLogs", fields: [user_id], references: [id])
 
   @@index([application_id])
   @@index([call_date])
@@ -2439,7 +2452,7 @@ model EmailLog {
   created_at     DateTime       @default(now())
   Application    Application    @relation(fields: [application_id], references: [id], onDelete: Cascade)
   EmailTemplate  EmailTemplate? @relation(fields: [template_id], references: [id])
-  User           User           @relation(fields: [user_id], references: [id])
+  User           User           @relation("UserEmailLogs", fields: [user_id], references: [id])
 
   @@index([application_id])
   @@index([created_at])
@@ -2456,7 +2469,7 @@ model SlackLog {
   thread_ts      String?
   created_at     DateTime    @default(now())
   Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
-  User           User        @relation(fields: [user_id], references: [id])
+  User           User        @relation("UserSlackLogs", fields: [user_id], references: [id])
 
   @@index([application_id])
   @@index([created_at])
@@ -2475,7 +2488,7 @@ model SmsLog {
   error_message  String?
   created_at     DateTime    @default(now())
   Application    Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
-  User           User        @relation(fields: [user_id], references: [id])
+  User           User        @relation("UserSmsLogs", fields: [user_id], references: [id])
 
   @@index([application_id])
   @@index([created_at])

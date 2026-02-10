@@ -69,4 +69,82 @@ export class RoundConfigController {
             res.status(500).json({ success: false, message: 'Failed to fetch configuration' });
         }
     }
+
+    /**
+     * Get offer configuration for a job round (OFFER round only)
+     */
+    static async getOfferConfig(req: AuthenticatedRequest, res: Response) {
+        try {
+            const { jobId, roundId } = req.params as { jobId: string; roundId: string };
+            const round = await prisma.jobRound.findUnique({
+                where: { id: roundId },
+                include: { job: true }
+            }) as any;
+
+            if (!round) {
+                return res.status(404).json({ success: false, message: 'Round not found' });
+            }
+            if (round.job_id !== jobId) {
+                return res.status(400).json({ success: false, message: 'Round does not belong to job' });
+            }
+            if (round.job?.company_id !== req.user?.companyId) {
+                return res.status(403).json({ success: false, message: 'Access denied' });
+            }
+
+            const config = round.offer_config || {};
+            res.json({ success: true, data: config });
+        } catch (error) {
+            console.error('Get Offer Config Error:', error);
+            res.status(500).json({ success: false, message: 'Failed to fetch configuration' });
+        }
+    }
+
+    /**
+     * Update offer configuration for a job round (OFFER round only)
+     */
+    static async updateOfferConfig(req: AuthenticatedRequest, res: Response) {
+        try {
+            const { jobId, roundId } = req.params as { jobId: string; roundId: string };
+            const body = req.body;
+
+            const round = await prisma.jobRound.findUnique({
+                where: { id: roundId },
+                include: { job: true }
+            }) as any;
+
+            if (!round) {
+                return res.status(404).json({ success: false, message: 'Round not found' });
+            }
+            if (round.job_id !== jobId) {
+                return res.status(400).json({ success: false, message: 'Round does not belong to job' });
+            }
+            if (round.job?.company_id !== req.user?.companyId) {
+                return res.status(403).json({ success: false, message: 'Access denied' });
+            }
+
+            const offerConfig = {
+                autoSend: Boolean(body.autoSend),
+                defaultTemplateId: body.defaultTemplateId || null,
+                defaultSalary: body.defaultSalary ?? '',
+                defaultSalaryCurrency: body.defaultSalaryCurrency || 'USD',
+                defaultSalaryPeriod: body.defaultSalaryPeriod || 'annual',
+                defaultWorkLocation: body.defaultWorkLocation ?? '',
+                defaultWorkArrangement: body.defaultWorkArrangement || 'remote',
+                defaultBenefits: body.defaultBenefits ?? '',
+                defaultVacationDays: body.defaultVacationDays ?? '',
+                defaultExpiryDays: body.defaultExpiryDays ?? '7',
+                defaultCustomMessage: body.defaultCustomMessage ?? '',
+            };
+
+            const updated = await prisma.jobRound.update({
+                where: { id: roundId },
+                data: { offer_config: offerConfig }
+            });
+
+            res.json({ success: true, data: (updated as any).offer_config });
+        } catch (error) {
+            console.error('Update Offer Config Error:', error);
+            res.status(500).json({ success: false, message: 'Failed to update configuration' });
+        }
+    }
 }

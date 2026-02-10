@@ -355,21 +355,31 @@ export class AssessmentService extends BaseService {
   async getGradingDetails(assessmentId: string) {
     const assessment = await this.assessmentRepository.getGradingData(assessmentId);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
-    return assessment;
+    let config = null;
+    if (assessment.job_round_id) {
+      config = await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id);
+    }
+    return { ...assessment, assessmentConfig: config };
   }
 
-  async saveGrade(assessmentId: string, grades: Array<{ questionId: string; score: number; feedback: string }>, graderId: string) {
+  async saveGrade(assessmentId: string, grades: Array<{ questionId: string; score: number | null; feedback?: string }>, graderId: string) {
     const assessment = await this.assessmentRepository.getGradingData(assessmentId);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
 
     for (const g of grades) {
-      // Find response for this question
       const response = assessment.assessment_response.find(r => r.question_id === g.questionId);
       if (response) {
-        await this.assessmentRepository.upsertGrade(response.id, graderId, g.score, g.feedback);
+        await this.assessmentRepository.upsertGrade(response.id, graderId, g.score ?? 0, g.feedback ?? '');
       }
     }
     return { message: 'Grades saved' };
+  }
+
+  async saveVote(assessmentId: string, vote: 'APPROVE' | 'REJECT', comment: string | undefined, userId: string) {
+    const assessment = await this.assessmentRepository.findById(assessmentId);
+    if (!assessment) throw new HttpException(404, 'Assessment not found');
+    await this.assessmentRepository.upsertAssessmentVote(assessmentId, userId, vote, comment);
+    return { message: 'Vote saved' };
   }
 
   async addComment(assessmentId: string, comment: string, userId: string) {
@@ -383,43 +393,69 @@ export class AssessmentService extends BaseService {
     const assessment = await this.assessmentRepository.getGradingData(assessmentId);
     if (!assessment) throw new HttpException(404, 'Assessment not found');
 
-    // Calculate Average Score
-    let averageScore: number = 0;
-    if (assessment.assessment_response && assessment.assessment_response.length > 0) {
-      const grades = assessment.assessment_response
-        .flatMap((r: any) => r.assessment_grade || [])
-        .filter((g: any) => g.score !== null && g.score !== undefined);
+    const config = assessment.job_round_id
+      ? await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id)
+      : null;
+    const evaluationMode = (config as any)?.evaluation_mode || 'GRADING';
 
-      if (grades.length > 0) {
-        const sum = grades.reduce((acc: number, curr: any) => acc + curr.score, 0);
-        averageScore = Number((sum / grades.length).toFixed(2));
+    let passed = false;
+
+    if (evaluationMode === 'VOTING') {
+      const votes = (assessment as any).assessment_vote || [];
+      const approves = votes.filter((v: any) => v.vote === 'APPROVE').length;
+      const rejects = votes.filter((v: any) => v.vote === 'REJECT').length;
+      const votingRule = (config as any)?.voting_rule || 'MAJORITY';
+      const minApprovals = (config as any)?.min_approvals_count ?? 1;
+
+      if (votingRule === 'UNANIMOUS') {
+        passed = votes.length > 0 && rejects === 0;
+      } else if (votingRule === 'MAJORITY') {
+        passed = approves > rejects;
+      } else if (votingRule === 'MIN_APPROVALS') {
+        passed = approves >= minApprovals;
+      } else {
+        passed = approves > rejects;
       }
-    }
 
-    // Update Assessment Status and Score
-    // Note: 'results' is a Json field, we store score there for persistent record
-    await this.assessmentRepository.update(assessment.id, {
-      status: 'COMPLETED',
-      completed_at: assessment.completed_at || new Date(),
-      results: { score: averageScore }
-    });
+      await this.assessmentRepository.update(assessment.id, {
+        status: 'COMPLETED',
+        completed_at: assessment.completed_at || new Date(),
+        results: { passed, voteCount: votes.length, approves, rejects }
+      });
+    } else {
+      // Grading: Calculate Average Score
+      let averageScore = 0;
+      if (assessment.assessment_response && assessment.assessment_response.length > 0) {
+        const grades = assessment.assessment_response
+          .flatMap((r: any) => r.assessment_grade || [])
+          .filter((g: any) => g.score !== null && g.score !== undefined);
 
-    // Automation Logic
-    if (assessment.job_round_id) {
-      const config = await this.assessmentRepository.findConfigByJobRoundId(assessment.job_round_id);
-
-      if (config) {
-        const passThreshold = config.pass_threshold || 70;
-
-        if ((config as any).auto_reject_on_fail && averageScore < passThreshold) {
-          await this.assessmentRepository.rejectApplication(assessment.application_id);
-        } else if ((config as any).auto_move_on_pass && averageScore >= passThreshold) {
-          await this.assessmentRepository.moveToNextRound(assessment.application_id, assessment.job_round_id);
+        if (grades.length > 0) {
+          const sum = grades.reduce((acc: number, curr: any) => acc + curr.score, 0);
+          averageScore = Number((sum / grades.length).toFixed(2));
         }
       }
+
+      const passThreshold = config?.pass_threshold || 70;
+      passed = averageScore >= passThreshold;
+
+      await this.assessmentRepository.update(assessment.id, {
+        status: 'COMPLETED',
+        completed_at: assessment.completed_at || new Date(),
+        results: { score: averageScore, passed }
+      });
     }
 
-    return { success: true, averageScore };
+    // Automation Logic
+    if (assessment.job_round_id && config) {
+      if ((config as any).auto_reject_on_fail && !passed) {
+        await this.assessmentRepository.rejectApplication(assessment.application_id);
+      } else if ((config as any).auto_move_on_pass && passed) {
+        await this.assessmentRepository.moveToNextRound(assessment.application_id, assessment.job_round_id);
+      }
+    }
+
+    return { success: true, passed };
   }
 
   async resendInvitation(assessmentId: string) {

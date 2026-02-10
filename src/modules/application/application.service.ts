@@ -648,6 +648,59 @@ export class ApplicationService extends BaseService {
       }
     }
 
+    // Auto-send offer when moving to OFFER round (from round offer_config)
+    const offerConfig = targetRound.offer_config as {
+      autoSend?: boolean;
+      defaultTemplateId?: string;
+      defaultSalary?: string;
+      defaultSalaryCurrency?: string;
+      defaultSalaryPeriod?: string;
+      defaultWorkLocation?: string;
+      defaultWorkArrangement?: string;
+      defaultBenefits?: string;
+      defaultVacationDays?: string;
+      defaultExpiryDays?: string;
+      defaultCustomMessage?: string;
+    } | null;
+    if (targetRound.is_fixed && targetRound.fixed_key === 'OFFER' && offerConfig?.autoSend) {
+      (async () => {
+        try {
+          const { OfferService } = await import('../offer/offer.service');
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + (parseInt(offerConfig.defaultExpiryDays || '7', 10) || 7));
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() + 30);
+          const benefits = offerConfig.defaultBenefits
+            ? (typeof offerConfig.defaultBenefits === 'string'
+              ? offerConfig.defaultBenefits.split(',').map((b: string) => b.trim())
+              : [])
+            : [];
+          const offer = await OfferService.createOffer(
+            {
+              applicationId,
+              offerType: 'full-time',
+              salary: parseFloat(offerConfig.defaultSalary || '0') || 0,
+              salaryCurrency: offerConfig.defaultSalaryCurrency || 'USD',
+              salaryPeriod: offerConfig.defaultSalaryPeriod || 'annual',
+              startDate: startDate.toISOString().split('T')[0],
+              workLocation: offerConfig.defaultWorkLocation || '',
+              workArrangement: offerConfig.defaultWorkArrangement || 'remote',
+              benefits,
+              vacationDays: offerConfig.defaultVacationDays ? parseInt(offerConfig.defaultVacationDays, 10) : undefined,
+              customMessage: offerConfig.defaultCustomMessage || undefined,
+              expiryDate: expiryDate.toISOString().split('T')[0],
+              templateId: offerConfig.defaultTemplateId || undefined,
+            },
+            userId
+          );
+          await OfferService.sendOffer(offer.id);
+          console.log(`[Offer-AutoSend] Offer created and sent for application ${applicationId}`);
+        } catch (err) {
+          console.error('[Offer-AutoSend] Failed to auto-send offer:', err);
+        }
+      })();
+    }
+
     return updatedApp;
   }
 

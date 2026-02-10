@@ -23,6 +23,10 @@ router.post('/:id/publish', authenticate, jobController.publishJob);
 router.get('/:jobId/rounds/:roundId/email-config', authenticate, RoundConfigController.getEmailConfig);
 router.put('/:jobId/rounds/:roundId/email-config', authenticate, RoundConfigController.updateEmailConfig);
 
+// Round Offer Config Routes
+router.get('/:jobId/rounds/:roundId/offer-config', authenticate, RoundConfigController.getOfferConfig);
+router.put('/:jobId/rounds/:roundId/offer-config', authenticate, RoundConfigController.updateOfferConfig);
+
 router.post('/:id/save-draft', authenticate, jobController.saveDraft);
 router.post('/:id/save-template', authenticate, jobController.saveTemplate);
 router.post('/:id/save-as-template', authenticate, jobController.saveAsTemplate);
