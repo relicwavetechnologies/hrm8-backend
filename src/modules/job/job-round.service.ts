@@ -225,12 +225,17 @@ export class JobRoundService extends BaseService {
       const roleId = data.assignedRoleId ?? updated.assigned_role_id!;
       await this.assignInterviewersByRole(jobId, roundId, roleId);
     }
-    // Advanced: update auto_move_on_pass in linked config
-    if (data.autoMoveOnPass !== undefined) {
+    // Advanced: update auto_move_on_pass and require_all_interviewers in linked config
+    if (data.autoMoveOnPass !== undefined || data.requireAllInterviewers !== undefined) {
       if (updated.type === 'INTERVIEW') {
-        await this.jobRoundRepository.upsertInterviewConfig(roundId, { autoMoveOnPass: data.autoMoveOnPass });
+        await this.jobRoundRepository.upsertInterviewConfig(roundId, {
+          ...(data.autoMoveOnPass !== undefined && { autoMoveOnPass: data.autoMoveOnPass }),
+          ...(data.requireAllInterviewers !== undefined && { requireAllInterviewers: data.requireAllInterviewers }),
+        });
       } else if (updated.type === 'ASSESSMENT') {
-        await this.jobRoundRepository.upsertAssessmentConfig(roundId, { autoMoveOnPass: data.autoMoveOnPass });
+        if (data.autoMoveOnPass !== undefined) {
+          await this.jobRoundRepository.upsertAssessmentConfig(roundId, { autoMoveOnPass: data.autoMoveOnPass });
+        }
       }
     }
     return { round: this.mapToResponse(updated) };

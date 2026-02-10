@@ -20,4 +20,6 @@ export interface UpdateJobRoundRequest {
     assignedRoleId?: string;
     syncPermissions?: boolean;
     autoMoveOnPass?: boolean;
+    /** For INTERVIEW rounds: require approval from all assigned interviewers before progression */
+    requireAllInterviewers?: boolean;
 }

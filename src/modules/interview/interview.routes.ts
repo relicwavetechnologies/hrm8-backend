@@ -12,6 +12,7 @@ router.get('/', authenticateUnified, interviewController.list);
 router.get('/job/:jobId', authenticateUnified, interviewController.listByJob);
 router.get('/application/:applicationId', authenticateUnified, interviewController.listByApplication);
 router.get('/:id', authenticateUnified, interviewController.getById);
+router.put('/:id', authenticate, interviewController.update);
 router.patch('/:id/status', authenticate, interviewController.updateStatus);
 router.post('/:id/feedback', authenticate, interviewController.addFeedback);
 router.get('/:id/progression-status', authenticateUnified, interviewController.getProgressionStatus);
