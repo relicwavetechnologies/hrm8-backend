@@ -24,6 +24,7 @@ import resumeRoutes from '../modules/resume/resume.routes';
 import consultant360Routes from '../modules/consultant360/consultant360.routes';
 import adminBillingRoutes from '../modules/admin-billing/admin-billing.routes';
 import aiRoutes from '../modules/ai/ai.routes';
+import assistantRoutes from '../modules/assistant/assistant.routes';
 import emailTemplateRoutes from '../modules/email/email-template.routes';
 import messagingRoutes from '../modules/messaging/messaging.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
@@ -49,7 +50,6 @@ const expressLoader = async (app: Application): Promise<void> => {
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
 
-  console.log('[Express] CORS enabled for origins:', allowedOrigins);
   app.use(cors(corsOptions));
 
   // Register module routers
@@ -79,6 +79,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/consultant360', consultant360Routes);
   app.use('/api/admin/billing', adminBillingRoutes);
   app.use('/api/ai', aiRoutes);
+  app.use('/api/assistant', assistantRoutes);
   app.use('/api/email-templates', emailTemplateRoutes);
   app.use('/api/messaging', messagingRoutes);
 

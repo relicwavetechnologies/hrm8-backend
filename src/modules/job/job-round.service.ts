@@ -106,7 +106,6 @@ export class JobRoundService extends BaseService {
       type: data.type,
       order: newOrder,
       is_fixed: false,
-      sync_permissions: data.syncPermissions ?? true,
       ...(data.assignedRoleId
         ? { assigned_role: { connect: { id: data.assignedRoleId } } }
         : {}),

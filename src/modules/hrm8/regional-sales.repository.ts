@@ -59,17 +59,28 @@ export class RegionalSalesRepository {
         });
     }
 
-    async findLeads(consultantIds: string[], filters?: { status?: string; assignedTo?: string }) {
-        if (consultantIds.length === 0) return [];
+    async findLeads(regionId?: string, regionIds?: string[], filters?: { status?: string; assignedTo?: string }) {
+        let targetRegionId = regionId;
+        if (targetRegionId === 'all' || targetRegionId === 'Global') {
+            targetRegionId = undefined;
+        }
+
+        const where: any = {
+            ...(filters?.status ? { status: filters.status as any } : {}),
+            ...(filters?.assignedTo ? { assigned_consultant_id: filters.assignedTo } : {})
+        };
+
+        if (targetRegionId) {
+            where.region_id = targetRegionId;
+        } else if (regionIds && regionIds.length > 0) {
+            where.region_id = { in: regionIds };
+        }
+
         return prisma.lead.findMany({
-            where: {
-                assigned_consultant_id: { in: consultantIds },
-                ...(filters?.status ? { status: filters.status as any } : {}),
-                ...(filters?.assignedTo ? { assigned_consultant_id: filters.assignedTo } : {})
-            },
+            where,
             include: {
-                consultant: { select: { id: true, first_name: true, last_name: true } },
-                creator: { select: { id: true, first_name: true, last_name: true } },
+                consultant: { select: { id: true, first_name: true, last_name: true, email: true } },
+                creator: { select: { id: true, first_name: true, last_name: true, email: true } },
                 company: { select: { id: true, name: true } }
             },
             orderBy: { created_at: 'desc' }

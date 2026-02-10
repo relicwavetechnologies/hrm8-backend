@@ -30,6 +30,19 @@ export class StaffController extends BaseController {
         }
     };
 
+    getOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { regionId } = req.query;
+            const result = await this.staffService.getOverview({
+                regionId: regionId as string,
+                regionIds: req.assignedRegionIds,
+            });
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     getById = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;

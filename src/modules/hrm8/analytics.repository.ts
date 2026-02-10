@@ -249,28 +249,47 @@ export class AnalyticsRepository {
         return appCounts;
     }
 
-    async getJobBoardStats() {
-        const [companies, jobStats] = await Promise.all([
+    async getJobBoardStats(params: { regionId?: string; regionIds?: string[]; page: number; limit: number }) {
+        const where: any = {};
+        if (params.regionId) {
+            where.region_id = params.regionId;
+        } else if (params.regionIds && params.regionIds.length > 0) {
+            where.region_id = { in: params.regionIds };
+        }
+
+        const [total, companies] = await Promise.all([
+            prisma.company.count({ where }),
             prisma.company.findMany({
+                where,
                 select: {
                     id: true,
                     name: true,
                     domain: true,
-                    careers_page_logo: true, // Assuming this is the logo field
-                }
-            }),
-            prisma.job.groupBy({
-                by: ['company_id', 'status'],
-                _count: {
-                    id: true
+                    careers_page_logo: true,
                 },
-                _sum: {
-                    views_count: true,
-                    clicks_count: true
-                }
-            })
+                orderBy: { name: 'asc' },
+                skip: (params.page - 1) * params.limit,
+                take: params.limit,
+            }),
         ]);
 
-        return { companies, jobStats };
+        const companyIds = companies.map((company) => company.id);
+        if (companyIds.length === 0) {
+            return { companies: [], jobStats: [], total };
+        }
+
+        const jobStats = await prisma.job.groupBy({
+            by: ['company_id', 'status'],
+            where: { company_id: { in: companyIds } },
+            _count: {
+                id: true
+            },
+            _sum: {
+                views_count: true,
+                clicks_count: true
+            }
+        });
+
+        return { companies, jobStats, total };
     }
 }

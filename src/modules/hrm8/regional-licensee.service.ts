@@ -184,6 +184,144 @@ export class RegionalLicenseeService extends BaseService {
         return this.regionalLicenseeRepository.getStats();
     }
 
+    async getOverview() {
+        const licensees = await this.regionalLicenseeRepository.findMany({
+            orderBy: { created_at: 'desc' },
+        });
+
+        const licenseeIds = licensees.map((licensee) => licensee.id);
+        if (licenseeIds.length === 0) {
+            return {
+                summary: {
+                    totalLicensees: 0,
+                    activeLicensees: 0,
+                    suspendedLicensees: 0,
+                    terminatedLicensees: 0,
+                    totalRegions: 0,
+                    totalActiveJobs: 0,
+                    totalActiveConsultants: 0,
+                    totalRevenue: 0,
+                    totalLicenseeShare: 0,
+                    totalHrm8Share: 0,
+                    avgRevenueSharePercent: 0,
+                },
+                performance: [],
+                revenueShareBreakdown: [],
+                topPerformers: [],
+            };
+        }
+
+        const regions = await prisma.region.findMany({
+            where: { licensee_id: { in: licenseeIds } },
+            select: { id: true, licensee_id: true },
+        });
+
+        const regionIds = regions.map((region) => region.id);
+
+        const [jobsByRegion, consultantsByRegion, settlementsByLicensee] = await Promise.all([
+            regionIds.length
+                ? prisma.job.groupBy({
+                    by: ['region_id'],
+                    where: { region_id: { in: regionIds }, status: JobStatus.OPEN },
+                    _count: { id: true },
+                })
+                : Promise.resolve([]),
+            regionIds.length
+                ? prisma.consultant.groupBy({
+                    by: ['region_id'],
+                    where: { region_id: { in: regionIds }, status: 'ACTIVE' as any },
+                    _count: { id: true },
+                })
+                : Promise.resolve([]),
+            prisma.settlement.groupBy({
+                by: ['licensee_id'],
+                where: { licensee_id: { in: licenseeIds } },
+                _sum: { total_revenue: true, licensee_share: true, hrm8_share: true },
+                _count: { id: true },
+                _max: { period_end: true },
+            }),
+        ]);
+
+        const regionsByLicensee = new Map<string, string[]>();
+        regions.forEach((region) => {
+            const licenseeId = region.licensee_id;
+            if (!licenseeId) return;
+            const current = regionsByLicensee.get(licenseeId) || [];
+            current.push(region.id);
+            regionsByLicensee.set(licenseeId, current);
+        });
+
+        const jobsCountByRegion = new Map<string, number>();
+        jobsByRegion.forEach((row) => jobsCountByRegion.set(row.region_id || '', row._count.id));
+
+        const consultantsCountByRegion = new Map<string, number>();
+        consultantsByRegion.forEach((row) => consultantsCountByRegion.set(row.region_id || '', row._count.id));
+
+        const settlementsByLicenseeId = new Map<string, (typeof settlementsByLicensee)[number]>();
+        settlementsByLicensee.forEach((row) => settlementsByLicenseeId.set(row.licensee_id, row));
+
+        const performance = licensees.map((licensee) => {
+            const mappedLicensee = this.mapToDTO(licensee);
+            const assignedRegions = regionsByLicensee.get(licensee.id) || [];
+            const activeJobs = assignedRegions.reduce((sum, regionId) => sum + (jobsCountByRegion.get(regionId) || 0), 0);
+            const activeConsultants = assignedRegions.reduce((sum, regionId) => sum + (consultantsCountByRegion.get(regionId) || 0), 0);
+            const settlement = settlementsByLicenseeId.get(licensee.id);
+            const totalRevenue = settlement?._sum.total_revenue || 0;
+            const licenseeShare = settlement?._sum.licensee_share || 0;
+            const hrm8Share = settlement?._sum.hrm8_share || 0;
+
+            return {
+                licenseeId: mappedLicensee.id,
+                name: mappedLicensee.name,
+                status: mappedLicensee.status,
+                revenueSharePercent: mappedLicensee.revenueSharePercent || 0,
+                regionsCount: assignedRegions.length,
+                activeJobs,
+                activeConsultants,
+                totalRevenue,
+                licenseeShare,
+                hrm8Share,
+                settlementsCount: settlement?._count.id || 0,
+                lastSettlementDate: settlement?._max.period_end || null,
+            };
+        });
+
+        const summary = {
+            totalLicensees: performance.length,
+            activeLicensees: performance.filter((item) => item.status === 'ACTIVE').length,
+            suspendedLicensees: performance.filter((item) => item.status === 'SUSPENDED').length,
+            terminatedLicensees: performance.filter((item) => item.status === 'TERMINATED').length,
+            totalRegions: performance.reduce((sum, item) => sum + item.regionsCount, 0),
+            totalActiveJobs: performance.reduce((sum, item) => sum + item.activeJobs, 0),
+            totalActiveConsultants: performance.reduce((sum, item) => sum + item.activeConsultants, 0),
+            totalRevenue: performance.reduce((sum, item) => sum + item.totalRevenue, 0),
+            totalLicenseeShare: performance.reduce((sum, item) => sum + item.licenseeShare, 0),
+            totalHrm8Share: performance.reduce((sum, item) => sum + item.hrm8Share, 0),
+            avgRevenueSharePercent: performance.length
+                ? Math.round((performance.reduce((sum, item) => sum + item.revenueSharePercent, 0) / performance.length) * 100) / 100
+                : 0,
+        };
+
+        const revenueShareBreakdown = performance.map((item) => ({
+            licenseeId: item.licenseeId,
+            licenseeName: item.name,
+            totalRevenue: item.totalRevenue,
+            licenseeShare: item.licenseeShare,
+            hrm8Share: item.hrm8Share,
+        }));
+
+        const topPerformers = [...performance]
+            .sort((a, b) => b.totalRevenue - a.totalRevenue)
+            .slice(0, 5);
+
+        return {
+            summary,
+            performance,
+            revenueShareBreakdown,
+            topPerformers,
+        };
+    }
+
     async getImpactPreview(id: string) {
         const regions = await prisma.region.findMany({
             where: { licensee_id: id },
