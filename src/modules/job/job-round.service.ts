@@ -63,6 +63,8 @@ export class JobRoundService extends BaseService {
       isFixed: round.is_fixed,
       fixedKey: round.fixed_key,
       assignedRoleId: round.assigned_role_id ?? undefined,
+      syncPermissions: round.sync_permissions ?? true,
+      autoMoveOnPass: round.auto_move_on_pass ?? false,
       createdAt: round.created_at,
       updatedAt: round.updated_at,
     };
@@ -80,9 +82,8 @@ export class JobRoundService extends BaseService {
     const job = await this.jobRepository.findById(jobId);
     if (!job) throw new HttpException(404, 'Job not found');
 
-    if ((job as any).setup_type === 'SIMPLE' && data.type !== 'INTERVIEW') {
-      throw new HttpException(400, 'Simple flow allows only Interview rounds. Assessment and other types are available in Advanced flow.');
-    }
+    // Simple flow allows both INTERVIEW (with role) and ASSESSMENT (normal round); no automation/assessment config
+    // No need to block ASSESSMENT here; saveAssessmentConfig is already blocked for SIMPLE jobs.
 
     const existingRounds = await this.jobRoundRepository.findByJobId(jobId);
     const fixedRounds = existingRounds.filter((r) => r.is_fixed);
@@ -105,6 +106,7 @@ export class JobRoundService extends BaseService {
       type: data.type,
       order: newOrder,
       is_fixed: false,
+      sync_permissions: data.syncPermissions ?? true,
       ...(data.assignedRoleId
         ? { assigned_role: { connect: { id: data.assignedRoleId } } }
         : {}),
@@ -115,6 +117,15 @@ export class JobRoundService extends BaseService {
       await this.assignInterviewersByRole(jobId, round.id, data.assignedRoleId);
     }
 
+    // Advanced: auto-move on pass in linked config
+    if (data.autoMoveOnPass === true) {
+      if (data.type === 'INTERVIEW') {
+        await this.jobRoundRepository.upsertInterviewConfig(round.id, { autoMoveOnPass: true });
+      } else if (data.type === 'ASSESSMENT') {
+        await this.jobRoundRepository.upsertAssessmentConfig(round.id, { autoMoveOnPass: true });
+      }
+    }
+
     return { round: this.mapToResponse(round) };
   }
 
@@ -123,13 +134,25 @@ export class JobRoundService extends BaseService {
     if (!target) throw new HttpException(404, 'Round not found');
     if (target.job_id !== jobId) throw new HttpException(403, 'Round does not belong to job');
 
-    const job = await this.jobRepository.findById(jobId);
-    if (job && (job as any).setup_type === 'SIMPLE' && data.type !== undefined && data.type !== 'INTERVIEW') {
-      throw new HttpException(400, 'Simple flow allows only Interview rounds.');
-    }
-
+    // Fixed rounds: allow only assigned_role_id and sync_permissions (email_config via separate endpoint)
     if (target.is_fixed) {
-      throw new HttpException(400, 'Fixed rounds cannot be updated');
+      const fixedPayload: Record<string, unknown> = {};
+      if (data.assignedRoleId !== undefined) {
+        fixedPayload.assigned_role = data.assignedRoleId
+          ? { connect: { id: data.assignedRoleId } }
+          : { disconnect: true };
+      }
+      if (data.syncPermissions !== undefined) {
+        fixedPayload.sync_permissions = data.syncPermissions;
+      }
+      if (data.autoMoveOnPass !== undefined) {
+        fixedPayload.auto_move_on_pass = data.autoMoveOnPass;
+      }
+      if (Object.keys(fixedPayload).length === 0) {
+        return { round: this.mapToResponse(target) };
+      }
+      const updated = await this.jobRoundRepository.update(roundId, fixedPayload as any);
+      return { round: this.mapToResponse(updated) };
     }
 
     // If order is being changed
@@ -194,11 +217,27 @@ export class JobRoundService extends BaseService {
         ? { connect: { id: data.assignedRoleId } }
         : { disconnect: true };
     }
+    if (data.syncPermissions !== undefined) {
+      updatePayload.sync_permissions = data.syncPermissions;
+    }
     const updated = await this.jobRoundRepository.update(roundId, updatePayload as any);
     // Simple Flow: when assignedRoleId is set on an INTERVIEW round, sync interviewers
     if (updated.type === 'INTERVIEW' && (data.assignedRoleId ?? updated.assigned_role_id)) {
       const roleId = data.assignedRoleId ?? updated.assigned_role_id!;
       await this.assignInterviewersByRole(jobId, roundId, roleId);
+    }
+    // Advanced: update auto_move_on_pass and require_all_interviewers in linked config
+    if (data.autoMoveOnPass !== undefined || data.requireAllInterviewers !== undefined) {
+      if (updated.type === 'INTERVIEW') {
+        await this.jobRoundRepository.upsertInterviewConfig(roundId, {
+          ...(data.autoMoveOnPass !== undefined && { autoMoveOnPass: data.autoMoveOnPass }),
+          ...(data.requireAllInterviewers !== undefined && { requireAllInterviewers: data.requireAllInterviewers }),
+        });
+      } else if (updated.type === 'ASSESSMENT') {
+        if (data.autoMoveOnPass !== undefined) {
+          await this.jobRoundRepository.upsertAssessmentConfig(roundId, { autoMoveOnPass: data.autoMoveOnPass });
+        }
+      }
     }
     return { round: this.mapToResponse(updated) };
   }

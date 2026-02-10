@@ -1,12 +1,15 @@
 import OpenAI from 'openai';
 
 export interface GenerateEmailRequest {
-  type: string; // e.g., 'interview_invitation', 'rejection'
+  type: string; // e.g., 'interview_invitation', 'rejection', 'NEW', 'INTERVIEW', 'OFFER', 'HIRED'
   jobTitle: string;
   companyName: string;
   candidateName: string; // Used for context, but template should use {{candidateName}}
   context?: string; // Additional instructions
   tone?: string; // 'formal', 'friendly', 'excited', 'direct'
+  jobId?: string;
+  jobRoundId?: string;
+  roundName?: string; // e.g. "Technical Interview", "New", "Offer"
 }
 
 export interface RewriteTextRequest {
@@ -56,11 +59,14 @@ export class EmailTemplateAIService {
     
     TONE: ${request.tone || 'Professional, warm, and respectful.'}`;
 
-    const userPrompt = `Create a ${request.tone || 'professional'} email template for a "${request.type}".
+    const stageContext = request.roundName
+      ? `\nSTAGE/ROUND: This email is for when a candidate enters the round "${request.roundName}".`
+      : '';
+    const userPrompt = `Create a ${request.tone || 'professional'} email template for a "${request.type}" stage.
     
     JOB DETAILS:
     Title: ${request.jobTitle}
-    Company: ${request.companyName}
+    Company: ${request.companyName}${stageContext}
     
     ADDITIONAL CONTEXT:
     ${request.context || 'No specific context provided. Create a standard, well-structured template.'}
@@ -68,7 +74,7 @@ export class EmailTemplateAIService {
     INSTRUCTIONS:
     - Subject line should be concise and catchy.
     - Body should be ready to send, requiring minimal editing.
-    - Highlight the Job Title and Company Name.
+    - Use {{candidateName}}, {{jobTitle}}, {{companyName}} (and {{roundName}} if relevant) where appropriate.
     - If this is an interview invitation, include clear placeholders for Date/Time if variables aren't used.`;
 
     try {

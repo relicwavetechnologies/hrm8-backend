@@ -9,15 +9,18 @@
     "start": "tsx src/server.ts",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "echo \"Blocked: do not run prisma migrate dev. Use pnpm prisma:dev:push on dev and pnpm prisma:main:deploy on main.\" && exit 1",
     "prisma:push": "prisma db push",
+    "prisma:dev:push": "sh -c 'set -a; [ -f ./.env.dev ] && . ./.env.dev; set +a; prisma db push'",
     "prisma:studio": "prisma studio",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:main:deploy": "sh -c 'set -a; [ -f ./.env.main ] && . ./.env.main; set +a; prisma migrate deploy'"
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@prisma/client": "6.19.0",
+    "@slack/web-api": "^7.13.0",
     "@types/cookie": "^1.0.0",
     "@types/multer": "^2.0.0",
     "@types/pdf-parse": "^1.1.5",
@@ -42,6 +45,7 @@
     "prisma": "^6.19.0",
     "stripe": "^17.4.0",
     "tsx": "^4.19.2",
+    "twilio": "^5.12.1",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },

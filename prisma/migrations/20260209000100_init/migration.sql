@@ -1,4 +1,10 @@
 -- CreateEnum
+CREATE TYPE "HiringTeamRole" AS ENUM ('ADMIN', 'SHORTLISTING', 'MEMBER');
+
+-- CreateEnum
+CREATE TYPE "HiringTeamMemberStatus" AS ENUM ('ACTIVE', 'PENDING');
+
+-- CreateEnum
 CREATE TYPE "UserRole" AS ENUM ('SUPER_ADMIN', 'ADMIN', 'USER', 'VISITOR');
 
 -- CreateEnum
@@ -12,6 +18,9 @@ CREATE TYPE "CompanyProfileStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPL
 
 -- CreateEnum
 CREATE TYPE "CompanyProfileSection" AS ENUM ('BASIC_DETAILS', 'PRIMARY_LOCATION', 'PERSONAL_PROFILE', 'TEAM_MEMBERS', 'BILLING', 'BRANDING');
+
+-- CreateEnum
+CREATE TYPE "CareersPageStatus" AS ENUM ('PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED');
 
 -- CreateEnum
 CREATE TYPE "VerificationMethod" AS ENUM ('EMAIL_DOMAIN_CHECK', 'VERIFICATION_EMAIL', 'MANUAL_VERIFICATION');
@@ -29,7 +38,10 @@ CREATE TYPE "SignupRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 CREATE TYPE "JobStatus" AS ENUM ('DRAFT', 'OPEN', 'CLOSED', 'ON_HOLD', 'FILLED', 'TEMPLATE', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "HiringMode" AS ENUM ('SELF_MANAGED', 'SHORTLISTING', 'FULL_SERVICE', 'EXECUTIVE_SEARCH');
+CREATE TYPE "JobSetupType" AS ENUM ('SIMPLE', 'ADVANCED');
+
+-- CreateEnum
+CREATE TYPE "HiringMode" AS ENUM ('SELF_MANAGED', 'SHORTLISTING', 'FULL_SERVICE', 'EXECUTIVE_SEARCH', 'ASSESSMENT_ONLY');
 
 -- CreateEnum
 CREATE TYPE "WorkArrangement" AS ENUM ('ON_SITE', 'REMOTE', 'HYBRID');
@@ -63,6 +75,12 @@ CREATE TYPE "CommissionStatus" AS ENUM ('PENDING', 'CONFIRMED', 'PAID', 'CANCELL
 
 -- CreateEnum
 CREATE TYPE "CommissionType" AS ENUM ('PLACEMENT', 'SUBSCRIPTION_SALE', 'RECRUITMENT_SERVICE', 'CUSTOM');
+
+-- CreateEnum
+CREATE TYPE "WithdrawalStatus" AS ENUM ('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "RefundStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "ConsultantRole" AS ENUM ('RECRUITER', 'SALES_AGENT', 'CONSULTANT_360');
@@ -113,13 +131,19 @@ CREATE TYPE "JobRoundType" AS ENUM ('ASSESSMENT', 'INTERVIEW');
 CREATE TYPE "NotificationType" AS ENUM ('JOB_ALERT', 'APPLICATION_UPDATE', 'INTERVIEW_SCHEDULED', 'MESSAGE', 'SYSTEM');
 
 -- CreateEnum
+CREATE TYPE "UniversalNotificationType" AS ENUM ('NEW_APPLICATION', 'APPLICATION_STATUS_CHANGED', 'APPLICATION_SHORTLISTED', 'APPLICATION_REJECTED', 'JOB_CREATED', 'JOB_PUBLISHED', 'JOB_STATUS_CHANGED', 'JOB_ASSIGNED', 'JOB_FILLED', 'CANDIDATE_STAGE_CHANGED', 'INTERVIEW_SCHEDULED', 'OFFER_EXTENDED', 'NEW_LEAD', 'LEAD_CONVERTED', 'SUBSCRIPTION_PURCHASED', 'SERVICE_PURCHASED', 'JOB_ASSIGNMENT_RECEIVED', 'SHORTLIST_SUBMITTED', 'SYSTEM_ANNOUNCEMENT', 'NEW_MESSAGE', 'JOB_ALERT', 'REFUND_STATUS_CHANGED', 'SUBSCRIPTION_RENEWAL_FAILED', 'WITHDRAWAL_APPROVED', 'WITHDRAWAL_REJECTED', 'LOW_BALANCE_WARNING', 'COMMISSION_EARNED', 'LEAD_CONVERSION_REQUESTED', 'LEAD_CONVERSION_DECLINED');
+
+-- CreateEnum
+CREATE TYPE "NotificationRecipientType" AS ENUM ('USER', 'CANDIDATE', 'CONSULTANT', 'HRM8_USER');
+
+-- CreateEnum
 CREATE TYPE "JobAssignmentMode" AS ENUM ('AUTO_RULES_ONLY', 'MANUAL_ONLY');
 
 -- CreateEnum
 CREATE TYPE "AssignmentMode" AS ENUM ('AUTO', 'MANUAL');
 
 -- CreateEnum
-CREATE TYPE "AssignmentSource" AS ENUM ('AUTO_RULES', 'MANUAL_EMPLOYER', 'MANUAL_LICENSEE', 'MANUAL_HRM8');
+CREATE TYPE "AssignmentSource" AS ENUM ('AUTO_RULES', 'MANUAL_EMPLOYER', 'MANUAL_LICENSEE', 'MANUAL_HRM8', 'MANUAL_REASSIGNMENT');
 
 -- CreateEnum
 CREATE TYPE "ConversationChannelType" AS ENUM ('CANDIDATE_EMPLOYER', 'CANDIDATE_CONSULTANT', 'SYSTEM');
@@ -176,13 +200,16 @@ CREATE TYPE "DocumentStatus" AS ENUM ('PENDING', 'REQUESTED', 'SUBMITTED', 'APPR
 CREATE TYPE "IntegrationStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'ERROR', 'PENDING_CONFIG');
 
 -- CreateEnum
-CREATE TYPE "IntegrationType" AS ENUM ('JOB_POSTING_PLATFORM', 'ASSESSMENT_TOOL', 'ACCOUNTING_SYSTEM', 'EMAIL_PROVIDER', 'CALENDAR', 'OTHER');
+CREATE TYPE "IntegrationType" AS ENUM ('JOB_POSTING_PLATFORM', 'ASSESSMENT_TOOL', 'ACCOUNTING_SYSTEM', 'EMAIL_PROVIDER', 'CALENDAR', 'OTHER', 'STRIPE_PAYMENTS');
 
 -- CreateEnum
 CREATE TYPE "LeadSource" AS ENUM ('WEBSITE', 'MARKETING_CAMPAIGN', 'REFERRAL', 'PARTNER_IMPORT', 'MANUAL_ENTRY', 'EVENT', 'OTHER');
 
 -- CreateEnum
 CREATE TYPE "LeadStatus" AS ENUM ('NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED', 'LOST', 'NURTURING');
+
+-- CreateEnum
+CREATE TYPE "ConversionRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'DECLINED', 'CONVERTED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "NegotiationMessageType" AS ENUM ('EMPLOYER_PROPOSAL', 'CANDIDATE_COUNTER', 'EMPLOYER_REVISION', 'CANDIDATE_ACCEPTANCE', 'CANDIDATE_DECLINE');
@@ -209,10 +236,28 @@ CREATE TYPE "PaymentStatus" AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED');
 CREATE TYPE "EmailStatus" AS ENUM ('SENT', 'DELIVERED', 'OPENED', 'BOUNCED', 'FAILED');
 
 -- CreateEnum
-CREATE TYPE "EmailTemplateType" AS ENUM ('APPLICATION_CONFIRMATION', 'INTERVIEW_INVITATION', 'REJECTION', 'OFFER_EXTENDED', 'OFFER_ACCEPTED', 'STAGE_CHANGE', 'REMINDER', 'FOLLOW_UP', 'CUSTOM');
+CREATE TYPE "EmailTemplateType" AS ENUM ('APPLICATION_CONFIRMATION', 'INTERVIEW_INVITATION', 'REJECTION', 'OFFER_EXTENDED', 'OFFER_ACCEPTED', 'STAGE_CHANGE', 'REMINDER', 'FOLLOW_UP', 'CUSTOM', 'NEW', 'ASSESSMENT', 'INTERVIEW', 'OFFER', 'HIRED');
 
 -- CreateEnum
 CREATE TYPE "TriggerType" AS ENUM ('IMMEDIATE', 'SCHEDULED', 'CONDITIONAL');
+
+-- CreateEnum
+CREATE TYPE "VirtualAccountOwner" AS ENUM ('COMPANY', 'CONSULTANT', 'SALES_AGENT', 'HRM8_GLOBAL');
+
+-- CreateEnum
+CREATE TYPE "VirtualAccountStatus" AS ENUM ('ACTIVE', 'FROZEN', 'CLOSED');
+
+-- CreateEnum
+CREATE TYPE "VirtualTransactionType" AS ENUM ('SUBSCRIPTION_PURCHASE', 'SUBSCRIPTION_REFUND', 'JOB_POSTING_DEDUCTION', 'JOB_REFUND', 'COMMISSION_EARNED', 'COMMISSION_WITHDRAWAL', 'ADDON_SERVICE_CHARGE', 'ADDON_SERVICE_REFUND', 'ADMIN_ADJUSTMENT', 'PLATFORM_FEE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ASSESSMENT_CREDIT_DEDUCTION', 'ASSESSMENT_CREDIT_REFUND');
+
+-- CreateEnum
+CREATE TYPE "TransactionDirection" AS ENUM ('CREDIT', 'DEBIT');
+
+-- CreateEnum
+CREATE TYPE "TransactionStatus" AS ENUM ('PENDING', 'COMPLETED', 'FAILED', 'REVERSED');
+
+-- CreateEnum
+CREATE TYPE "EvaluationDecision" AS ENUM ('APPROVE', 'REJECT', 'PENDING');
 
 -- CreateTable
 CREATE TABLE "Company" (
@@ -230,7 +275,7 @@ CREATE TABLE "Company" (
     "registrationNumber" TEXT,
     "linkedInUrl" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "region_id" TEXT,
     "job_assignment_mode" "JobAssignmentMode" NOT NULL DEFAULT 'AUTO_RULES_ONLY',
     "preferred_recruiter_id" TEXT,
@@ -238,8 +283,19 @@ CREATE TABLE "Company" (
     "licensee_id" TEXT,
     "region_owner_type" "RegionOwnerType" NOT NULL DEFAULT 'HRM8',
     "commission_status" "CommissionStatus" NOT NULL DEFAULT 'PENDING',
-    "referred_by" TEXT,
     "price_book_id" TEXT,
+    "referred_by" TEXT,
+    "attribution_locked" BOOLEAN NOT NULL DEFAULT false,
+    "attribution_locked_at" TIMESTAMP(3),
+    "sales_agent_id" TEXT,
+    "careers_page_about" TEXT,
+    "careers_page_banner" TEXT,
+    "careers_page_logo" TEXT,
+    "careers_page_social" JSONB,
+    "careers_page_status" "CareersPageStatus" NOT NULL DEFAULT 'PENDING',
+    "careers_pending_changes" JSONB,
+    "careers_review_notes" JSONB,
+    "careers_page_images" JSONB,
 
     CONSTRAINT "Company_pkey" PRIMARY KEY ("id")
 );
@@ -255,7 +311,7 @@ CREATE TABLE "CompanyProfile" (
     "last_reminder_at" TIMESTAMP(3),
     "skip_until" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CompanyProfile_pkey" PRIMARY KEY ("id")
 );
@@ -271,7 +327,7 @@ CREATE TABLE "User" (
     "status" "UserStatus" NOT NULL DEFAULT 'PENDING_VERIFICATION',
     "last_login_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "assigned_by" TEXT,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
@@ -349,7 +405,7 @@ CREATE TABLE "SignupRequest" (
     "reviewed_at" TIMESTAMP(3),
     "rejection_reason" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "SignupRequest_pkey" PRIMARY KEY ("id")
 );
@@ -378,7 +434,7 @@ CREATE TABLE "Job" (
     "posting_date" TIMESTAMP(3),
     "close_date" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiry_date" TIMESTAMP(3),
     "featured" BOOLEAN NOT NULL DEFAULT false,
     "hiring_mode" "HiringMode" NOT NULL DEFAULT 'SELF_MANAGED',
@@ -422,8 +478,55 @@ CREATE TABLE "Job" (
     "payment_failed_at" TIMESTAMP(3),
     "stripe_payment_intent_id" TEXT,
     "stripe_session_id" TEXT,
+    "clicks_count" INTEGER NOT NULL DEFAULT 0,
+    "views_count" INTEGER NOT NULL DEFAULT 0,
+    "auto_archive_on_expiry" BOOLEAN NOT NULL DEFAULT true,
+    "posted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "benefits" TEXT,
+    "category_id" TEXT,
+    "setup_type" "JobSetupType" NOT NULL DEFAULT 'ADVANCED',
+    "management_type" TEXT,
 
     CONSTRAINT "Job_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_category" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "description" TEXT,
+    "icon" TEXT,
+    "color" TEXT,
+    "order" INTEGER NOT NULL DEFAULT 0,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_category_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_tag" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "color" TEXT DEFAULT '#3B82F6',
+    "description" TEXT,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_tag_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_tag_assignment" (
+    "job_id" TEXT NOT NULL,
+    "tag_id" TEXT NOT NULL,
+    "assigned_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_tag_assignment_pkey" PRIMARY KEY ("job_id","tag_id")
 );
 
 -- CreateTable
@@ -449,7 +552,7 @@ CREATE TABLE "Candidate" (
     "status" "CandidateStatus" NOT NULL DEFAULT 'ACTIVE',
     "last_login_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "resume_url" TEXT,
 
     CONSTRAINT "Candidate_pkey" PRIMARY KEY ("id")
@@ -469,6 +572,19 @@ CREATE TABLE "CandidateSession" (
 );
 
 -- CreateTable
+CREATE TABLE "candidate_verification_tokens" (
+    "id" TEXT NOT NULL,
+    "candidate_id" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "expires_at" TIMESTAMP(3) NOT NULL,
+    "used_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "candidate_verification_tokens_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "SavedJob" (
     "id" TEXT NOT NULL,
     "candidate_id" TEXT NOT NULL,
@@ -484,7 +600,7 @@ CREATE TABLE "SavedSearch" (
     "candidate_id" TEXT NOT NULL,
     "filters" JSONB NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "last_searched_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "query" TEXT,
 
@@ -501,44 +617,9 @@ CREATE TABLE "JobAlert" (
     "channels" TEXT[] DEFAULT ARRAY['EMAIL']::TEXT[],
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "JobAlert_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "Settlement" (
-    "id" TEXT NOT NULL,
-    "licensee_id" TEXT NOT NULL,
-    "period_start" TIMESTAMP(3) NOT NULL,
-    "period_end" TIMESTAMP(3) NOT NULL,
-    "total_revenue" DOUBLE PRECISION NOT NULL,
-    "licensee_share" DOUBLE PRECISION NOT NULL,
-    "hrm8_share" DOUBLE PRECISION NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'PENDING',
-    "payment_date" TIMESTAMP(3),
-    "reference" TEXT,
-    "generated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "Settlement_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PromoCode" (
-    "id" TEXT NOT NULL,
-    "code" TEXT NOT NULL,
-    "description" TEXT,
-    "discountType" TEXT NOT NULL,
-    "discount_value" DOUBLE PRECISION NOT NULL,
-    "start_date" TIMESTAMP(3) NOT NULL,
-    "end_date" TIMESTAMP(3),
-    "max_uses" INTEGER,
-    "used_count" INTEGER NOT NULL DEFAULT 0,
-    "is_active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PromoCode_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -569,7 +650,7 @@ CREATE TABLE "NotificationPreferences" (
     "in_app_enabled" BOOLEAN NOT NULL DEFAULT true,
     "reminder_hours_before" INTEGER NOT NULL DEFAULT 24,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "NotificationPreferences_pkey" PRIMARY KEY ("id")
 );
@@ -586,7 +667,7 @@ CREATE TABLE "Conversation" (
     "last_message_id" TEXT,
     "last_message_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "status" "ConversationStatus" NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT "Conversation_pkey" PRIMARY KEY ("id")
@@ -619,7 +700,7 @@ CREATE TABLE "Message" (
     "delivered_at" TIMESTAMP(3),
     "read_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Message_pkey" PRIMARY KEY ("id")
 );
@@ -666,7 +747,7 @@ CREATE TABLE "CandidateCoverLetter" (
     "is_template" BOOLEAN NOT NULL DEFAULT false,
     "is_draft" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidateCoverLetter_pkey" PRIMARY KEY ("id")
 );
@@ -685,7 +766,7 @@ CREATE TABLE "CandidatePortfolio" (
     "platform" TEXT,
     "description" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidatePortfolio_pkey" PRIMARY KEY ("id")
 );
@@ -709,7 +790,7 @@ CREATE TABLE "Application" (
     "is_new" BOOLEAN NOT NULL DEFAULT true,
     "tags" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "added_at" TIMESTAMP(3),
     "added_by" TEXT,
     "manually_added" BOOLEAN NOT NULL DEFAULT false,
@@ -729,6 +810,7 @@ CREATE TABLE "Application" (
     "manual_screening_date" TIMESTAMP(3),
     "manual_screening_score" DOUBLE PRECISION,
     "ai_analysis" JSONB,
+    "source" TEXT,
 
     CONSTRAINT "Application_pkey" PRIMARY KEY ("id")
 );
@@ -746,14 +828,14 @@ CREATE TABLE "JobInvitation" (
     "accepted_at" TIMESTAMP(3),
     "application_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "JobInvitation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "JobTemplate" (
-    "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+    "id" TEXT NOT NULL,
     "company_id" TEXT NOT NULL,
     "created_by" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -789,9 +871,10 @@ CREATE TABLE "Assessment" (
     "payment_status" TEXT DEFAULT 'pending',
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "invitation_token" TEXT,
     "job_round_id" TEXT,
+    "started_at" TIMESTAMP(3),
 
     CONSTRAINT "Assessment_pkey" PRIMARY KEY ("id")
 );
@@ -815,7 +898,7 @@ CREATE TABLE "AssessmentQuestion" (
 CREATE TABLE "AssessmentResponse" (
     "id" TEXT NOT NULL,
     "assessment_id" TEXT NOT NULL,
-    "question_id" TEXT,
+    "question_id" TEXT NOT NULL,
     "candidate_id" TEXT NOT NULL,
     "response" JSONB NOT NULL,
     "score" DOUBLE PRECISION,
@@ -840,9 +923,42 @@ CREATE TABLE "Commission" (
     "payment_reference" TEXT,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "commission_expiry_date" TIMESTAMP(3),
+    "subscription_id" TEXT,
 
     CONSTRAINT "Commission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CommissionWithdrawal" (
+    "id" TEXT NOT NULL,
+    "consultant_id" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "status" "WithdrawalStatus" NOT NULL DEFAULT 'PENDING',
+    "payment_method" TEXT NOT NULL,
+    "payment_details" JSONB,
+    "commission_ids" TEXT[],
+    "processed_by" TEXT,
+    "processed_at" TIMESTAMP(3),
+    "payment_reference" TEXT,
+    "admin_notes" TEXT,
+    "rejection_reason" TEXT,
+    "rejected_at" TIMESTAMP(3),
+    "rejected_by" TEXT,
+    "notes" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "stripe_payout_id" TEXT,
+    "stripe_transfer_id" TEXT,
+    "transfer_completed_at" TIMESTAMP(3),
+    "transfer_failed_reason" TEXT,
+    "transfer_initiated_at" TIMESTAMP(3),
+    "debited_from_wallet" BOOLEAN NOT NULL DEFAULT false,
+    "virtual_transaction_id" TEXT,
+    "wallet_debit_at" TIMESTAMP(3),
+
+    CONSTRAINT "CommissionWithdrawal_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -857,7 +973,7 @@ CREATE TABLE "Consultant" (
     "role" "ConsultantRole" NOT NULL,
     "status" "ConsultantStatus" NOT NULL DEFAULT 'ACTIVE',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "last_login_at" TIMESTAMP(3),
     "address" TEXT,
     "availability" "AvailabilityStatus" NOT NULL DEFAULT 'AVAILABLE',
@@ -884,6 +1000,11 @@ CREATE TABLE "Consultant" (
     "total_revenue" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "current_leads" INTEGER NOT NULL DEFAULT 0,
     "max_leads" INTEGER NOT NULL DEFAULT 20,
+    "payout_enabled" BOOLEAN NOT NULL DEFAULT false,
+    "stripe_account_id" TEXT,
+    "stripe_account_status" TEXT,
+    "stripe_onboarded_at" TIMESTAMP(3),
+    "linkedin_url" TEXT,
 
     CONSTRAINT "Consultant_pkey" PRIMARY KEY ("id")
 );
@@ -946,7 +1067,7 @@ CREATE TABLE "HRM8User" (
     "status" "HRM8UserStatus" NOT NULL DEFAULT 'ACTIVE',
     "licensee_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "last_login_at" TIMESTAMP(3),
 
     CONSTRAINT "HRM8User_pkey" PRIMARY KEY ("id")
@@ -961,7 +1082,7 @@ CREATE TABLE "PreInterviewQuestionnaire" (
     "generated_by" TEXT,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "PreInterviewQuestionnaire_pkey" PRIMARY KEY ("id")
 );
@@ -992,7 +1113,9 @@ CREATE TABLE "Region" (
     "licensee_id" TEXT,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "monthly_placement_target" INTEGER DEFAULT 0,
+    "monthly_revenue_target" DOUBLE PRECISION DEFAULT 0,
 
     CONSTRAINT "Region_pkey" PRIMARY KEY ("id")
 );
@@ -1019,7 +1142,7 @@ CREATE TABLE "RegionalLicensee" (
     "compliance_contact" TEXT,
     "status" "LicenseeStatus" NOT NULL DEFAULT 'ACTIVE',
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "RegionalLicensee_pkey" PRIMARY KEY ("id")
 );
@@ -1037,7 +1160,7 @@ CREATE TABLE "RegionalRevenue" (
     "status" "RevenueStatus" NOT NULL DEFAULT 'PENDING',
     "paid_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "RegionalRevenue_pkey" PRIMARY KEY ("id")
 );
@@ -1050,7 +1173,7 @@ CREATE TABLE "ScreeningCriteria" (
     "criteria_config" JSONB,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "category" TEXT,
     "description" TEXT,
     "min_score" INTEGER,
@@ -1073,7 +1196,7 @@ CREATE TABLE "ScreeningResult" (
     "reviewed_at" TIMESTAMP(3),
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "criteria_id" TEXT,
     "passed" BOOLEAN,
 
@@ -1097,7 +1220,7 @@ CREATE TABLE "VideoInterview" (
     "feedback" JSONB,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "cancellation_reason" TEXT,
     "is_auto_scheduled" BOOLEAN NOT NULL DEFAULT false,
     "job_round_id" TEXT,
@@ -1124,7 +1247,7 @@ CREATE TABLE "CandidateCertification" (
     "credential_url" TEXT,
     "does_not_expire" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidateCertification_pkey" PRIMARY KEY ("id")
 );
@@ -1142,7 +1265,7 @@ CREATE TABLE "CandidateEducation" (
     "grade" TEXT,
     "description" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidateEducation_pkey" PRIMARY KEY ("id")
 );
@@ -1169,7 +1292,7 @@ CREATE TABLE "CandidateTraining" (
     "description" TEXT,
     "certificate_url" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidateTraining_pkey" PRIMARY KEY ("id")
 );
@@ -1186,7 +1309,7 @@ CREATE TABLE "CandidateWorkExperience" (
     "description" TEXT,
     "location" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CandidateWorkExperience_pkey" PRIMARY KEY ("id")
 );
@@ -1201,7 +1324,7 @@ CREATE TABLE "ApplicationRoundProgress" (
     "assessment_id" TEXT,
     "video_interview_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ApplicationRoundProgress_pkey" PRIMARY KEY ("id")
 );
@@ -1221,54 +1344,12 @@ CREATE TABLE "AssessmentConfiguration" (
     "questions" JSONB,
     "instructions" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "auto_move_on_pass" BOOLEAN NOT NULL DEFAULT false,
+    "auto_reject_on_deadline" BOOLEAN NOT NULL DEFAULT false,
+    "auto_reject_on_fail" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "AssessmentConfiguration_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PriceBook" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "description" TEXT,
-    "is_global" BOOLEAN NOT NULL DEFAULT false,
-    "region_id" TEXT,
-    "currency" TEXT NOT NULL DEFAULT 'USD',
-    "is_active" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PriceBook_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "PriceTier" (
-    "id" TEXT NOT NULL,
-    "price_book_id" TEXT NOT NULL,
-    "product_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "min_quantity" INTEGER NOT NULL DEFAULT 1,
-    "max_quantity" INTEGER,
-    "unit_price" DOUBLE PRECISION NOT NULL,
-    "period" TEXT NOT NULL DEFAULT 'MONTHLY',
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PriceTier_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "Product" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "code" TEXT NOT NULL,
-    "description" TEXT,
-    "category" TEXT NOT NULL,
-    "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Product_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1282,9 +1363,20 @@ CREATE TABLE "CompanySettings" (
     "lunchStart" TEXT,
     "lunchEnd" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "CompanySettings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_role" (
+    "id" TEXT NOT NULL,
+    "job_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "is_default" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_role_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1296,8 +1388,10 @@ CREATE TABLE "JobRound" (
     "type" "JobRoundType" NOT NULL,
     "isFixed" BOOLEAN NOT NULL DEFAULT false,
     "fixedKey" TEXT,
+    "assigned_role_id" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "email_config" JSONB,
 
     CONSTRAINT "JobRound_pkey" PRIMARY KEY ("id")
 );
@@ -1334,7 +1428,7 @@ CREATE TABLE "InterviewConfiguration" (
     "questions" JSONB,
     "agenda" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "assigned_interviewer_ids" TEXT[] DEFAULT ARRAY[]::TEXT[],
 
     CONSTRAINT "InterviewConfiguration_pkey" PRIMARY KEY ("id")
@@ -1355,7 +1449,7 @@ CREATE TABLE "InterviewFeedback" (
     "notes" TEXT,
     "submitted_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "InterviewFeedback_pkey" PRIMARY KEY ("id")
 );
@@ -1370,7 +1464,7 @@ CREATE TABLE "AccountTeam" (
     "assigned_by" TEXT NOT NULL,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AccountTeam_pkey" PRIMARY KEY ("id")
 );
@@ -1396,7 +1490,7 @@ CREATE TABLE "Activity" (
     "tags" TEXT[],
     "attachments" JSONB,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Activity_pkey" PRIMARY KEY ("id")
 );
@@ -1421,7 +1515,8 @@ CREATE TABLE "Bill" (
     "synced_at" TIMESTAMP(3),
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "region_id" TEXT,
 
     CONSTRAINT "Bill_pkey" PRIMARY KEY ("id")
 );
@@ -1454,7 +1549,7 @@ CREATE TABLE "Contact" (
     "linked_in_url" TEXT,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Contact_pkey" PRIMARY KEY ("id")
 );
@@ -1476,9 +1571,41 @@ CREATE TABLE "Integration" (
     "sync_status" TEXT,
     "error_message" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "consultant_id" TEXT,
+    "hrm8_user_id" TEXT,
+    "stripe_account_id" TEXT,
+    "stripe_account_status" TEXT,
+    "stripe_onboarded_at" TIMESTAMP(3),
+    "stripe_refresh_url" TEXT,
+    "stripe_return_url" TEXT,
 
     CONSTRAINT "Integration_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_hiring_team_member" (
+    "id" TEXT NOT NULL,
+    "job_id" TEXT NOT NULL,
+    "user_id" TEXT,
+    "email" TEXT NOT NULL,
+    "name" TEXT,
+    "role" "HiringTeamRole" NOT NULL,
+    "status" "HiringTeamMemberStatus" NOT NULL DEFAULT 'PENDING',
+    "invited_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "joined_at" TIMESTAMP(3),
+
+    CONSTRAINT "job_hiring_team_member_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_hiring_team_member_role" (
+    "id" TEXT NOT NULL,
+    "member_id" TEXT NOT NULL,
+    "job_role_id" TEXT NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_hiring_team_member_role_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1509,9 +1636,37 @@ CREATE TABLE "Lead" (
     "converted_to_company_id" TEXT,
     "converted_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Lead_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "lead_conversion_requests" (
+    "id" TEXT NOT NULL,
+    "lead_id" TEXT NOT NULL,
+    "consultant_id" TEXT NOT NULL,
+    "region_id" TEXT NOT NULL,
+    "status" "ConversionRequestStatus" NOT NULL DEFAULT 'PENDING',
+    "company_name" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "phone" TEXT,
+    "website" TEXT,
+    "country" TEXT NOT NULL,
+    "city" TEXT,
+    "state_province" TEXT,
+    "agent_notes" TEXT,
+    "reviewed_by" TEXT,
+    "reviewed_at" TIMESTAMP(3),
+    "admin_notes" TEXT,
+    "decline_reason" TEXT,
+    "converted_at" TIMESTAMP(3),
+    "company_id" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "temp_password" TEXT,
+
+    CONSTRAINT "lead_conversion_requests_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1534,7 +1689,7 @@ CREATE TABLE "OfferDocument" (
     "is_required" BOOLEAN NOT NULL DEFAULT true,
     "template_url" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OfferDocument_pkey" PRIMARY KEY ("id")
 );
@@ -1570,7 +1725,7 @@ CREATE TABLE "OfferLetter" (
     "custom_message" TEXT,
     "created_by" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OfferLetter_pkey" PRIMARY KEY ("id")
 );
@@ -1590,7 +1745,7 @@ CREATE TABLE "OfferNegotiation" (
     "response" TEXT,
     "response_date" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "OfferNegotiation_pkey" PRIMARY KEY ("id")
 );
@@ -1613,7 +1768,7 @@ CREATE TABLE "Opportunity" (
     "lost_reason" TEXT,
     "closed_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Opportunity_pkey" PRIMARY KEY ("id")
 );
@@ -1639,7 +1794,13 @@ CREATE TABLE "Subscription" (
     "usage_data" JSONB,
     "notes" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "auto_renew" BOOLEAN NOT NULL DEFAULT true,
+    "job_quota" INTEGER,
+    "jobs_used" INTEGER NOT NULL DEFAULT 0,
+    "prepaid_balance" DOUBLE PRECISION DEFAULT 0,
+    "renewal_failed_at" TIMESTAMP(3),
+    "renewal_failure_reason" TEXT,
 
     CONSTRAINT "Subscription_pkey" PRIMARY KEY ("id")
 );
@@ -1651,7 +1812,7 @@ CREATE TABLE "AssessmentComment" (
     "user_id" TEXT NOT NULL,
     "comment" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AssessmentComment_pkey" PRIMARY KEY ("id")
 );
@@ -1664,7 +1825,7 @@ CREATE TABLE "AssessmentGrade" (
     "score" DOUBLE PRECISION,
     "comment" TEXT,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "AssessmentGrade_pkey" PRIMARY KEY ("id")
 );
@@ -1711,7 +1872,8 @@ CREATE TABLE "EmailTemplate" (
     "version" INTEGER NOT NULL DEFAULT 1,
     "created_by" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "attachments" JSONB,
 
     CONSTRAINT "EmailTemplate_pkey" PRIMARY KEY ("id")
 );
@@ -1728,7 +1890,7 @@ CREATE TABLE "EmailTemplateTrigger" (
     "scheduled_time" TEXT,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "EmailTemplateTrigger_pkey" PRIMARY KEY ("id")
 );
@@ -1750,17 +1912,66 @@ CREATE TABLE "ResumeAnnotation" (
 );
 
 -- CreateTable
-CREATE TABLE "DunningPolicy" (
+CREATE TABLE "Product" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "days_overdue" INTEGER NOT NULL,
-    "action" TEXT NOT NULL,
-    "email_template" TEXT,
+    "code" TEXT NOT NULL,
+    "description" TEXT,
+    "category" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Product_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PriceBook" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "is_global" BOOLEAN NOT NULL DEFAULT false,
+    "region_id" TEXT,
+    "currency" TEXT NOT NULL DEFAULT 'USD',
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "DunningPolicy_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "PriceBook_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PriceTier" (
+    "id" TEXT NOT NULL,
+    "price_book_id" TEXT NOT NULL,
+    "product_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "min_quantity" INTEGER NOT NULL DEFAULT 1,
+    "max_quantity" INTEGER,
+    "unit_price" DOUBLE PRECISION NOT NULL,
+    "period" TEXT NOT NULL DEFAULT 'MONTHLY',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PriceTier_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PromoCode" (
+    "id" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "description" TEXT,
+    "discountType" TEXT NOT NULL,
+    "discount_value" DOUBLE PRECISION NOT NULL,
+    "start_date" TIMESTAMP(3) NOT NULL,
+    "end_date" TIMESTAMP(3),
+    "max_uses" INTEGER,
+    "used_count" INTEGER NOT NULL DEFAULT 0,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PromoCode_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1775,9 +1986,222 @@ CREATE TABLE "GlobalIntegration" (
     "config" JSONB,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMP(3) NOT NULL,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "GlobalIntegration_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Settlement" (
+    "id" TEXT NOT NULL,
+    "licensee_id" TEXT NOT NULL,
+    "period_start" TIMESTAMP(3) NOT NULL,
+    "period_end" TIMESTAMP(3) NOT NULL,
+    "total_revenue" DOUBLE PRECISION NOT NULL,
+    "licensee_share" DOUBLE PRECISION NOT NULL,
+    "hrm8_share" DOUBLE PRECISION NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "payment_date" TIMESTAMP(3),
+    "reference" TEXT,
+    "generated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Settlement_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DunningPolicy" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "days_overdue" INTEGER NOT NULL,
+    "action" TEXT NOT NULL,
+    "email_template" TEXT,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "DunningPolicy_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "universal_notifications" (
+    "id" TEXT NOT NULL,
+    "recipient_type" "NotificationRecipientType" NOT NULL,
+    "recipient_id" TEXT NOT NULL,
+    "type" "UniversalNotificationType" NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "data" JSONB,
+    "job_id" TEXT,
+    "application_id" TEXT,
+    "company_id" TEXT,
+    "lead_id" TEXT,
+    "region_id" TEXT,
+    "action_url" TEXT,
+    "read" BOOLEAN NOT NULL DEFAULT false,
+    "read_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expires_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "universal_notifications_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "job_analytics" (
+    "id" TEXT NOT NULL,
+    "job_id" TEXT NOT NULL,
+    "event_type" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "session_id" TEXT,
+    "ip_address" TEXT,
+    "user_agent" TEXT,
+    "referrer" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "job_analytics_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "transaction_refund_requests" (
+    "id" TEXT NOT NULL,
+    "company_id" TEXT NOT NULL,
+    "transaction_id" TEXT NOT NULL,
+    "transaction_type" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "status" "RefundStatus" NOT NULL DEFAULT 'PENDING',
+    "reason" TEXT NOT NULL,
+    "processed_by" TEXT,
+    "processed_at" TIMESTAMP(3),
+    "payment_reference" TEXT,
+    "admin_notes" TEXT,
+    "rejection_reason" TEXT,
+    "rejected_at" TIMESTAMP(3),
+    "rejected_by" TEXT,
+    "stripe_refund_id" TEXT,
+    "refund_initiated_at" TIMESTAMP(3),
+    "refund_completed_at" TIMESTAMP(3),
+    "refund_failed_reason" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "transaction_refund_requests_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "virtual_accounts" (
+    "id" TEXT NOT NULL,
+    "owner_type" "VirtualAccountOwner" NOT NULL,
+    "owner_id" TEXT NOT NULL,
+    "balance" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "total_credits" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "total_debits" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "status" "VirtualAccountStatus" NOT NULL DEFAULT 'ACTIVE',
+    "frozen_at" TIMESTAMP(3),
+    "frozen_reason" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "virtual_accounts_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "virtual_transactions" (
+    "id" TEXT NOT NULL,
+    "virtual_account_id" TEXT NOT NULL,
+    "type" "VirtualTransactionType" NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "balance_after" DOUBLE PRECISION NOT NULL,
+    "direction" "TransactionDirection" NOT NULL,
+    "description" TEXT,
+    "metadata" JSONB,
+    "reference_type" TEXT,
+    "reference_id" TEXT,
+    "subscription_id" TEXT,
+    "job_id" TEXT,
+    "bill_id" TEXT,
+    "commission_id" TEXT,
+    "refund_request_id" TEXT,
+    "withdrawal_request_id" TEXT,
+    "counterparty_type" "VirtualAccountOwner",
+    "counterparty_id" TEXT,
+    "status" "TransactionStatus" NOT NULL DEFAULT 'COMPLETED',
+    "failed_reason" TEXT,
+    "created_by" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "virtual_transactions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "system_settings" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "value" JSONB NOT NULL,
+    "is_public" BOOLEAN NOT NULL DEFAULT false,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_by" TEXT,
+
+    CONSTRAINT "system_settings_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "audit_logs" (
+    "id" TEXT NOT NULL,
+    "entity_type" TEXT NOT NULL,
+    "entity_id" TEXT NOT NULL,
+    "action" TEXT NOT NULL,
+    "performed_by" TEXT NOT NULL,
+    "performed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "ip_address" TEXT,
+    "performed_by_email" TEXT DEFAULT 'unknown',
+    "performed_by_role" TEXT DEFAULT 'SYSTEM',
+    "changes" JSONB,
+    "user_agent" TEXT,
+    "description" TEXT,
+
+    CONSTRAINT "audit_logs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_notification_preferences" (
+    "id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "event_preferences" JSONB NOT NULL,
+    "quiet_hours" JSONB,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "user_notification_preferences_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "user_alert_rules" (
+    "id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "event_type" TEXT NOT NULL,
+    "conditions" JSONB NOT NULL,
+    "actions" JSONB NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_by" TEXT NOT NULL,
+
+    CONSTRAINT "user_alert_rules_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "CandidateEvaluation" (
+    "id" TEXT NOT NULL,
+    "application_id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "score" DOUBLE PRECISION,
+    "comment" TEXT,
+    "decision" "EvaluationDecision",
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "CandidateEvaluation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -1892,6 +2316,18 @@ CREATE INDEX "SignupRequest_status_idx" ON "SignupRequest"("status");
 CREATE INDEX "SignupRequest_created_at_idx" ON "SignupRequest"("created_at");
 
 -- CreateIndex
+CREATE INDEX "Job_status_posting_date_idx" ON "Job"("status", "posting_date");
+
+-- CreateIndex
+CREATE INDEX "Job_category_id_idx" ON "Job"("category_id");
+
+-- CreateIndex
+CREATE INDEX "Job_company_id_status_idx" ON "Job"("company_id", "status");
+
+-- CreateIndex
+CREATE INDEX "Job_expiry_date_idx" ON "Job"("expiry_date");
+
+-- CreateIndex
 CREATE INDEX "Job_company_id_idx" ON "Job"("company_id");
 
 -- CreateIndex
@@ -1904,9 +2340,6 @@ CREATE INDEX "Job_status_idx" ON "Job"("status");
 CREATE INDEX "Job_hiring_mode_idx" ON "Job"("hiring_mode");
 
 -- CreateIndex
-CREATE INDEX "Job_expiry_date_idx" ON "Job"("expiry_date");
-
--- CreateIndex
 CREATE INDEX "Job_region_id_idx" ON "Job"("region_id");
 
 -- CreateIndex
@@ -1914,6 +2347,24 @@ CREATE INDEX "Job_assigned_consultant_id_idx" ON "Job"("assigned_consultant_id")
 
 -- CreateIndex
 CREATE INDEX "Job_assignment_source_idx" ON "Job"("assignment_source");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_category_name_key" ON "job_category"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_category_slug_key" ON "job_category"("slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_tag_name_key" ON "job_tag"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_tag_slug_key" ON "job_tag"("slug");
+
+-- CreateIndex
+CREATE INDEX "job_tag_assignment_job_id_idx" ON "job_tag_assignment"("job_id");
+
+-- CreateIndex
+CREATE INDEX "job_tag_assignment_tag_id_idx" ON "job_tag_assignment"("tag_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Candidate_email_key" ON "Candidate"("email");
@@ -1937,6 +2388,15 @@ CREATE INDEX "CandidateSession_candidate_id_idx" ON "CandidateSession"("candidat
 CREATE INDEX "CandidateSession_expires_at_idx" ON "CandidateSession"("expires_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "candidate_verification_tokens_token_key" ON "candidate_verification_tokens"("token");
+
+-- CreateIndex
+CREATE INDEX "candidate_verification_tokens_token_idx" ON "candidate_verification_tokens"("token");
+
+-- CreateIndex
+CREATE INDEX "candidate_verification_tokens_candidate_id_idx" ON "candidate_verification_tokens"("candidate_id");
+
+-- CreateIndex
 CREATE INDEX "SavedJob_candidate_id_idx" ON "SavedJob"("candidate_id");
 
 -- CreateIndex
@@ -1956,21 +2416,6 @@ CREATE INDEX "JobAlert_candidate_id_idx" ON "JobAlert"("candidate_id");
 
 -- CreateIndex
 CREATE INDEX "JobAlert_is_active_idx" ON "JobAlert"("is_active");
-
--- CreateIndex
-CREATE INDEX "Settlement_licensee_id_idx" ON "Settlement"("licensee_id");
-
--- CreateIndex
-CREATE INDEX "Settlement_status_idx" ON "Settlement"("status");
-
--- CreateIndex
-CREATE UNIQUE INDEX "PromoCode_code_key" ON "PromoCode"("code");
-
--- CreateIndex
-CREATE INDEX "PromoCode_code_idx" ON "PromoCode"("code");
-
--- CreateIndex
-CREATE INDEX "PromoCode_is_active_idx" ON "PromoCode"("is_active");
 
 -- CreateIndex
 CREATE INDEX "Notification_candidate_id_idx" ON "Notification"("candidate_id");
@@ -2144,13 +2589,16 @@ CREATE INDEX "AssessmentResponse_assessment_id_idx" ON "AssessmentResponse"("ass
 CREATE INDEX "AssessmentResponse_candidate_id_idx" ON "AssessmentResponse"("candidate_id");
 
 -- CreateIndex
-CREATE INDEX "AssessmentResponse_question_id_idx" ON "AssessmentResponse"("question_id");
+CREATE UNIQUE INDEX "AssessmentResponse_assessment_id_question_id_key" ON "AssessmentResponse"("assessment_id", "question_id");
 
 -- CreateIndex
 CREATE INDEX "Commission_consultant_id_idx" ON "Commission"("consultant_id");
 
 -- CreateIndex
 CREATE INDEX "Commission_job_id_idx" ON "Commission"("job_id");
+
+-- CreateIndex
+CREATE INDEX "Commission_subscription_id_idx" ON "Commission"("subscription_id");
 
 -- CreateIndex
 CREATE INDEX "Commission_region_id_idx" ON "Commission"("region_id");
@@ -2160,6 +2608,18 @@ CREATE INDEX "Commission_status_idx" ON "Commission"("status");
 
 -- CreateIndex
 CREATE INDEX "Commission_type_idx" ON "Commission"("type");
+
+-- CreateIndex
+CREATE INDEX "CommissionWithdrawal_consultant_id_idx" ON "CommissionWithdrawal"("consultant_id");
+
+-- CreateIndex
+CREATE INDEX "CommissionWithdrawal_status_idx" ON "CommissionWithdrawal"("status");
+
+-- CreateIndex
+CREATE INDEX "CommissionWithdrawal_created_at_idx" ON "CommissionWithdrawal"("created_at");
+
+-- CreateIndex
+CREATE INDEX "CommissionWithdrawal_processed_by_idx" ON "CommissionWithdrawal"("processed_by");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Consultant_email_key" ON "Consultant"("email");
@@ -2354,31 +2814,13 @@ CREATE INDEX "AssessmentConfiguration_job_round_id_idx" ON "AssessmentConfigurat
 CREATE INDEX "AssessmentConfiguration_provider_idx" ON "AssessmentConfiguration"("provider");
 
 -- CreateIndex
-CREATE INDEX "PriceBook_region_id_idx" ON "PriceBook"("region_id");
-
--- CreateIndex
-CREATE INDEX "PriceBook_is_global_idx" ON "PriceBook"("is_global");
-
--- CreateIndex
-CREATE INDEX "PriceTier_price_book_id_idx" ON "PriceTier"("price_book_id");
-
--- CreateIndex
-CREATE INDEX "PriceTier_product_id_idx" ON "PriceTier"("product_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Product_code_key" ON "Product"("code");
-
--- CreateIndex
-CREATE INDEX "Product_category_idx" ON "Product"("category");
-
--- CreateIndex
-CREATE INDEX "Product_isActive_idx" ON "Product"("isActive");
-
--- CreateIndex
 CREATE UNIQUE INDEX "CompanySettings_company_id_key" ON "CompanySettings"("company_id");
 
 -- CreateIndex
 CREATE INDEX "CompanySettings_company_id_idx" ON "CompanySettings"("company_id");
+
+-- CreateIndex
+CREATE INDEX "job_role_job_id_idx" ON "job_role"("job_id");
 
 -- CreateIndex
 CREATE INDEX "JobRound_isFixed_idx" ON "JobRound"("isFixed");
@@ -2388,6 +2830,9 @@ CREATE INDEX "JobRound_job_id_idx" ON "JobRound"("job_id");
 
 -- CreateIndex
 CREATE INDEX "JobRound_order_idx" ON "JobRound"("order");
+
+-- CreateIndex
+CREATE INDEX "JobRound_assigned_role_id_idx" ON "JobRound"("assigned_role_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "InterviewConfiguration_job_round_id_key" ON "InterviewConfiguration"("job_round_id");
@@ -2447,6 +2892,9 @@ CREATE INDEX "Bill_status_idx" ON "Bill"("status");
 CREATE INDEX "Bill_subscription_id_idx" ON "Bill"("subscription_id");
 
 -- CreateIndex
+CREATE INDEX "Bill_region_id_idx" ON "Bill"("region_id");
+
+-- CreateIndex
 CREATE INDEX "ConsultantLeadAssignment_consultant_id_idx" ON "ConsultantLeadAssignment"("consultant_id");
 
 -- CreateIndex
@@ -2468,10 +2916,34 @@ CREATE INDEX "Contact_email_idx" ON "Contact"("email");
 CREATE INDEX "Integration_company_id_idx" ON "Integration"("company_id");
 
 -- CreateIndex
+CREATE INDEX "Integration_hrm8_user_id_idx" ON "Integration"("hrm8_user_id");
+
+-- CreateIndex
+CREATE INDEX "Integration_consultant_id_idx" ON "Integration"("consultant_id");
+
+-- CreateIndex
 CREATE INDEX "Integration_status_idx" ON "Integration"("status");
 
 -- CreateIndex
 CREATE INDEX "Integration_type_idx" ON "Integration"("type");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_job_id_idx" ON "job_hiring_team_member"("job_id");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_user_id_idx" ON "job_hiring_team_member"("user_id");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_email_idx" ON "job_hiring_team_member"("email");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_role_member_id_idx" ON "job_hiring_team_member_role"("member_id");
+
+-- CreateIndex
+CREATE INDEX "job_hiring_team_member_role_job_role_id_idx" ON "job_hiring_team_member_role"("job_role_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "job_hiring_team_member_role_member_id_job_role_id_key" ON "job_hiring_team_member_role"("member_id", "job_role_id");
 
 -- CreateIndex
 CREATE INDEX "Lead_assigned_consultant_id_idx" ON "Lead"("assigned_consultant_id");
@@ -2490,6 +2962,21 @@ CREATE INDEX "Lead_region_id_idx" ON "Lead"("region_id");
 
 -- CreateIndex
 CREATE INDEX "Lead_status_idx" ON "Lead"("status");
+
+-- CreateIndex
+CREATE INDEX "lead_conversion_requests_lead_id_idx" ON "lead_conversion_requests"("lead_id");
+
+-- CreateIndex
+CREATE INDEX "lead_conversion_requests_consultant_id_idx" ON "lead_conversion_requests"("consultant_id");
+
+-- CreateIndex
+CREATE INDEX "lead_conversion_requests_region_id_idx" ON "lead_conversion_requests"("region_id");
+
+-- CreateIndex
+CREATE INDEX "lead_conversion_requests_status_idx" ON "lead_conversion_requests"("status");
+
+-- CreateIndex
+CREATE INDEX "lead_conversion_requests_reviewed_by_idx" ON "lead_conversion_requests"("reviewed_by");
 
 -- CreateIndex
 CREATE INDEX "OfferDocument_application_id_idx" ON "OfferDocument"("application_id");
@@ -2624,16 +3111,154 @@ CREATE INDEX "EmailTemplateTrigger_template_id_idx" ON "EmailTemplateTrigger"("t
 CREATE INDEX "ResumeAnnotation_resume_id_idx" ON "ResumeAnnotation"("resume_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Product_code_key" ON "Product"("code");
+
+-- CreateIndex
+CREATE INDEX "Product_category_idx" ON "Product"("category");
+
+-- CreateIndex
+CREATE INDEX "Product_isActive_idx" ON "Product"("isActive");
+
+-- CreateIndex
+CREATE INDEX "PriceBook_region_id_idx" ON "PriceBook"("region_id");
+
+-- CreateIndex
+CREATE INDEX "PriceBook_is_global_idx" ON "PriceBook"("is_global");
+
+-- CreateIndex
+CREATE INDEX "PriceTier_price_book_id_idx" ON "PriceTier"("price_book_id");
+
+-- CreateIndex
+CREATE INDEX "PriceTier_product_id_idx" ON "PriceTier"("product_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PromoCode_code_key" ON "PromoCode"("code");
+
+-- CreateIndex
+CREATE INDEX "PromoCode_code_idx" ON "PromoCode"("code");
+
+-- CreateIndex
+CREATE INDEX "PromoCode_is_active_idx" ON "PromoCode"("is_active");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "GlobalIntegration_provider_key" ON "GlobalIntegration"("provider");
 
 -- CreateIndex
 CREATE INDEX "GlobalIntegration_provider_idx" ON "GlobalIntegration"("provider");
 
+-- CreateIndex
+CREATE INDEX "Settlement_licensee_id_idx" ON "Settlement"("licensee_id");
+
+-- CreateIndex
+CREATE INDEX "Settlement_status_idx" ON "Settlement"("status");
+
+-- CreateIndex
+CREATE INDEX "universal_notifications_recipient_type_recipient_id_idx" ON "universal_notifications"("recipient_type", "recipient_id");
+
+-- CreateIndex
+CREATE INDEX "universal_notifications_recipient_id_read_idx" ON "universal_notifications"("recipient_id", "read");
+
+-- CreateIndex
+CREATE INDEX "universal_notifications_created_at_idx" ON "universal_notifications"("created_at");
+
+-- CreateIndex
+CREATE INDEX "universal_notifications_expires_at_idx" ON "universal_notifications"("expires_at");
+
+-- CreateIndex
+CREATE INDEX "job_analytics_job_id_event_type_created_at_idx" ON "job_analytics"("job_id", "event_type", "created_at");
+
+-- CreateIndex
+CREATE INDEX "job_analytics_created_at_idx" ON "job_analytics"("created_at");
+
+-- CreateIndex
+CREATE INDEX "job_analytics_session_id_idx" ON "job_analytics"("session_id");
+
+-- CreateIndex
+CREATE INDEX "transaction_refund_requests_company_id_idx" ON "transaction_refund_requests"("company_id");
+
+-- CreateIndex
+CREATE INDEX "transaction_refund_requests_status_idx" ON "transaction_refund_requests"("status");
+
+-- CreateIndex
+CREATE INDEX "transaction_refund_requests_created_at_idx" ON "transaction_refund_requests"("created_at");
+
+-- CreateIndex
+CREATE INDEX "transaction_refund_requests_processed_by_idx" ON "transaction_refund_requests"("processed_by");
+
+-- CreateIndex
+CREATE INDEX "virtual_accounts_owner_type_owner_id_idx" ON "virtual_accounts"("owner_type", "owner_id");
+
+-- CreateIndex
+CREATE INDEX "virtual_accounts_status_idx" ON "virtual_accounts"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "virtual_accounts_owner_type_owner_id_key" ON "virtual_accounts"("owner_type", "owner_id");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_virtual_account_id_idx" ON "virtual_transactions"("virtual_account_id");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_type_idx" ON "virtual_transactions"("type");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_reference_type_reference_id_idx" ON "virtual_transactions"("reference_type", "reference_id");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_created_at_idx" ON "virtual_transactions"("created_at");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_status_idx" ON "virtual_transactions"("status");
+
+-- CreateIndex
+CREATE INDEX "virtual_transactions_direction_idx" ON "virtual_transactions"("direction");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "system_settings_key_key" ON "system_settings"("key");
+
+-- CreateIndex
+CREATE INDEX "system_settings_key_idx" ON "system_settings"("key");
+
+-- CreateIndex
+CREATE INDEX "audit_logs_entity_type_idx" ON "audit_logs"("entity_type");
+
+-- CreateIndex
+CREATE INDEX "audit_logs_entity_id_idx" ON "audit_logs"("entity_id");
+
+-- CreateIndex
+CREATE INDEX "audit_logs_performed_by_idx" ON "audit_logs"("performed_by");
+
+-- CreateIndex
+CREATE INDEX "audit_logs_performed_at_idx" ON "audit_logs"("performed_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "user_notification_preferences_user_id_key" ON "user_notification_preferences"("user_id");
+
+-- CreateIndex
+CREATE INDEX "user_notification_preferences_user_id_idx" ON "user_notification_preferences"("user_id");
+
+-- CreateIndex
+CREATE INDEX "user_alert_rules_user_id_idx" ON "user_alert_rules"("user_id");
+
+-- CreateIndex
+CREATE INDEX "user_alert_rules_enabled_idx" ON "user_alert_rules"("enabled");
+
+-- CreateIndex
+CREATE INDEX "user_alert_rules_event_type_idx" ON "user_alert_rules"("event_type");
+
+-- CreateIndex
+CREATE INDEX "CandidateEvaluation_application_id_idx" ON "CandidateEvaluation"("application_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "CandidateEvaluation_application_id_user_id_key" ON "CandidateEvaluation"("application_id", "user_id");
+
+-- AddForeignKey
+ALTER TABLE "Company" ADD CONSTRAINT "Company_price_book_id_fkey" FOREIGN KEY ("price_book_id") REFERENCES "PriceBook"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
 -- AddForeignKey
 ALTER TABLE "Company" ADD CONSTRAINT "Company_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Company" ADD CONSTRAINT "Company_price_book_id_fkey" FOREIGN KEY ("price_book_id") REFERENCES "PriceBook"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Company" ADD CONSTRAINT "Company_sales_agent_id_fkey" FOREIGN KEY ("sales_agent_id") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "CompanyProfile" ADD CONSTRAINT "CompanyProfile_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2669,6 +3294,9 @@ ALTER TABLE "SignupRequest" ADD CONSTRAINT "SignupRequest_reviewed_by_fkey" FORE
 ALTER TABLE "Job" ADD CONSTRAINT "Job_assigned_consultant_id_fkey" FOREIGN KEY ("assigned_consultant_id") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Job" ADD CONSTRAINT "Job_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "job_category"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Job" ADD CONSTRAINT "Job_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -2678,7 +3306,16 @@ ALTER TABLE "Job" ADD CONSTRAINT "Job_created_by_fkey" FOREIGN KEY ("created_by"
 ALTER TABLE "Job" ADD CONSTRAINT "Job_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "job_tag_assignment" ADD CONSTRAINT "job_tag_assignment_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_tag_assignment" ADD CONSTRAINT "job_tag_assignment_tag_id_fkey" FOREIGN KEY ("tag_id") REFERENCES "job_tag"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "CandidateSession" ADD CONSTRAINT "CandidateSession_candidate_id_fkey" FOREIGN KEY ("candidate_id") REFERENCES "Candidate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "candidate_verification_tokens" ADD CONSTRAINT "candidate_verification_tokens_candidate_id_fkey" FOREIGN KEY ("candidate_id") REFERENCES "Candidate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "SavedJob" ADD CONSTRAINT "SavedJob_candidate_id_fkey" FOREIGN KEY ("candidate_id") REFERENCES "Candidate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2691,9 +3328,6 @@ ALTER TABLE "SavedSearch" ADD CONSTRAINT "SavedSearch_candidate_id_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "JobAlert" ADD CONSTRAINT "JobAlert_candidate_id_fkey" FOREIGN KEY ("candidate_id") REFERENCES "Candidate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Settlement" ADD CONSTRAINT "Settlement_licensee_id_fkey" FOREIGN KEY ("licensee_id") REFERENCES "RegionalLicensee"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_candidate_id_fkey" FOREIGN KEY ("candidate_id") REFERENCES "Candidate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2762,7 +3396,7 @@ ALTER TABLE "AssessmentQuestion" ADD CONSTRAINT "AssessmentQuestion_assessment_i
 ALTER TABLE "AssessmentResponse" ADD CONSTRAINT "AssessmentResponse_assessment_id_fkey" FOREIGN KEY ("assessment_id") REFERENCES "Assessment"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "AssessmentResponse" ADD CONSTRAINT "AssessmentResponse_question_id_fkey" FOREIGN KEY ("question_id") REFERENCES "AssessmentQuestion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "AssessmentResponse" ADD CONSTRAINT "AssessmentResponse_question_id_fkey" FOREIGN KEY ("question_id") REFERENCES "AssessmentQuestion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Commission" ADD CONSTRAINT "Commission_consultant_id_fkey" FOREIGN KEY ("consultant_id") REFERENCES "Consultant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -2772,6 +3406,12 @@ ALTER TABLE "Commission" ADD CONSTRAINT "Commission_job_id_fkey" FOREIGN KEY ("j
 
 -- AddForeignKey
 ALTER TABLE "Commission" ADD CONSTRAINT "Commission_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Commission" ADD CONSTRAINT "Commission_subscription_id_fkey" FOREIGN KEY ("subscription_id") REFERENCES "Subscription"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CommissionWithdrawal" ADD CONSTRAINT "CommissionWithdrawal_consultant_id_fkey" FOREIGN KEY ("consultant_id") REFERENCES "Consultant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Consultant" ADD CONSTRAINT "Consultant_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -2849,19 +3489,16 @@ ALTER TABLE "ApplicationRoundProgress" ADD CONSTRAINT "ApplicationRoundProgress_
 ALTER TABLE "AssessmentConfiguration" ADD CONSTRAINT "AssessmentConfiguration_job_round_id_fkey" FOREIGN KEY ("job_round_id") REFERENCES "JobRound"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PriceBook" ADD CONSTRAINT "PriceBook_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PriceTier" ADD CONSTRAINT "PriceTier_price_book_id_fkey" FOREIGN KEY ("price_book_id") REFERENCES "PriceBook"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PriceTier" ADD CONSTRAINT "PriceTier_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "CompanySettings" ADD CONSTRAINT "CompanySettings_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "job_role" ADD CONSTRAINT "job_role_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "JobRound" ADD CONSTRAINT "JobRound_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "JobRound" ADD CONSTRAINT "JobRound_assigned_role_id_fkey" FOREIGN KEY ("assigned_role_id") REFERENCES "job_role"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "InterviewConfiguration" ADD CONSTRAINT "InterviewConfiguration_job_round_id_fkey" FOREIGN KEY ("job_round_id") REFERENCES "JobRound"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2888,6 +3525,9 @@ ALTER TABLE "Activity" ADD CONSTRAINT "Activity_opportunity_id_fkey" FOREIGN KEY
 ALTER TABLE "Bill" ADD CONSTRAINT "Bill_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Bill" ADD CONSTRAINT "Bill_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Bill" ADD CONSTRAINT "Bill_subscription_id_fkey" FOREIGN KEY ("subscription_id") REFERENCES "Subscription"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -2903,13 +3543,52 @@ ALTER TABLE "Contact" ADD CONSTRAINT "Contact_company_id_fkey" FOREIGN KEY ("com
 ALTER TABLE "Integration" ADD CONSTRAINT "Integration_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Integration" ADD CONSTRAINT "Integration_consultant_id_fkey" FOREIGN KEY ("consultant_id") REFERENCES "Consultant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Integration" ADD CONSTRAINT "Integration_hrm8_user_id_fkey" FOREIGN KEY ("hrm8_user_id") REFERENCES "HRM8User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member" ADD CONSTRAINT "job_hiring_team_member_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member" ADD CONSTRAINT "job_hiring_team_member_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member_role" ADD CONSTRAINT "job_hiring_team_member_role_member_id_fkey" FOREIGN KEY ("member_id") REFERENCES "job_hiring_team_member"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_hiring_team_member_role" ADD CONSTRAINT "job_hiring_team_member_role_job_role_id_fkey" FOREIGN KEY ("job_role_id") REFERENCES "job_role"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Lead" ADD CONSTRAINT "Lead_assigned_consultant_id_fkey" FOREIGN KEY ("assigned_consultant_id") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Lead" ADD CONSTRAINT "Lead_converted_to_company_id_fkey" FOREIGN KEY ("converted_to_company_id") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Lead" ADD CONSTRAINT "Lead_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Lead" ADD CONSTRAINT "Lead_referred_by_fkey" FOREIGN KEY ("referred_by") REFERENCES "Consultant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Lead" ADD CONSTRAINT "Lead_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "lead_conversion_requests" ADD CONSTRAINT "lead_conversion_requests_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "lead_conversion_requests" ADD CONSTRAINT "lead_conversion_requests_consultant_id_fkey" FOREIGN KEY ("consultant_id") REFERENCES "Consultant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "lead_conversion_requests" ADD CONSTRAINT "lead_conversion_requests_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "lead_conversion_requests" ADD CONSTRAINT "lead_conversion_requests_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "lead_conversion_requests" ADD CONSTRAINT "lead_conversion_requests_reviewed_by_fkey" FOREIGN KEY ("reviewed_by") REFERENCES "HRM8User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "OfferDocument" ADD CONSTRAINT "OfferDocument_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2985,4 +3664,37 @@ ALTER TABLE "EmailTemplateTrigger" ADD CONSTRAINT "EmailTemplateTrigger_template
 
 -- AddForeignKey
 ALTER TABLE "ResumeAnnotation" ADD CONSTRAINT "ResumeAnnotation_resume_id_fkey" FOREIGN KEY ("resume_id") REFERENCES "CandidateResume"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PriceBook" ADD CONSTRAINT "PriceBook_region_id_fkey" FOREIGN KEY ("region_id") REFERENCES "Region"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PriceTier" ADD CONSTRAINT "PriceTier_price_book_id_fkey" FOREIGN KEY ("price_book_id") REFERENCES "PriceBook"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PriceTier" ADD CONSTRAINT "PriceTier_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Settlement" ADD CONSTRAINT "Settlement_licensee_id_fkey" FOREIGN KEY ("licensee_id") REFERENCES "RegionalLicensee"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "job_analytics" ADD CONSTRAINT "job_analytics_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "Job"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "transaction_refund_requests" ADD CONSTRAINT "transaction_refund_requests_company_id_fkey" FOREIGN KEY ("company_id") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "virtual_transactions" ADD CONSTRAINT "virtual_transactions_virtual_account_id_fkey" FOREIGN KEY ("virtual_account_id") REFERENCES "virtual_accounts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_notification_preferences" ADD CONSTRAINT "user_notification_preferences_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "user_alert_rules" ADD CONSTRAINT "user_alert_rules_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CandidateEvaluation" ADD CONSTRAINT "CandidateEvaluation_application_id_fkey" FOREIGN KEY ("application_id") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CandidateEvaluation" ADD CONSTRAINT "CandidateEvaluation_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

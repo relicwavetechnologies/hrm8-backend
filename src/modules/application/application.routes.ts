@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { ApplicationController } from './application.controller';
+import { CommunicationController } from '../communication/communication.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
 const applicationController = new ApplicationController();
+const communicationController = new CommunicationController();
 
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', authenticate, applicationController.bulkScoreCandidates);
@@ -49,8 +51,26 @@ router.put('/:id/read', authenticate, applicationController.markAsRead);
 router.post('/:id/evaluate', authenticate, applicationController.addEvaluation);
 router.get('/:id/evaluations', authenticate, applicationController.getEvaluations);
 
+// Communication Routes - Call Logs
+router.post('/:id/calls', authenticate, communicationController.logCall);
+router.get('/:id/calls', authenticate, communicationController.getCallLogs);
+
+// Communication Routes - Email
+router.post('/:id/emails', authenticate, communicationController.sendEmail);
+router.get('/:id/emails', authenticate, communicationController.getEmailLogs);
+router.post('/:id/emails/generate', authenticate, communicationController.generateEmailWithAI);
+
+// Communication Routes - SMS
+router.post('/:id/sms', authenticate, communicationController.sendSms);
+router.get('/:id/sms', authenticate, communicationController.getSmsLogs);
+
+// Communication Routes - Slack
+router.post('/:id/slack', authenticate, communicationController.sendSlackMessage);
+router.get('/:id/slack', authenticate, communicationController.getSlackLogs);
+
 // Notes Routes
 router.get('/:id/notes', authenticate, applicationController.getNotes);
 router.post('/:id/notes', authenticate, applicationController.addNote);
+
 
 export default router;

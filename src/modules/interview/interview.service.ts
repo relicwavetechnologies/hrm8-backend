@@ -119,7 +119,7 @@ export class InterviewService {
       type: UniversalNotificationType.INTERVIEW_SCHEDULED,
       title: 'Interview Scheduled',
       message: `Interview for ${application.job.title} scheduled.`,
-      actionUrl: `/candidate/interviews/${interview.id}`
+      actionUrl: `/candidate/applications/${params.applicationId}?tab=interviews`
     });
 
     return interview;
@@ -178,7 +178,7 @@ export class InterviewService {
         type: UniversalNotificationType.INTERVIEW_SCHEDULED,
         title: 'Interview Scheduled',
         message: `Interview for ${application.job.title} scheduled.`,
-        actionUrl: `/candidate/interviews/${interview.id}`
+        actionUrl: `/candidate/applications/${params.applicationId}?tab=interviews`
       });
     }
 
@@ -245,7 +245,7 @@ export class InterviewService {
         type: UniversalNotificationType.INTERVIEW_SCHEDULED,
         title: 'Interview Update',
         message: `Your interview status has been updated to ${status}.`,
-        actionUrl: `/candidate/interviews/${id}`
+        actionUrl: `/candidate/applications/${updated.application_id}?tab=interviews`
       });
     }
 

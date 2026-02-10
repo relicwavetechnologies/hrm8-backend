@@ -20,6 +20,7 @@ import { RegionalCompanyController } from './regional-company.controller';
 import { FinanceController } from './finance.controller';
 import { CapacityController } from './capacity.controller';
 import { AlertController } from './alert.controller';
+import { OverviewController } from './overview.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
 
 import { CareersRequestController } from './careers-request.controller';
@@ -46,6 +47,7 @@ const settingsController = new SettingsController();
 const financeController = new FinanceController();
 const capacityController = new CapacityController();
 const alertController = new AlertController();
+const overviewController = new OverviewController();
 const careersRequestController = new CareersRequestController();
 
 // Auth Routes
@@ -137,7 +139,23 @@ router.put('/refund-requests/:id/complete', authenticateHrm8, refundController.c
 
 // Pricing Routes
 router.get('/pricing/products', authenticateHrm8, pricingController.getProducts);
+router.post('/pricing/products', authenticateHrm8, pricingController.upsertProduct);
+router.delete('/pricing/products/:id', authenticateHrm8, pricingController.deleteProduct);
+
 router.get('/pricing/price-books', authenticateHrm8, pricingController.getPriceBooks);
+router.post('/pricing/price-books', authenticateHrm8, pricingController.createPriceBook);
+router.put('/pricing/price-books/:id', authenticateHrm8, pricingController.updatePriceBook);
+router.delete('/pricing/price-books/:id', authenticateHrm8, pricingController.deletePriceBook);
+
+router.post('/pricing/tiers/:priceBookId', authenticateHrm8, pricingController.createTier);
+router.put('/pricing/tiers/:id', authenticateHrm8, pricingController.updateTier);
+router.delete('/pricing/tiers/:id', authenticateHrm8, pricingController.deleteTier);
+
+router.get('/pricing/promo-codes', authenticateHrm8, pricingController.getPromoCodes);
+router.post('/pricing/promo-codes', authenticateHrm8, pricingController.createPromoCode);
+router.put('/pricing/promo-codes/:id', authenticateHrm8, pricingController.updatePromoCode);
+router.delete('/pricing/promo-codes/:id', authenticateHrm8, pricingController.deletePromoCode);
+router.post('/pricing/promo-codes/validate', authenticateHrm8, pricingController.validatePromoCode);
 
 // Region Routes
 router.get('/regions', authenticateHrm8, regionController.getAll);
@@ -169,6 +187,7 @@ router.put('/consultants/:id/change-role', authenticateHrm8, staffController.cha
 router.post('/consultants/:id/invite', authenticateHrm8, staffController.invite);
 
 // Analytics Routes
+router.get('/overview', authenticateHrm8, overviewController.getOverview);
 router.get('/analytics/overview', authenticateHrm8, analyticsController.getPlatformOverview);
 router.get('/analytics/trends', authenticateHrm8, analyticsController.getPlatformTrends);
 router.get('/analytics/top-companies', authenticateHrm8, analyticsController.getTopCompanies);
