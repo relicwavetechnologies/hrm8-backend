@@ -17,12 +17,14 @@ export class OverviewController extends BaseController {
             const role = req.hrm8User?.role || '';
             const regionId = (req.query.regionId as string) || 'all';
             const period = req.query.period as string | undefined;
+            const summaryOnly = req.query.summaryOnly === '1' || req.query.summaryOnly === 'true';
 
             const data = await this.overviewService.getOverview({
                 role,
                 requestedRegionId: regionId,
                 assignedRegionIds: req.assignedRegionIds,
-                period
+                period,
+                summaryOnly
             });
 
             return this.sendSuccess(res, data);

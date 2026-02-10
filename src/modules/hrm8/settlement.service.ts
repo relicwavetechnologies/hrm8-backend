@@ -15,10 +15,12 @@ export class SettlementService extends BaseService {
             period_end: settlement.period_end,
             total_revenue: settlement.total_revenue,
             licensee_share: settlement.licensee_share,
+            hrm8_share: settlement.hrm8_share,
             currency: settlement.currency,
             status: settlement.status,
             created_at: settlement.created_at,
             processed_at: settlement.processed_at,
+            payment_date: settlement.paid_at,
             paid_at: settlement.paid_at,
             payment_reference: settlement.payment_reference,
             licensee: settlement.licensee ? {

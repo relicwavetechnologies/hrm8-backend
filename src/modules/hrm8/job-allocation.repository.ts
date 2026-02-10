@@ -1,26 +1,88 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma, AssignmentSource, PipelineStage } from '@prisma/client';
 import { notifyConsultant } from '../notification/notification-service-singleton';
+import { Logger } from '../../utils/logger';
 
 export class JobAllocationRepository {
+    private readonly logger = Logger.create('hrm8-job-allocation-repository');
+
     async assignToConsultant(data: {
         jobId: string;
         consultantId: string;
         assignedBy: string;
+        assignedByName?: string;
+        reason?: string;
         source?: AssignmentSource;
         regionId: string;
     }) {
-        const assignment = await prisma.$transaction(async (tx) => {
-            // Fetch job details for notification
-            const job = await tx.job.findUnique({ where: { id: data.jobId } });
+        const runAssignmentTransaction = async () => prisma.$transaction(async (tx) => {
+            const job = await tx.job.findUnique({
+                where: { id: data.jobId },
+                select: {
+                    id: true,
+                    title: true,
+                    assigned_consultant_id: true,
+                },
+            });
 
-            // 1. Deactivate existing assignments for this job
+            if (!job) {
+                throw new Error('Job not found');
+            }
+
+            const targetConsultant = await tx.consultant.findUnique({
+                where: { id: data.consultantId },
+                select: { id: true, first_name: true, last_name: true, current_jobs: true },
+            });
+
+            if (!targetConsultant) {
+                throw new Error('Target consultant not found');
+            }
+
+            const previousActiveAssignment = await tx.consultantJobAssignment.findFirst({
+                where: { job_id: data.jobId, status: 'ACTIVE' },
+                include: {
+                    consultant: {
+                        select: { id: true, first_name: true, last_name: true, current_jobs: true },
+                    },
+                },
+                orderBy: { assigned_at: 'desc' },
+            });
+
+            const previousConsultantId =
+                previousActiveAssignment?.consultant_id || job.assigned_consultant_id || null;
+            const isReassignment = Boolean(previousConsultantId && previousConsultantId !== data.consultantId);
+            const isSameConsultant = previousConsultantId === data.consultantId;
+
+            if (isReassignment && !data.reason?.trim()) {
+                throw new Error('Reason is required for reassignment');
+            }
+
+            if (isSameConsultant && previousActiveAssignment) {
+                await tx.job.update({
+                    where: { id: data.jobId },
+                    data: {
+                        region_id: data.regionId,
+                        assigned_consultant_id: data.consultantId,
+                        assignment_source: data.source || AssignmentSource.MANUAL_HRM8,
+                        assignment_mode: 'MANUAL',
+                    },
+                });
+
+                return {
+                    assignment: previousActiveAssignment,
+                    job,
+                    previousConsultant: previousActiveAssignment.consultant,
+                    targetConsultant,
+                    isReassignment: false,
+                    isSameConsultant: true,
+                };
+            }
+
             await tx.consultantJobAssignment.updateMany({
                 where: { job_id: data.jobId, status: 'ACTIVE' },
                 data: { status: 'INACTIVE', pipeline_stage: 'CLOSED' },
             });
 
-            // 2. Update Job
             await tx.job.update({
                 where: { id: data.jobId },
                 data: {
@@ -31,39 +93,116 @@ export class JobAllocationRepository {
                 },
             });
 
-            // 3. Create new assignment
-            const assignment = await tx.consultantJobAssignment.create({
+            const newAssignment = await tx.consultantJobAssignment.create({
                 data: {
                     job_id: data.jobId,
                     consultant_id: data.consultantId,
                     assigned_by: data.assignedBy,
                     status: 'ACTIVE',
                     assignment_source: data.source || AssignmentSource.MANUAL_HRM8,
-                    pipeline_stage: 'SOURCING',
-                    pipeline_progress: 0,
+                    pipeline_stage: isReassignment
+                        ? previousActiveAssignment?.pipeline_stage || 'SOURCING'
+                        : 'SOURCING',
+                    pipeline_progress: isReassignment
+                        ? previousActiveAssignment?.pipeline_progress || 0
+                        : 0,
+                    pipeline_note: isReassignment
+                        ? previousActiveAssignment?.pipeline_note || null
+                        : null,
+                    pipeline_updated_at: new Date(),
+                    pipeline_updated_by: data.assignedBy,
                 },
             });
 
-            // 4. Update Consultant count
+            if (isReassignment && previousConsultantId) {
+                const previousConsultant =
+                    previousActiveAssignment?.consultant ||
+                    (await tx.consultant.findUnique({
+                        where: { id: previousConsultantId },
+                        select: { id: true, first_name: true, last_name: true, current_jobs: true },
+                    }));
+
+                if (previousConsultant) {
+                    await tx.consultant.update({
+                        where: { id: previousConsultant.id },
+                        data: { current_jobs: Math.max((previousConsultant.current_jobs || 0) - 1, 0) },
+                    });
+                }
+            }
+
             await tx.consultant.update({
                 where: { id: data.consultantId },
                 data: { current_jobs: { increment: 1 } },
             });
 
-            return { assignment, job };
-        });
+            return {
+                assignment: newAssignment,
+                job,
+                previousConsultant: previousActiveAssignment?.consultant || null,
+                targetConsultant,
+                isReassignment,
+                isSameConsultant: false,
+            };
+        }, { maxWait: 10000, timeout: 30000 });
 
-        // 5. Notify consultant about job assignment
-        if (assignment.job) {
+        let assignmentResult: Awaited<ReturnType<typeof runAssignmentTransaction>>;
+        try {
+            assignmentResult = await runAssignmentTransaction();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes('Transaction not found')) {
+                this.logger.warn('[HRM8][JobAllocation] Retrying assignment transaction after transaction-not-found', {
+                    jobId: data.jobId,
+                    consultantId: data.consultantId,
+                });
+                assignmentResult = await runAssignmentTransaction();
+            } else {
+                throw error;
+            }
+        }
+
+        const previousName = assignmentResult.previousConsultant
+            ? `${assignmentResult.previousConsultant.first_name} ${assignmentResult.previousConsultant.last_name}`
+            : 'Unassigned';
+        const targetName = `${assignmentResult.targetConsultant.first_name} ${assignmentResult.targetConsultant.last_name}`;
+        const reasonText = data.reason?.trim() || 'No reason provided';
+        const changedBy = data.assignedByName || 'HRM8 admin';
+
+        try {
             await notifyConsultant(data.consultantId, {
-                title: 'New Job Assigned',
-                message: `You have been assigned to the job: "${assignment.job.title}"`,
+                title: assignmentResult.isReassignment ? 'Job Reassigned To You' : 'New Job Assigned',
+                message: assignmentResult.isReassignment
+                    ? `You are now assigned to "${assignmentResult.job.title}" from ${previousName}. Reason: ${reasonText}. Updated by: ${changedBy}.`
+                    : `You have been assigned to "${assignmentResult.job.title}". Reason: ${reasonText}. Updated by: ${changedBy}.`,
                 type: 'JOB_ASSIGNED',
-                actionUrl: `/consultant/jobs/${data.jobId}`
+                actionUrl: `/consultant/jobs/${data.jobId}`,
+            });
+        } catch (error) {
+            this.logger.warn('[HRM8][JobAllocation] New consultant notification failed', {
+                jobId: data.jobId,
+                consultantId: data.consultantId,
+                error: error instanceof Error ? error.message : String(error),
             });
         }
 
-        return assignment.assignment;
+        if (assignmentResult.isReassignment && assignmentResult.previousConsultant) {
+            try {
+                await notifyConsultant(assignmentResult.previousConsultant.id, {
+                    title: 'Job Reassigned Away',
+                    message: `Your assignment on "${assignmentResult.job.title}" has been moved to ${targetName}. Reason: ${reasonText}. Updated by: ${changedBy}.`,
+                    type: 'SYSTEM_ANNOUNCEMENT',
+                    actionUrl: `/consultant/jobs/${data.jobId}`,
+                });
+            } catch (error) {
+                this.logger.warn('[HRM8][JobAllocation] Previous consultant notification failed', {
+                    jobId: data.jobId,
+                    consultantId: assignmentResult.previousConsultant.id,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+
+        return assignmentResult.assignment;
     }
 
     async unassign(jobId: string) {

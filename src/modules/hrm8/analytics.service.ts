@@ -7,7 +7,11 @@ export class AnalyticsService extends BaseService {
         super();
     }
 
-    async getOperationalStats(regionId: string, assignedRegionIds?: string[]) {
+    async getOperationalStats(
+        regionId: string,
+        assignedRegionIds?: string[],
+        options?: { includeTrends?: boolean }
+    ) {
         if (assignedRegionIds && assignedRegionIds.length > 0) {
             const isAll = regionId === 'all';
             if (!isAll && !assignedRegionIds.includes(regionId)) {
@@ -16,9 +20,11 @@ export class AnalyticsService extends BaseService {
         }
 
         const statsRegionId = regionId === 'all' ? undefined : regionId;
+        const includeTrends = options?.includeTrends !== false;
+
         const [stats, trendsData] = await Promise.all([
             this.analyticsRepository.getOperationalStats(statsRegionId),
-            this.analyticsRepository.getHistoricalTrends(statsRegionId)
+            includeTrends ? this.analyticsRepository.getHistoricalTrends(statsRegionId) : Promise.resolve([])
         ]);
 
         // Transform to snake_case for frontend consistency
@@ -203,8 +209,27 @@ export class AnalyticsService extends BaseService {
         return result;
     }
 
-    async getJobBoardStats() {
-        const { companies, jobStats } = await this.analyticsRepository.getJobBoardStats();
+    async getJobBoardStats(params?: {
+        regionId?: string;
+        assignedRegionIds?: string[];
+        page?: number;
+        limit?: number;
+    }) {
+        const page = params?.page && params.page > 0 ? params.page : 1;
+        const limit = params?.limit && params.limit > 0 ? params.limit : 10;
+        const regionId = params?.regionId && params.regionId !== 'all' ? params.regionId : undefined;
+        const assignedRegionIds = params?.assignedRegionIds;
+
+        if (assignedRegionIds && assignedRegionIds.length > 0 && regionId && !assignedRegionIds.includes(regionId)) {
+            throw new HttpException(403, 'Access denied to this region');
+        }
+
+        const { companies, jobStats, total } = await this.analyticsRepository.getJobBoardStats({
+            regionId,
+            regionIds: !regionId ? assignedRegionIds : undefined,
+            page,
+            limit,
+        });
 
         // Map stats by companyId
         const statsMap = new Map<string, { total: number; active: number; onHold: number; views: number; clicks: number }>();
@@ -229,20 +254,27 @@ export class AnalyticsService extends BaseService {
             statsMap.set(stat.company_id, current);
         });
 
-        // Merge with all companies
-        return companies.map(company => {
+        // Merge with all companies and map to snake_case for frontend
+        const mappedCompanies = companies.map(company => {
             const stats = statsMap.get(company.id) || { total: 0, active: 0, onHold: 0, views: 0, clicks: 0 };
             return {
                 id: company.id,
                 name: company.name,
                 domain: company.domain,
                 logo: company.careers_page_logo,
-                totalJobs: stats.total,
-                activeJobs: stats.active,
-                onHoldJobs: stats.onHold,
-                totalViews: stats.views,
-                totalClicks: stats.clicks
+                total_jobs: stats.total,
+                active_jobs: stats.active,
+                on_hold_jobs: stats.onHold,
+                total_views: stats.views,
+                total_clicks: stats.clicks
             };
         });
+
+        return {
+            companies: mappedCompanies,
+            total,
+            page,
+            page_size: limit,
+        };
     }
 }

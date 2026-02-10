@@ -14,9 +14,7 @@ export class RegionalSalesService extends BaseService {
     }
 
     async getLeads(regionId?: string, regionIds?: string[], filters?: { status?: string; assignedTo?: string }) {
-        const consultants = await this.regionalSalesRepository.findRegionalConsultants(regionId, regionIds);
-        const consultantIds = consultants.map(c => c.id);
-        return this.regionalSalesRepository.findLeads(consultantIds, filters);
+        return this.regionalSalesRepository.findLeads(regionId, regionIds, filters);
     }
 
     async getOpportunities(regionId?: string, regionIds?: string[], filters?: { stage?: OpportunityStage; salesAgentId?: string }) {

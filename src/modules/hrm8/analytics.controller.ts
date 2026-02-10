@@ -85,8 +85,17 @@ export class AnalyticsController extends BaseController {
 
     getJobBoardStats = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.analyticsService.getJobBoardStats();
-            return this.sendSuccess(res, { companies: result });
+            const region = req.query.region as string | undefined;
+            const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+            const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+
+            const result = await this.analyticsService.getJobBoardStats({
+                regionId: region,
+                assignedRegionIds: req.assignedRegionIds,
+                page: Number.isFinite(page) && page > 0 ? page : 1,
+                limit: Number.isFinite(limit) && limit > 0 ? limit : 10,
+            });
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }

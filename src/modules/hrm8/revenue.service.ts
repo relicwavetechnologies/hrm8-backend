@@ -2,26 +2,59 @@ import { BaseService } from '../../core/service';
 import { RevenueRepository } from './revenue.repository';
 import { HttpException } from '../../core/http-exception';
 import { RevenueStatus } from '@prisma/client';
+import { prisma } from '../../utils/prisma';
 
 export class RevenueService extends BaseService {
     constructor(private revenueRepository: RevenueRepository) {
         super();
     }
 
+    private resolveDateRange(startDate?: string, endDate?: string): { start: Date; end: Date } {
+        const now = new Date();
+        const defaultStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+        const defaultEnd = now;
+
+        const parsedStart = startDate ? new Date(startDate) : defaultStart;
+        const parsedEnd = endDate ? new Date(endDate) : defaultEnd;
+
+        const isStartValid = !isNaN(parsedStart.getTime());
+        const isEndValid = !isNaN(parsedEnd.getTime());
+
+        let start = isStartValid ? parsedStart : defaultStart;
+        let end = isEndValid ? parsedEnd : defaultEnd;
+
+        if (start > end) {
+            const temp = start;
+            start = end;
+            end = temp;
+        }
+
+        return { start, end };
+    }
+
+    private toMonthKey(date: Date): string {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        return `${year}-${month}`;
+    }
+
     private mapToDTO(revenue: any) {
         return {
             id: revenue.id,
-            regionId: revenue.region_id,
-            licenseeId: revenue.licensee_id,
-            periodStart: revenue.period_start,
-            periodEnd: revenue.period_end,
-            totalRevenue: revenue.total_revenue,
-            licenseeShare: revenue.licensee_share,
-            hrm8Share: revenue.hrm8_share,
+            region_id: revenue.region_id,
+            licensee_id: revenue.licensee_id,
+            period_start: revenue.period_start,
+            period_end: revenue.period_end,
+            total_revenue: revenue.total_revenue,
+            licensee_share: revenue.licensee_share,
+            hrm8_share: revenue.hrm8_share,
             status: revenue.status,
-            paymentDate: revenue.payment_date,
-            regionName: revenue.region?.name, // Assuming relation exists
-            licenseeName: revenue.licensee?.name,
+            payment_date: revenue.paid_at,
+            paid_at: revenue.paid_at,
+            created_at: revenue.created_at,
+            updated_at: revenue.updated_at,
+            region_name: revenue.region?.name,
+            licensee_name: revenue.licensee?.name,
         };
     }
 
@@ -52,39 +85,309 @@ export class RevenueService extends BaseService {
     }
 
     async getDashboard(regionIds?: string[], startDate?: string, endDate?: string) {
-        // Mock data for now to fix the doctype error and get the page rendering.
-        // In a real implementation, this would aggregate data from commissions, revenue, bills etc.
+        const { start, end } = this.resolveDateRange(startDate, endDate);
+        const hasRegionFilter = Boolean(regionIds && regionIds.length > 0);
+
+        const billWhere: any = {
+            status: 'PAID',
+            paid_at: { gte: start, lte: end },
+            ...(hasRegionFilter ? {
+                OR: [
+                    { region_id: { in: regionIds } },
+                    { company: { region_id: { in: regionIds } } },
+                ],
+            } : {}),
+        };
+
+        const commissionWhere: any = {
+            status: { in: ['CONFIRMED', 'PAID'] },
+            created_at: { gte: start, lte: end },
+            ...(hasRegionFilter ? { region_id: { in: regionIds } } : {}),
+        };
+
+        const paidCommissionWhere: any = {
+            status: 'PAID',
+            paid_at: { gte: start, lte: end },
+            ...(hasRegionFilter ? { region_id: { in: regionIds } } : {}),
+        };
+
+        const [
+            revenueAgg,
+            commissionAgg,
+            paidCommissionCount,
+            billRows,
+            commissionsByRegion,
+            consultantsByRegion,
+            commissionsByTypeRaw,
+            topCommissionsRaw,
+            topConsultantsRaw,
+            commissionsForTimeline,
+        ] = await Promise.all([
+            prisma.bill.aggregate({
+                where: billWhere,
+                _sum: { total_amount: true },
+                _count: { id: true },
+            }),
+            prisma.commission.aggregate({
+                where: commissionWhere,
+                _sum: { amount: true },
+                _count: { id: true },
+            }),
+            prisma.commission.count({ where: paidCommissionWhere }),
+            prisma.bill.findMany({
+                where: billWhere,
+                select: {
+                    region_id: true,
+                    total_amount: true,
+                    paid_at: true,
+                    company: {
+                        select: { region_id: true },
+                    },
+                },
+            }),
+            prisma.commission.groupBy({
+                by: ['region_id'],
+                where: commissionWhere,
+                _sum: { amount: true },
+            }),
+            prisma.consultant.groupBy({
+                by: ['region_id'],
+                where: hasRegionFilter ? { region_id: { in: regionIds } } : undefined,
+                _count: { id: true },
+            }),
+            prisma.commission.groupBy({
+                by: ['type'],
+                where: commissionWhere,
+                _sum: { amount: true },
+                _count: { id: true },
+            }),
+            prisma.commission.groupBy({
+                by: ['consultant_id', 'region_id'],
+                where: commissionWhere,
+                _sum: { amount: true },
+                _count: { id: true },
+                orderBy: { _sum: { amount: 'desc' } },
+                take: 10,
+            }),
+            prisma.consultant.findMany({
+                where: {
+                    id: {
+                        in: (
+                            await prisma.commission.groupBy({
+                                by: ['consultant_id'],
+                                where: commissionWhere,
+                                _sum: { amount: true },
+                                orderBy: { _sum: { amount: 'desc' } },
+                                take: 10,
+                            })
+                        ).map((row) => row.consultant_id),
+                    },
+                },
+                select: {
+                    id: true,
+                    first_name: true,
+                    last_name: true,
+                },
+            }),
+            prisma.commission.findMany({
+                where: commissionWhere,
+                select: { created_at: true, amount: true },
+            }),
+        ]);
+
+        const totalRevenue = Number(revenueAgg._sum.total_amount || 0);
+        const totalCommissions = Number(commissionAgg._sum.amount || 0);
+        const netRevenue = totalRevenue - totalCommissions;
+
+        const summary = {
+            total_revenue: totalRevenue,
+            total_commissions: totalCommissions,
+            net_revenue: netRevenue,
+            commission_rate: totalRevenue > 0 ? (totalCommissions / totalRevenue) * 100 : 0,
+            bill_count: revenueAgg._count.id || 0,
+            paid_commission_count: paidCommissionCount,
+        };
+
+        const allRegionIds = new Set<string>();
+        billRows.forEach((row) => {
+            const effectiveRegionId = row.region_id || row.company?.region_id;
+            if (effectiveRegionId) allRegionIds.add(effectiveRegionId);
+        });
+        commissionsByRegion.forEach((row) => row.region_id && allRegionIds.add(row.region_id));
+        consultantsByRegion.forEach((row) => row.region_id && allRegionIds.add(row.region_id));
+        const regionIdsToLoad = Array.from(allRegionIds);
+        const regionRows = regionIdsToLoad.length > 0
+            ? await prisma.region.findMany({
+                where: { id: { in: regionIdsToLoad } },
+                select: { id: true, name: true },
+            })
+            : [];
+        const regionNameMap = new Map<string, string>(regionRows.map((row) => [row.id, row.name]));
+
+        const revenueByRegionMap = new Map<string, { revenue: number; bill_count: number }>();
+        billRows.forEach((row) => {
+            const key = row.region_id || row.company?.region_id || 'unassigned';
+            const existing = revenueByRegionMap.get(key) || { revenue: 0, bill_count: 0 };
+            revenueByRegionMap.set(key, {
+                revenue: existing.revenue + Number(row.total_amount || 0),
+                bill_count: existing.bill_count + 1,
+            });
+        });
+
+        const commissionsByRegionMap = new Map<string, number>();
+        commissionsByRegion.forEach((row) => {
+            const key = row.region_id || 'unassigned';
+            commissionsByRegionMap.set(key, Number(row._sum.amount || 0));
+        });
+
+        const consultantCountsByRegion = new Map<string, number>();
+        consultantsByRegion.forEach((row) => {
+            consultantCountsByRegion.set(row.region_id, row._count.id || 0);
+        });
+
+        const mergedRegionKeys = new Set<string>([
+            ...Array.from(revenueByRegionMap.keys()),
+            ...Array.from(commissionsByRegionMap.keys()),
+            ...Array.from(consultantCountsByRegion.keys()),
+        ]);
+
+        const byRegion = Array.from(mergedRegionKeys).map((regionKey) => {
+            const revenueMeta = revenueByRegionMap.get(regionKey);
+            const commissions = commissionsByRegionMap.get(regionKey) || 0;
+            const revenue = revenueMeta?.revenue || 0;
+            const billCount = revenueMeta?.bill_count || 0;
+            const consultantCount = consultantCountsByRegion.get(regionKey) || 0;
+            const regionId = regionKey === 'unassigned' ? '' : regionKey;
+            const regionName = regionKey === 'unassigned'
+                ? 'Unassigned'
+                : (regionNameMap.get(regionKey) || 'Unknown');
+
+            return {
+                region_id: regionId,
+                region_name: regionName,
+                revenue,
+                commissions,
+                net_revenue: revenue - commissions,
+                bill_count: billCount,
+                consultant_count: consultantCount,
+            };
+        }).sort((a, b) => b.revenue - a.revenue);
+
+        const byCommissionType = commissionsByTypeRaw.map((row) => {
+            const amount = Number(row._sum.amount || 0);
+            return {
+                type: row.type,
+                amount,
+                count: row._count.id || 0,
+                percentage: totalCommissions > 0 ? (amount / totalCommissions) * 100 : 0,
+            };
+        }).sort((a, b) => b.amount - a.amount);
+
+        const consultantNameMap = new Map<string, string>(
+            topConsultantsRaw.map((consultant) => [
+                consultant.id,
+                `${consultant.first_name || ''} ${consultant.last_name || ''}`.trim() || 'Unknown Consultant',
+            ])
+        );
+
+        const topConsultants = topCommissionsRaw.map((row) => ({
+            consultant_id: row.consultant_id,
+            name: consultantNameMap.get(row.consultant_id) || 'Unknown Consultant',
+            total_commissions: Number(row._sum.amount || 0),
+            commission_count: row._count.id || 0,
+            region_id: row.region_id,
+            region_name: regionNameMap.get(row.region_id) || 'Unknown',
+        }));
+
+        const timelineMap = new Map<string, { revenue: number; commissions: number; bill_count: number }>();
+        billRows.forEach((bill) => {
+            if (!bill.paid_at) return;
+            const key = this.toMonthKey(bill.paid_at);
+            const current = timelineMap.get(key) || { revenue: 0, commissions: 0, bill_count: 0 };
+            current.revenue += Number(bill.total_amount || 0);
+            current.bill_count += 1;
+            timelineMap.set(key, current);
+        });
+        commissionsForTimeline.forEach((commission) => {
+            const key = this.toMonthKey(commission.created_at);
+            const current = timelineMap.get(key) || { revenue: 0, commissions: 0, bill_count: 0 };
+            current.commissions += Number(commission.amount || 0);
+            timelineMap.set(key, current);
+        });
+
+        const timeline: Array<{
+            month: string;
+            revenue: number;
+            commissions: number;
+            net_revenue: number;
+            bill_count: number;
+        }> = [];
+        const monthCursor = new Date(start.getFullYear(), start.getMonth(), 1);
+        const monthEnd = new Date(end.getFullYear(), end.getMonth(), 1);
+        const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
+        while (monthCursor <= monthEnd) {
+            const key = this.toMonthKey(monthCursor);
+            const data = timelineMap.get(key) || { revenue: 0, commissions: 0, bill_count: 0 };
+            timeline.push({
+                month: monthFormatter.format(monthCursor),
+                revenue: data.revenue,
+                commissions: data.commissions,
+                net_revenue: data.revenue - data.commissions,
+                bill_count: data.bill_count,
+            });
+            monthCursor.setMonth(monthCursor.getMonth() + 1);
+        }
+
         return {
             summary: {
-                totalRevenue: 150000,
-                totalCommissions: 15000,
-                netRevenue: 135000,
-                commissionRate: 10,
-                billCount: 45,
-                paidCommissionCount: 12
+                ...summary,
+                totalRevenue: summary.total_revenue,
+                totalCommissions: summary.total_commissions,
+                netRevenue: summary.net_revenue,
+                commissionRate: summary.commission_rate,
+                billCount: summary.bill_count,
+                paidCommissionCount: summary.paid_commission_count,
             },
-            byRegion: [],
-            byCommissionType: [
-                { type: 'Placement', amount: 12000, count: 8, percentage: 80 },
-                { type: 'Hourly', amount: 3000, count: 20, percentage: 20 }
-            ],
-            topConsultants: [],
-            timeline: [
-                { month: 'Jan', revenue: 10000, commissions: 1000, netRevenue: 9000, billCount: 5 },
-                { month: 'Feb', revenue: 12000, commissions: 1200, netRevenue: 10800, billCount: 6 },
-                { month: 'Mar', revenue: 15000, commissions: 1500, netRevenue: 13500, billCount: 8 }
-            ]
+            by_region: byRegion,
+            byRegion: byRegion.map((entry) => ({
+                ...entry,
+                regionId: entry.region_id,
+                regionName: entry.region_name,
+                netRevenue: entry.net_revenue,
+                billCount: entry.bill_count,
+                consultantCount: entry.consultant_count,
+            })),
+            by_commission_type: byCommissionType,
+            byCommissionType,
+            top_consultants: topConsultants,
+            topConsultants: topConsultants.map((entry) => ({
+                ...entry,
+                consultantId: entry.consultant_id,
+                totalCommissions: entry.total_commissions,
+                commissionCount: entry.commission_count,
+                regionId: entry.region_id,
+                regionName: entry.region_name,
+            })),
+            timeline: timeline.map((entry) => ({
+                ...entry,
+                netRevenue: entry.net_revenue,
+                billCount: entry.bill_count,
+            })),
         };
     }
 
     async getSummary(regionIds?: string[], startDate?: string, endDate?: string) {
+        const dashboard = await this.getDashboard(regionIds, startDate, endDate);
+        const summary = dashboard.summary;
+
         return {
-            totalRevenue: 150000,
-            totalCommissions: 15000,
-            netRevenue: 135000,
-            commissionRate: 10,
-            billCount: 45,
-            paidCommissionCount: 12
+            ...summary,
+            totalRevenue: summary.total_revenue,
+            totalCommissions: summary.total_commissions,
+            netRevenue: summary.net_revenue,
+            commissionRate: summary.commission_rate,
+            billCount: summary.bill_count,
+            paidCommissionCount: summary.paid_commission_count
         };
     }
 }
