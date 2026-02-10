@@ -68,4 +68,9 @@ router.get('/:id/sms', authenticate, communicationController.getSmsLogs);
 router.post('/:id/slack', authenticate, communicationController.sendSlackMessage);
 router.get('/:id/slack', authenticate, communicationController.getSlackLogs);
 
+// Notes Routes
+router.get('/:id/notes', authenticate, applicationController.getNotes);
+router.post('/:id/notes', authenticate, applicationController.addNote);
+
+
 export default router;

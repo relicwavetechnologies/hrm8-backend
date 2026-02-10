@@ -75,6 +75,24 @@ export class InterviewController extends BaseController {
     }
   };
 
+  update = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { interviewerIds, scheduledDate, duration, type, meetingLink, notes } = req.body;
+      const interview = await InterviewService.updateInterview(id, {
+        interviewerIds,
+        scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
+        duration,
+        type,
+        meetingLink,
+        notes,
+      });
+      return this.sendSuccess(res, { interview, message: 'Interview updated successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   updateStatus = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;

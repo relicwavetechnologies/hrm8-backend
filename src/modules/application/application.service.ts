@@ -674,4 +674,132 @@ export class ApplicationService extends BaseService {
   async getEvaluations(applicationId: string) {
     return this.applicationRepository.getEvaluations(applicationId);
   }
+
+  // Get notes for an application
+  async getNotes(applicationId: string): Promise<any[]> {
+    const app = await this.applicationRepository.findById(applicationId);
+    if (!app) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    // Notes are stored as JSON in recruiter_notes field
+    let notes: any[] = [];
+    try {
+      if (app.recruiter_notes) {
+        const parsed = typeof app.recruiter_notes === 'string'
+          ? JSON.parse(app.recruiter_notes)
+          : app.recruiter_notes;
+        notes = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch {
+      notes = [];
+    }
+    return notes;
+  }
+
+  // Add a note with @mention support
+  async addNote(applicationId: string, userId: string, content: string, mentions: string[] = []): Promise<any> {
+    const app = await this.applicationRepository.findById(applicationId);
+    if (!app) {
+      throw new HttpException(404, 'Application not found');
+    }
+
+    // Get existing notes
+    let notes: any[] = [];
+    try {
+      if (app.recruiter_notes) {
+        const parsed = typeof app.recruiter_notes === 'string'
+          ? JSON.parse(app.recruiter_notes)
+          : app.recruiter_notes;
+        notes = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch {
+      notes = [];
+    }
+
+    // Get user info for the note
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true }
+    });
+
+    // Create new note
+    const newNote = {
+      id: crypto.randomUUID(),
+      content,
+      mentions,
+      createdAt: new Date().toISOString(),
+      author: {
+        id: userId,
+        name: user?.name || 'Unknown',
+        email: user?.email || ''
+      }
+    };
+
+    notes.push(newNote);
+
+    // Save updated notes
+    await this.applicationRepository.updateNotes(applicationId, JSON.stringify(notes));
+
+    // Send notifications to mentioned users
+    if (mentions.length > 0) {
+      await this.sendMentionNotifications(applicationId, userId, content, mentions);
+    }
+
+    return newNote;
+  }
+
+  // Send notifications to mentioned users
+  private async sendMentionNotifications(
+    applicationId: string,
+    authorId: string,
+    content: string,
+    mentionedUserIds: string[]
+  ): Promise<void> {
+    try {
+      const author = await prisma.user.findUnique({
+        where: { id: authorId },
+        select: { name: true }
+      });
+
+      const app = await this.applicationRepository.findById(applicationId);
+      if (!app) return;
+
+      const candidate = (app as any).candidate;
+      const candidateName = candidate
+        ? `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim() || 'a candidate'
+        : 'a candidate';
+
+      for (const userId of mentionedUserIds) {
+        // Create in-app notification
+        await this.notificationService.createNotification({
+          recipientType: NotificationRecipientType.USER,
+          recipientId: userId,
+          type: UniversalNotificationType.NEW_MESSAGE,
+          title: 'You were mentioned in a note',
+          message: `${author?.name || 'Someone'} mentioned you in a note on ${candidateName}'s application.`,
+          data: { applicationId, content: content.substring(0, 200) },
+          actionUrl: `/ats/applications/${applicationId}`,
+        });
+
+        // Send email notification
+        const mentionedUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, name: true }
+        });
+
+        if (mentionedUser?.email) {
+          await emailService.sendNotificationEmail(
+            mentionedUser.email,
+            `${author?.name || 'Someone'} mentioned you in a note`,
+            `${author?.name || 'A team member'} mentioned you in a note on ${candidateName}'s application: "${content.substring(0, 200)}${content.length > 200 ? '...' : ''}"`,
+            `/ats/applications/${applicationId}`
+          );
+        }
+      }
+    } catch (error) {
+      console.error('[sendMentionNotifications] Error sending notifications:', error);
+    }
+  }
 }
+
