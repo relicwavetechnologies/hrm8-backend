@@ -454,4 +454,34 @@ export class ApplicationController extends BaseController {
       return this.sendError(res, error);
     }
   };
+
+  // Get notes for an application
+  getNotes = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const notes = await this.applicationService.getNotes(id);
+      return this.sendSuccess(res, { notes });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Add a note with @mention support
+  addNote = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const { content, mentions } = req.body;
+
+      if (!content || typeof content !== 'string') {
+        return this.sendError(res, new Error('Content is required'), 400);
+      }
+
+      const note = await this.applicationService.addNote(id, req.user.id, content, mentions || []);
+      return this.sendSuccess(res, { note });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }
