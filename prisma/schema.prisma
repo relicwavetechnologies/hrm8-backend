@@ -1429,8 +1429,8 @@ model JobRound {
   updated_at                 DateTime                   @default(now()) @updatedAt
   email_config               Json?                      @map("email_config")
   assigned_role_id           String?                    @map("assigned_role_id")
-  sync_permissions           Boolean                    @default(true) @map("syncPermissions")
   auto_move_on_pass          Boolean                    @default(false) @map("autoMoveOnPass")
+  sync_permissions           Boolean                    @default(true) @map("syncPermissions")
   application_round_progress ApplicationRoundProgress[]
   assessment_configuration   AssessmentConfiguration?
   email_template             EmailTemplate[]
