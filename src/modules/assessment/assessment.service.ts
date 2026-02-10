@@ -168,19 +168,39 @@ export class AssessmentService extends BaseService {
       await this.assessmentRepository.createManyQuestions(questionData);
     }
 
-    // Send email
+    // Send email: use round's custom template if configured, else default
     try {
       const candidateName = `${application.candidate.first_name} ${application.candidate.last_name}`;
       const jobTitle = application.job.title;
       const assessmentUrl = `${env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
+      const round = await this.assessmentRepository.findJobRoundWithEmailConfig(jobRoundId);
+      const emailConfig = round?.email_config as { enabled?: boolean; templateId?: string } | null;
 
-      await emailService.sendAssessmentInvitation({
-        to: application.candidate.email,
-        candidateName,
-        jobTitle,
-        assessmentUrl,
-        expiryDate
-      });
+      if (emailConfig?.enabled && emailConfig?.templateId) {
+        await emailService.sendTemplateEmail({
+          to: application.candidate.email,
+          templateId: emailConfig.templateId,
+          contextIds: {
+            candidateId: application.candidate_id,
+            jobId: application.job_id
+          },
+          variables: {
+            assessmentUrl,
+            assessment_url: assessmentUrl,
+            candidateName,
+            jobTitle,
+            expiryDate: expiryDate?.toLocaleString?.() ?? undefined
+          }
+        });
+      } else {
+        await emailService.sendAssessmentInvitation({
+          to: application.candidate.email,
+          candidateName,
+          jobTitle,
+          assessmentUrl,
+          expiryDate
+        });
+      }
     } catch (error) {
       console.error(`[AssessmentService] Failed to send email to ${application.candidate.email}`, error);
       // We don't fail the assignment if email fails, but we should log it

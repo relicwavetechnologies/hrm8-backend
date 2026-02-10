@@ -1436,6 +1436,7 @@ model JobRound {
   created_at                 DateTime                   @default(now())
   updated_at                 DateTime                   @default(now()) @updatedAt
   email_config               Json?                      @map("email_config")
+  offer_config               Json?                      @map("offer_config")
   assigned_role_id           String?                    @map("assigned_role_id")
   auto_move_on_pass          Boolean                    @default(false) @map("autoMoveOnPass")
   sync_permissions           Boolean                    @default(true) @map("syncPermissions")

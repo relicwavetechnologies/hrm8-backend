@@ -66,6 +66,13 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async findJobRoundWithEmailConfig(jobRoundId: string) {
+    return this.prisma.jobRound.findUnique({
+      where: { id: jobRoundId },
+      select: { email_config: true }
+    });
+  }
+
   async findByRoundIdWithDetails(roundId: string) {
     return this.prisma.assessment.findMany({
       where: { job_round_id: roundId },

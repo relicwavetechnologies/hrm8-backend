@@ -625,7 +625,28 @@ export class ApplicationService extends BaseService {
       }
     }
 
-    // Trigger Emails (Omitted/Placeholder as EmailAutomationService might not exist or be different)
+    // Send round's configured email for non-assessment rounds (assessment uses autoAssignAssessment)
+    const emailConfig = targetRound.email_config as { enabled?: boolean; templateId?: string } | null;
+    if (targetRound.type !== 'ASSESSMENT' && emailConfig?.enabled && emailConfig?.templateId) {
+      const candidateEmail = (application as any).candidate?.email;
+      if (candidateEmail) {
+        (async () => {
+          try {
+            await emailService.sendTemplateEmail({
+              to: candidateEmail,
+              templateId: emailConfig.templateId!,
+              contextIds: {
+                candidateId: (application as any).candidate_id,
+                jobId: (application as any).job_id
+              }
+            });
+            console.log(`[Round-Email] Sent round entry email to ${candidateEmail}`);
+          } catch (err) {
+            console.error('[Round-Email] Failed to send round entry email', err);
+          }
+        })();
+      }
+    }
 
     return updatedApp;
   }
