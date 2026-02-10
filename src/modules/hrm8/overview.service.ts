@@ -65,11 +65,65 @@ export class OverviewService extends BaseService {
         return '30d';
     }
 
-    async getOverview(input: RequestScope & { period?: string }) {
+    async getOverview(input: RequestScope & { period?: string; summaryOnly?: boolean }) {
         const partialFailures: string[] = [];
         const period = this.normalizePeriod(input.period);
         const scope = this.resolveScope(input);
         const regionMeta = await this.overviewRepository.getRegionMeta(scope.regionId);
+
+        if (input.summaryOnly) {
+            const [operational, finance] = await Promise.all([
+                this.analyticsService.getOperationalStats(
+                    scope.regionId,
+                    scope.isGlobal ? undefined : scope.regionIds,
+                    { includeTrends: false }
+                ),
+                this.overviewRepository.getFinance(scope.regionIds)
+            ]);
+
+            return {
+                scope: {
+                    isGlobal: scope.isGlobal,
+                    role: input.role,
+                    regionId: regionMeta.regionId,
+                    regionName: regionMeta.regionName
+                },
+                kpis: {
+                    openJobs: operational.open_jobs_count,
+                    unassignedJobs: Math.max(operational.open_jobs_count - operational.active_consultants_count, 0),
+                    activeConsultants: operational.active_consultants_count,
+                    placementsThisMonth: operational.placements_this_month,
+                    activeEmployers: operational.active_employer_count,
+                    newEmployers: operational.new_employer_count,
+                    inactiveEmployers: operational.inactive_employer_count,
+                    pipelineTotal: 0,
+                    pipelineWeighted: 0,
+                    deals: 0,
+                    activeAgents: 0
+                },
+                charts: {
+                    jobsTrend: [],
+                    placementsTrend: [],
+                    pipelineByStage: [],
+                    funnel: [],
+                    sourceMix: [],
+                    capacityDistribution: [],
+                    complianceSeverity: []
+                },
+                queues: {
+                    pendingConversionRequests: 0,
+                    pendingRefundRequests: 0,
+                    pendingCareersRequests: 0,
+                    pendingSettlements: 0
+                },
+                finance,
+                meta: {
+                    updatedAt: new Date().toISOString(),
+                    period,
+                    summaryOnly: true
+                }
+            };
+        }
 
         const safe = async <T>(section: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
             try {
@@ -198,6 +252,7 @@ export class OverviewService extends BaseService {
             meta: {
                 updatedAt: new Date().toISOString(),
                 period,
+                summaryOnly: false,
                 ...(partialFailures.length > 0 ? { partialFailures } : {})
             }
         };

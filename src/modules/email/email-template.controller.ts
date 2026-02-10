@@ -11,13 +11,25 @@ function normalizeTemplateType(t: string | undefined): string {
 }
 
 export class EmailTemplateController {
+    private static getContext(req: any) {
+        return {
+            userId: (req.user?.id || req.hrm8User?.id) as string | undefined,
+            companyId: (req.user?.companyId || req.query?.company_id || req.body?.company_id) as string | undefined,
+        };
+    }
+
     static async create(req: AuthenticatedRequest, res: Response) {
         try {
+            const { userId, companyId } = EmailTemplateController.getContext(req);
+            if (!companyId) {
+                return res.status(400).json({ success: false, message: 'company_id is required' });
+            }
+
             const template = await EmailTemplateService.create({
                 ...req.body,
                 type: normalizeTemplateType(req.body.type) || 'CUSTOM',
-                company: { connect: { id: req.user?.companyId } },
-                user: { connect: { id: req.user?.id } },
+                company: { connect: { id: companyId } },
+                user: userId ? { connect: { id: userId } } : undefined,
                 jobId: req.body.jobId || undefined,
                 jobRoundId: req.body.jobRoundId || undefined
             });
@@ -59,9 +71,10 @@ export class EmailTemplateController {
 
     static async getAll(req: AuthenticatedRequest, res: Response) {
         try {
-            const { type, jobId, jobRoundId } = req.query;
+            const { type, jobId, jobRoundId, company_id } = req.query;
+            const { companyId } = EmailTemplateController.getContext(req);
             const filters: any = {
-                company_id: req.user?.companyId
+                company_id: companyId || company_id
             };
 
             if (type) {
@@ -79,6 +92,48 @@ export class EmailTemplateController {
         } catch (error) {
             console.error('Get All Templates Error:', error);
             res.status(500).json({ success: false, message: 'Failed to fetch templates' });
+        }
+    }
+
+    static async getVariables(_req: AuthenticatedRequest, res: Response) {
+        try {
+            const variables = [
+                { key: 'candidateName', label: 'Candidate Name', description: 'Candidate full name', example: 'John Doe', category: 'candidate' },
+                { key: 'jobTitle', label: 'Job Title', description: 'Target job title', example: 'Software Engineer', category: 'job' },
+                { key: 'companyName', label: 'Company Name', description: 'Company name', example: 'Acme Inc', category: 'company' },
+                { key: 'interviewType', label: 'Interview Type', description: 'Interview type', example: 'Technical', category: 'interview' },
+                { key: 'scheduledDate', label: 'Scheduled Date', description: 'Interview date/time', example: '2026-02-10 10:00 AM', category: 'interview' },
+                { key: 'meetingLink', label: 'Meeting Link', description: 'Meeting URL', example: 'https://meet.google.com/abc-defg-hij', category: 'interview' },
+                { key: 'offerUrl', label: 'Offer URL', description: 'Offer URL', example: 'https://hrm8.com/offer/123', category: 'offer' },
+                { key: 'verificationUrl', label: 'Verification URL', description: 'Verification URL', example: 'https://hrm8.com/verify/123', category: 'verification' },
+                { key: 'assessmentUrl', label: 'Assessment URL', description: 'Assessment URL', example: 'https://hrm8.com/assessment/123', category: 'assessment' },
+            ];
+            res.json({ success: true, data: variables });
+        } catch (error) {
+            res.status(500).json({ success: false, message: 'Failed to fetch variables' });
+        }
+    }
+
+    static async preview(req: AuthenticatedRequest, res: Response) {
+        try {
+            const { id } = req.params as { id: string };
+            const template = await EmailTemplateService.findOne(id);
+            if (!template) {
+                return res.status(404).json({ success: false, message: 'Template not found' });
+            }
+
+            const vars = (req.body?.variables || {}) as Record<string, string>;
+            const fill = (input: string) => input.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key) => vars[key] ?? `{{${key}}}`);
+
+            res.json({
+                success: true,
+                data: {
+                    subject: fill(template.subject || ''),
+                    body: fill(template.body || ''),
+                },
+            });
+        } catch (error) {
+            res.status(500).json({ success: false, message: 'Failed to preview template' });
         }
     }
 

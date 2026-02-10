@@ -86,6 +86,126 @@ export class StaffService extends BaseService {
         return consultants.map(c => this.mapToFrontend(c));
     }
 
+    async getOverview(filters: { regionId?: string; regionIds?: string[] }) {
+        const where: any = {};
+        if (filters.regionId) {
+            where.region_id = filters.regionId;
+        } else if (filters.regionIds && filters.regionIds.length > 0) {
+            where.region_id = { in: filters.regionIds };
+        }
+
+        const consultants = await this.staffRepository.findMany({
+            where,
+            orderBy: { created_at: 'desc' },
+        });
+
+        const totalStaff = consultants.length;
+        const activeStaff = consultants.filter((c) => c.status === 'ACTIVE').length;
+        const suspendedStaff = consultants.filter((c) => c.status === 'SUSPENDED').length;
+        const onLeaveStaff = consultants.filter((c) => c.status === 'ON_LEAVE').length;
+        const inactiveStaff = consultants.filter((c) => c.status === 'INACTIVE').length;
+
+        const totalRevenue = consultants.reduce((sum, c) => sum + Number(c.total_revenue || 0), 0);
+        const totalPlacements = consultants.reduce((sum, c) => sum + Number(c.total_placements || 0), 0);
+        const avgSuccessRate = totalStaff > 0
+            ? consultants.reduce((sum, c) => sum + Number(c.success_rate || 0), 0) / totalStaff
+            : 0;
+        const avgUtilization = totalStaff > 0
+            ? consultants.reduce((sum, c) => {
+                const maxJobs = Number(c.max_jobs || 10) || 10;
+                const currentJobs = Number(c.current_jobs || 0);
+                return sum + Math.min((currentJobs / maxJobs) * 100, 200);
+            }, 0) / totalStaff
+            : 0;
+
+        const roles: ConsultantRole[] = ['RECRUITER', 'SALES_AGENT', 'CONSULTANT_360'];
+        const roleDistribution = roles.map((role) => ({
+            role,
+            count: consultants.filter((c) => c.role === role).length,
+        }));
+
+        const statuses: ConsultantStatus[] = ['ACTIVE', 'ON_LEAVE', 'INACTIVE', 'SUSPENDED'];
+        const statusDistribution = statuses.map((status) => ({
+            status,
+            count: consultants.filter((c) => c.status === status).length,
+        }));
+
+        const capacityDistribution = {
+            under_utilized: 0,
+            optimal: 0,
+            near_capacity: 0,
+            over_capacity: 0,
+        };
+
+        consultants.forEach((c) => {
+            const maxJobs = Number(c.max_jobs || 10) || 10;
+            const currentJobs = Number(c.current_jobs || 0);
+            const utilization = (currentJobs / maxJobs) * 100;
+
+            if (utilization < 50) capacityDistribution.under_utilized += 1;
+            else if (utilization < 80) capacityDistribution.optimal += 1;
+            else if (utilization <= 100) capacityDistribution.near_capacity += 1;
+            else capacityDistribution.over_capacity += 1;
+        });
+
+        const topPerformers = consultants
+            .map((c) => ({
+                id: c.id,
+                name: `${c.first_name} ${c.last_name}`.trim(),
+                role: c.role,
+                total_revenue: Number(c.total_revenue || 0),
+                total_placements: Number(c.total_placements || 0),
+                success_rate: Number(c.success_rate || 0),
+            }))
+            .sort((a, b) => b.total_revenue - a.total_revenue)
+            .slice(0, 5);
+
+        const workloadAlerts = consultants
+            .map((c) => {
+                const maxJobs = Number(c.max_jobs || 10) || 10;
+                const currentJobs = Number(c.current_jobs || 0);
+                return {
+                    id: c.id,
+                    name: `${c.first_name} ${c.last_name}`.trim(),
+                    role: c.role,
+                    status: c.status,
+                    current_jobs: currentJobs,
+                    max_jobs: maxJobs,
+                    utilization_percent: Math.round((currentJobs / maxJobs) * 100),
+                };
+            })
+            .filter((c) => c.utilization_percent >= 80 || c.status !== 'ACTIVE')
+            .sort((a, b) => b.utilization_percent - a.utilization_percent)
+            .slice(0, 8);
+
+        const recentlyJoined = consultants.slice(0, 5).map((c) => ({
+            id: c.id,
+            name: `${c.first_name} ${c.last_name}`.trim(),
+            role: c.role,
+            created_at: c.created_at,
+        }));
+
+        return {
+            summary: {
+                total_staff: totalStaff,
+                active_staff: activeStaff,
+                suspended_staff: suspendedStaff,
+                on_leave_staff: onLeaveStaff,
+                inactive_staff: inactiveStaff,
+                total_revenue: totalRevenue,
+                total_placements: totalPlacements,
+                avg_success_rate: Number(avgSuccessRate.toFixed(1)),
+                avg_utilization_percent: Number(avgUtilization.toFixed(1)),
+            },
+            role_distribution: roleDistribution,
+            status_distribution: statusDistribution,
+            capacity_distribution: capacityDistribution,
+            top_performers: topPerformers,
+            workload_alerts: workloadAlerts,
+            recently_joined: recentlyJoined,
+        };
+    }
+
     async getById(id: string) {
         const consultant = await this.staffRepository.findById(id);
         if (!consultant) {

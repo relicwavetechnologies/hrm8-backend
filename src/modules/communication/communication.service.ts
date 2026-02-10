@@ -1,5 +1,5 @@
 import { BaseService } from '../../core/service';
-import { PrismaClient, CallOutcome, SmsStatus, EmailStatus } from '@prisma/client';
+import { PrismaClient, EmailStatus } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { HttpException } from '../../core/http-exception';
 import { EmailTemplateAIService } from '../ai/email-template-ai.service';
@@ -7,6 +7,10 @@ import nodemailer from 'nodemailer';
 import { env } from '../../config/env';
 
 const prisma = new PrismaClient();
+const prismaAny = prisma as any;
+
+type CallOutcomeType = 'PICKED_UP' | 'BUSY' | 'NO_ANSWER' | 'LEFT_VOICEMAIL' | 'WRONG_NUMBER' | 'SCHEDULED_CALLBACK';
+type SmsStatusType = 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
 
 export class CommunicationService extends BaseService {
   private transporter: nodemailer.Transporter;
@@ -69,7 +73,7 @@ export class CommunicationService extends BaseService {
     applicationId: string;
     userId: string;
     callDate: Date;
-    outcome: CallOutcome;
+    outcome: CallOutcomeType;
     phoneNumber?: string;
     duration?: number;
     notes?: string;
@@ -84,7 +88,7 @@ export class CommunicationService extends BaseService {
       throw new HttpException(404, 'Application not found');
     }
 
-    return prisma.callLog.create({
+    return prismaAny.callLog.create({
       data: {
         application_id: data.applicationId,
         user_id: data.userId,
@@ -101,7 +105,7 @@ export class CommunicationService extends BaseService {
   }
 
   async getCallLogs(applicationId: string) {
-    return prisma.callLog.findMany({
+    return prismaAny.callLog.findMany({
       where: { application_id: applicationId },
       include: {
         user: { select: { id: true, name: true, email: true } }
@@ -138,17 +142,14 @@ export class CommunicationService extends BaseService {
 
     // Send the email
     try {
-      await this.emailService.sendNotificationEmail({
-        to: application.candidate.email,
-        subject: data.subject,
-        name: application.candidate.first_name || 'Candidate',
-        message: data.body,
-        actionUrl: undefined,
-        actionText: undefined
-      });
+      await this.emailService.sendNotificationEmail(
+        application.candidate.email,
+        data.subject,
+        data.body,
+      );
 
       // Log the email
-      return prisma.emailLog.create({
+      return prismaAny.emailLog.create({
         data: {
           application_id: data.applicationId,
           user_id: data.userId,
@@ -164,7 +165,7 @@ export class CommunicationService extends BaseService {
       });
     } catch (error) {
       // Log failed email attempt
-      await prisma.emailLog.create({
+      await prismaAny.emailLog.create({
         data: {
           application_id: data.applicationId,
           user_id: data.userId,
@@ -180,7 +181,7 @@ export class CommunicationService extends BaseService {
   }
 
   async getEmailLogs(applicationId: string) {
-    return prisma.emailLog.findMany({
+    return prismaAny.emailLog.findMany({
       where: { application_id: applicationId },
       include: {
         user: { select: { id: true, name: true, email: true } },
@@ -269,14 +270,14 @@ export class CommunicationService extends BaseService {
     const twilioConfigured = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN;
 
     // Create log entry
-    const smsLog = await prisma.smsLog.create({
+    const smsLog = await prismaAny.smsLog.create({
       data: {
         application_id: data.applicationId,
         user_id: data.userId,
         to_number: application.candidate.phone,
         from_number: process.env.TWILIO_PHONE_NUMBER || null,
         message: data.message,
-        status: twilioConfigured ? SmsStatus.PENDING : SmsStatus.FAILED,
+        status: (twilioConfigured ? 'PENDING' : 'FAILED') as SmsStatusType,
         error_message: twilioConfigured ? null : 'Twilio not configured. SMS will be logged but not sent.',
       },
       include: {
@@ -298,10 +299,10 @@ export class CommunicationService extends BaseService {
         });
 
         // Update status to SENT
-        return prisma.smsLog.update({
+        return prismaAny.smsLog.update({
           where: { id: smsLog.id },
           data: {
-            status: SmsStatus.SENT,
+            status: 'SENT' as SmsStatusType,
             twilio_sid: result.sid
           },
           include: {
@@ -309,10 +310,10 @@ export class CommunicationService extends BaseService {
           }
         });
       } catch (error: any) {
-        await prisma.smsLog.update({
+        await prismaAny.smsLog.update({
           where: { id: smsLog.id },
           data: {
-            status: SmsStatus.FAILED,
+            status: 'FAILED' as SmsStatusType,
             error_message: error.message
           }
         });
@@ -324,7 +325,7 @@ export class CommunicationService extends BaseService {
   }
 
   async getSmsLogs(applicationId: string) {
-    return prisma.smsLog.findMany({
+    return prismaAny.smsLog.findMany({
       where: { application_id: applicationId },
       include: {
         user: { select: { id: true, name: true, email: true } }
@@ -355,7 +356,7 @@ export class CommunicationService extends BaseService {
     }
 
     // Log the Slack message
-    const slackLog = await prisma.slackLog.create({
+    const slackLog = await prismaAny.slackLog.create({
       data: {
         application_id: data.applicationId,
         user_id: data.userId,
@@ -370,7 +371,7 @@ export class CommunicationService extends BaseService {
     // If Slack is configured, send the message
     if (process.env.SLACK_BOT_TOKEN) {
       try {
-        const { WebClient } = await import('@slack/web-api');
+        const { WebClient } = require('@slack/web-api');
         const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
         // Send DM to each recipient
@@ -394,7 +395,7 @@ export class CommunicationService extends BaseService {
         }
 
         // Update log with success
-        await prisma.slackLog.update({
+        await prismaAny.slackLog.update({
           where: { id: slackLog.id },
           data: { channel_id: 'dm' }
         });
@@ -408,7 +409,7 @@ export class CommunicationService extends BaseService {
   }
 
   async getSlackLogs(applicationId: string) {
-    return prisma.slackLog.findMany({
+    return prismaAny.slackLog.findMany({
       where: { application_id: applicationId },
       include: {
         user: { select: { id: true, name: true, email: true } }
@@ -433,13 +434,15 @@ export class CommunicationService extends BaseService {
       }
     });
 
-    return hiringTeam.map(member => ({
-      id: member.user.id,
-      name: member.user.name,
-      email: member.user.email,
-      role: member.user.role,
-      hiringRole: member.role
-    }));
+    return hiringTeam
+      .filter((member) => member.user)
+      .map((member) => ({
+        id: member.user!.id,
+        name: member.user!.name,
+        email: member.user!.email,
+        role: member.user!.role,
+        hiringRole: member.role,
+      }));
   }
 }
 

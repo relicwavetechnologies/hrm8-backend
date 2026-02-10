@@ -4,6 +4,7 @@ import { Hrm8Service } from './hrm8.service';
 import { Hrm8Repository } from './hrm8.repository';
 import { Hrm8AuthenticatedRequest } from '../../types';
 import { getSessionCookieOptions } from '../../utils/session';
+import { SettingsOverviewService } from './settings-overview.service';
 
 export class Hrm8Controller extends BaseController {
   private hrm8Service: Hrm8Service;
@@ -68,6 +69,21 @@ export class Hrm8Controller extends BaseController {
       return this.sendSuccess(res, { message: 'Password changed successfully' });
     } catch (error) {
       return this.sendError(res, error);
+    }
+  };
+
+  /**
+   * Get system overview with aggregated metrics
+   * GET /hrm8/settings/overview
+   */
+  getSystemOverview = async (req: Request, res: Response) => {
+    try {
+      const overviewService = new SettingsOverviewService();
+      const overview = await overviewService.getOverview();
+      res.json({ success: true, data: overview });
+    } catch (error: any) {
+      console.error('Get system overview error:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch system overview' });
     }
   };
 }

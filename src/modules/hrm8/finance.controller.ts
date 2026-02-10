@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../utils/prisma';
 import { Hrm8AuthenticatedRequest } from '../../types';
+import { FinanceOverviewService } from './finance-overview.service';
 
 /**
  * Finance Controller
@@ -167,6 +168,28 @@ export class FinanceController {
         } catch (error) {
             console.error('Calculate settlement error:', error);
             res.status(500).json({ success: false, error: 'Failed to calculate settlement' });
+        }
+    };
+
+    /**
+     * Get finance overview with aggregated metrics
+     * GET /hrm8/finance/overview
+     */
+    getOverview = async (req: Hrm8AuthenticatedRequest, res: Response): Promise<void> => {
+        try {
+            const financeService = new FinanceOverviewService();
+
+            // Apply regional filtering if user is a regional licensee
+            const regionIds = req.assignedRegionIds && req.assignedRegionIds.length > 0
+                ? req.assignedRegionIds
+                : undefined;
+
+            const overview = await financeService.getOverview(regionIds);
+
+            res.json({ success: true, data: overview });
+        } catch (error) {
+            console.error('Get finance overview error:', error);
+            res.status(500).json({ success: false, error: 'Failed to fetch finance overview' });
         }
     };
 }

@@ -1,5 +1,5 @@
 import { prisma } from '../../utils/prisma';
-import { Prisma, RevenueStatus } from '@prisma/client';
+import { BillStatus, Prisma, RevenueStatus } from '@prisma/client';
 
 export class RevenueRepository {
     async findMany(filters: {
@@ -36,14 +36,62 @@ export class RevenueRepository {
     }
 
     async getCompanyRevenueBreakdown(regionIds?: string[]) {
-        // In legacy, this was a complex raw SQL or aggregate.
-        // For template, we'll return a simplified list.
-        return prisma.company.findMany({
-            where: { region_id: { in: regionIds } },
+        const where: Prisma.CompanyWhereInput = {};
+        if (regionIds && regionIds.length > 0) {
+            where.region_id = { in: regionIds };
+        }
+
+        const companies = await prisma.company.findMany({
+            where,
             select: {
                 id: true,
                 name: true,
-                _count: { select: { jobs: true } }
+                region_id: true,
+                bill: {
+                    where: { status: BillStatus.PAID },
+                    select: {
+                        amount: true,
+                        total_amount: true,
+                        subscription_id: true,
+                        paid_at: true,
+                    },
+                },
+                _count: { select: { jobs: true } },
+            },
+        });
+
+        return companies.map((company) => {
+            const jobRevenue = company.bill.reduce((sum, bill) => {
+                if (bill.subscription_id) return sum;
+                return sum + Number(bill.total_amount ?? bill.amount ?? 0);
+            }, 0);
+
+            const subscriptionRevenue = company.bill.reduce((sum, bill) => {
+                if (!bill.subscription_id) return sum;
+                return sum + Number(bill.total_amount ?? bill.amount ?? 0);
+            }, 0);
+
+            const totalRevenue = jobRevenue + subscriptionRevenue;
+            const hrm8Share = totalRevenue * 0.3;
+            const licenseeShare = totalRevenue - hrm8Share;
+            const paidTimestamps = company.bill
+                .map((bill) => bill.paid_at?.getTime() ?? 0)
+                .filter((timestamp) => timestamp > 0);
+            const lastPaymentAt = paidTimestamps.length > 0
+                ? new Date(Math.max(...paidTimestamps)).toISOString()
+                : null;
+
+            return {
+                id: company.id,
+                name: company.name,
+                region_id: company.region_id,
+                job_revenue: jobRevenue,
+                subscription_revenue: subscriptionRevenue,
+                total_revenue: totalRevenue,
+                licensee_share: licenseeShare,
+                hrm8_share: hrm8Share,
+                active_jobs: company._count.jobs,
+                last_payment_at: lastPaymentAt,
             }
         });
     }

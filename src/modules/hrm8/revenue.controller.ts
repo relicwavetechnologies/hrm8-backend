@@ -15,11 +15,13 @@ export class RevenueController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { regionId, licenseeId, status } = req.query;
+            const regionId = (req.query.regionId || req.query.region_id) as string;
+            const licenseeId = (req.query.licenseeId || req.query.licensee_id) as string;
+            const status = req.query.status as RevenueStatus;
             const result = await this.revenueService.getAll({
-                regionId: regionId as string,
-                licenseeId: licenseeId as string,
-                status: status as RevenueStatus,
+                regionId,
+                licenseeId,
+                status,
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -68,11 +70,12 @@ export class RevenueController extends BaseController {
 
     getDashboard = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { startDate, endDate } = req.query;
+            const startDate = (req.query.startDate || req.query.start_date) as string;
+            const endDate = (req.query.endDate || req.query.end_date) as string;
             const result = await this.revenueService.getDashboard(
                 req.assignedRegionIds,
-                startDate as string,
-                endDate as string
+                startDate,
+                endDate
             );
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -82,11 +85,12 @@ export class RevenueController extends BaseController {
 
     getSummary = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { startDate, endDate } = req.query;
+            const startDate = (req.query.startDate || req.query.start_date) as string;
+            const endDate = (req.query.endDate || req.query.end_date) as string;
             const result = await this.revenueService.getSummary(
                 req.assignedRegionIds,
-                startDate as string,
-                endDate as string
+                startDate,
+                endDate
             );
             return this.sendSuccess(res, result);
         } catch (error) {
