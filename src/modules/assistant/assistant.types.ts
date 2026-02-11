@@ -1,6 +1,17 @@
 import { UserRole } from '@prisma/client';
+import { z } from 'zod';
 
-export type AssistantActorType = 'COMPANY_USER' | 'HRM8_USER';
+export type AssistantActorType = 'COMPANY_USER' | 'HRM8_USER' | 'CONSULTANT';
+
+export enum ToolAccessLevel {
+  GLOBAL_ADMIN = 'GLOBAL_ADMIN',
+  REGIONAL_ADMIN = 'REGIONAL_ADMIN',
+  CONSULTANT = 'CONSULTANT',
+  COMPANY_ADMIN = 'COMPANY_ADMIN',
+  COMPANY_USER = 'COMPANY_USER',
+}
+
+export type DataSensitivity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export interface AssistantCompanyActor {
   actorType: 'COMPANY_USER';
@@ -19,7 +30,26 @@ export interface AssistantHrm8Actor {
   assignedRegionIds?: string[];
 }
 
-export type AssistantActor = AssistantCompanyActor | AssistantHrm8Actor;
+export interface AssistantConsultantActor {
+  actorType: 'CONSULTANT';
+  userId: string;
+  email: string;
+  consultantId: string;
+  regionId: string;
+}
+
+export type AssistantActor = AssistantCompanyActor | AssistantHrm8Actor | AssistantConsultantActor;
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: z.ZodSchema;
+  allowedRoles: ToolAccessLevel[];
+  requiresRegionScope?: boolean;
+  requiresCompanyScope?: boolean;
+  dataSensitivity: DataSensitivity;
+  run: (args: Record<string, unknown>, actor: AssistantActor) => Promise<unknown>;
+}
 
 export interface AssistantMessage {
   role: 'user' | 'assistant';

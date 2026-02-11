@@ -2,7 +2,7 @@ import { BaseService } from '../../core/service';
 import { RegionRepository } from './region.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
-import { RegionOwnerType } from '@prisma/client';
+import { RegionOwnerType, RevenueStatus } from '@prisma/client';
 
 export class RegionService extends BaseService {
     constructor(private regionRepository: RegionRepository) {
@@ -62,6 +62,196 @@ export class RegionService extends BaseService {
             orderBy: { name: 'asc' },
         });
         return regions.map(r => this.mapToDTO(r));
+    }
+
+    async getOverview(filters: { regionIds?: string[] }) {
+        const regionWhere = filters.regionIds && filters.regionIds.length > 0
+            ? { id: { in: filters.regionIds } }
+            : {};
+
+        const regions = await prisma.region.findMany({
+            where: regionWhere,
+            select: {
+                id: true,
+                name: true,
+                code: true,
+                country: true,
+                owner_type: true,
+                is_active: true,
+                licensee_id: true,
+                licensee: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+            },
+            orderBy: { name: 'asc' },
+        });
+
+        if (regions.length === 0) {
+            return {
+                summary: {
+                    total_regions: 0,
+                    active_regions: 0,
+                    inactive_regions: 0,
+                    hrm8_owned_regions: 0,
+                    licensee_owned_regions: 0,
+                    assigned_licensees: 0,
+                    total_companies: 0,
+                    open_jobs: 0,
+                    active_consultants: 0,
+                    total_revenue: 0,
+                    total_licensee_share: 0,
+                    total_hrm8_share: 0,
+                },
+                ownership_distribution: [],
+                country_distribution: [],
+                top_regions: [],
+            };
+        }
+
+        const regionIds = regions.map((region) => region.id);
+
+        const [companiesByRegion, openJobsByRegion, activeConsultantsByRegion, revenueByRegion] = await Promise.all([
+            prisma.company.groupBy({
+                by: ['region_id'],
+                where: { region_id: { in: regionIds } },
+                _count: { id: true },
+            }),
+            prisma.job.groupBy({
+                by: ['region_id'],
+                where: { region_id: { in: regionIds }, status: 'OPEN' as any },
+                _count: { id: true },
+            }),
+            prisma.consultant.groupBy({
+                by: ['region_id'],
+                where: { region_id: { in: regionIds }, status: 'ACTIVE' as any },
+                _count: { id: true },
+            }),
+            prisma.regionalRevenue.groupBy({
+                by: ['region_id'],
+                where: {
+                    region_id: { in: regionIds },
+                    status: { in: [RevenueStatus.CONFIRMED, RevenueStatus.PAID] },
+                },
+                _sum: {
+                    total_revenue: true,
+                    licensee_share: true,
+                    hrm8_share: true,
+                },
+            }),
+        ]);
+
+        const companiesMap = new Map(companiesByRegion.map((row) => [row.region_id, row._count.id || 0]));
+        const openJobsMap = new Map(openJobsByRegion.map((row) => [row.region_id, row._count.id || 0]));
+        const consultantsMap = new Map(activeConsultantsByRegion.map((row) => [row.region_id, row._count.id || 0]));
+        const revenueMap = new Map(
+            revenueByRegion.map((row) => [
+                row.region_id,
+                {
+                    total_revenue: row._sum.total_revenue || 0,
+                    licensee_share: row._sum.licensee_share || 0,
+                    hrm8_share: row._sum.hrm8_share || 0,
+                },
+            ]),
+        );
+
+        const regionRows = regions.map((region) => {
+            const companies = companiesMap.get(region.id) || 0;
+            const openJobs = openJobsMap.get(region.id) || 0;
+            const activeConsultants = consultantsMap.get(region.id) || 0;
+            const revenue = revenueMap.get(region.id) || {
+                total_revenue: 0,
+                licensee_share: 0,
+                hrm8_share: 0,
+            };
+
+            return {
+                id: region.id,
+                code: region.code,
+                name: region.name,
+                country: region.country,
+                owner_type: region.owner_type,
+                is_active: region.is_active,
+                licensee_id: region.licensee_id,
+                licensee_name: region.licensee?.name || null,
+                companies,
+                open_jobs: openJobs,
+                active_consultants: activeConsultants,
+                total_revenue: revenue.total_revenue,
+                licensee_share: revenue.licensee_share,
+                hrm8_share: revenue.hrm8_share,
+            };
+        });
+
+        const summary = regionRows.reduce(
+            (acc, row) => {
+                acc.total_regions += 1;
+                acc.active_regions += row.is_active ? 1 : 0;
+                acc.inactive_regions += row.is_active ? 0 : 1;
+                acc.hrm8_owned_regions += row.owner_type === 'HRM8' ? 1 : 0;
+                acc.licensee_owned_regions += row.owner_type === 'LICENSEE' ? 1 : 0;
+                acc.total_companies += row.companies;
+                acc.open_jobs += row.open_jobs;
+                acc.active_consultants += row.active_consultants;
+                acc.total_revenue += row.total_revenue;
+                acc.total_licensee_share += row.licensee_share;
+                acc.total_hrm8_share += row.hrm8_share;
+                return acc;
+            },
+            {
+                total_regions: 0,
+                active_regions: 0,
+                inactive_regions: 0,
+                hrm8_owned_regions: 0,
+                licensee_owned_regions: 0,
+                total_companies: 0,
+                open_jobs: 0,
+                active_consultants: 0,
+                total_revenue: 0,
+                total_licensee_share: 0,
+                total_hrm8_share: 0,
+            },
+        );
+
+        const assignedLicensees = new Set(
+            regionRows
+                .map((row) => row.licensee_id)
+                .filter((value): value is string => Boolean(value)),
+        );
+
+        const ownershipDistribution = [
+            { owner_type: 'HRM8', count: summary.hrm8_owned_regions },
+            { owner_type: 'LICENSEE', count: summary.licensee_owned_regions },
+        ];
+
+        const countryCount = new Map<string, number>();
+        regionRows.forEach((row) => {
+            countryCount.set(row.country, (countryCount.get(row.country) || 0) + 1);
+        });
+
+        const countryDistribution = Array.from(countryCount.entries())
+            .map(([country, count]) => ({ country, count }))
+            .sort((a, b) => b.count - a.count);
+
+        const topRegions = [...regionRows]
+            .sort((a, b) => {
+                if (b.total_revenue !== a.total_revenue) return b.total_revenue - a.total_revenue;
+                if (b.open_jobs !== a.open_jobs) return b.open_jobs - a.open_jobs;
+                return b.active_consultants - a.active_consultants;
+            })
+            .slice(0, 8);
+
+        return {
+            summary: {
+                ...summary,
+                assigned_licensees: assignedLicensees.size,
+            },
+            ownership_distribution: ownershipDistribution,
+            country_distribution: countryDistribution,
+            top_regions: topRegions,
+        };
     }
 
     async update(id: string, data: any) {

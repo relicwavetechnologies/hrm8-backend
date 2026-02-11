@@ -59,6 +59,8 @@ router.post('/auth/login', hrm8Controller.login);
 router.post('/auth/logout', hrm8Controller.logout);
 router.get('/auth/me', authenticateHrm8, hrm8Controller.getCurrentUser);
 router.put('/auth/change-password', authenticateHrm8, hrm8Controller.changePassword);
+router.get('/profile', authenticateHrm8, hrm8Controller.getProfileDetail);
+router.put('/profile', authenticateHrm8, hrm8Controller.updateProfileDetail);
 
 // Audit Log Routes
 router.get('/audit-logs', authenticateHrm8, auditLogController.getRecent);
@@ -165,6 +167,7 @@ router.post('/pricing/promo-codes/validate', authenticateHrm8, pricingController
 
 // Region Routes
 router.get('/regions', authenticateHrm8, regionController.getAll);
+router.get('/regions/overview', authenticateHrm8, regionController.getOverview);
 router.get('/regions/:id', authenticateHrm8, regionController.getById);
 router.post('/regions', authenticateHrm8, regionController.create);
 router.put('/regions/:id', authenticateHrm8, regionController.update);

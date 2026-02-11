@@ -17,6 +17,7 @@
     "prisma:main:deploy": "sh -c 'set -a; [ -f ./.env.main ] && . ./.env.main; set +a; prisma migrate deploy'"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^1.3.22",
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@prisma/client": "6.19.0",
@@ -36,6 +37,7 @@
     "express": "^5.1.0",
     "express-session": "^1.18.2",
     "googleapis": "^166.0.0",
+    "ai": "^4.3.16",
     "jsonwebtoken": "^9.0.2",
     "mammoth": "^1.11.0",
     "multer": "^2.0.2",
