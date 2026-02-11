@@ -133,6 +133,15 @@ export class ApplicationService extends BaseService {
       }
     }
 
+    // Get the NEW round for this job (default round for new applications)
+    const newRound = await prisma.jobRound.findFirst({
+      where: {
+        job_id: jobId,
+        is_fixed: true,
+        fixed_key: 'NEW'
+      }
+    });
+
     // Extract round progress and map applications
     const roundProgress: Record<string, any> = {};
     const mappedApplications = applications.map(app => {
@@ -142,6 +151,12 @@ export class ApplicationService extends BaseService {
         roundProgress[app.id] = {
           roundId: progress.job_round_id,
           stage: app.stage
+        };
+      } else if (newRound) {
+        // Assign to NEW round if no progress exists
+        roundProgress[app.id] = {
+          roundId: newRound.id,
+          stage: app.stage || 'SCREENING'
         };
       }
       return this.mapApplication(app);
