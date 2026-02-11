@@ -2,6 +2,7 @@ import { BaseService } from '../../core/service';
 import { CompanyRepository } from './company.repository';
 import { Company, CompanyVerificationStatus, VerificationMethod, JobAssignmentMode } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 export class CompanyService extends BaseService {
   constructor(private companyRepository: CompanyRepository) {
@@ -13,6 +14,7 @@ export class CompanyService extends BaseService {
     domain: string;
     website: string;
     countryOrRegion?: string;
+    countryCode?: string;
     acceptedTerms?: boolean;
     verificationStatus?: CompanyVerificationStatus;
     verificationMethod?: VerificationMethod;
@@ -29,7 +31,8 @@ export class CompanyService extends BaseService {
       throw new HttpException(409, `Company with domain "${domain}" already exists.`);
     }
 
-    return this.companyRepository.create({
+    // Create company
+    const company = await this.companyRepository.create({
       name: data.name,
       domain: domain,
       website: data.website,
@@ -45,6 +48,18 @@ export class CompanyService extends BaseService {
       region: data.regionId ? { connect: { id: data.regionId } } : undefined,
       sales_agent: data.salesAgentId ? { connect: { id: data.salesAgentId } } : undefined,
     });
+    
+    // Assign pricing peg and billing currency based on country
+    if (data.countryCode) {
+      try {
+        await CurrencyAssignmentService.assignCurrencyToCompany(company.id, data.countryCode);
+      } catch (error) {
+        console.warn(`Failed to assign currency to company ${company.id}:`, error);
+        // Continue - company will default to USD
+      }
+    }
+    
+    return company;
   }
 
   async updateCompany(id: string, data: any) {

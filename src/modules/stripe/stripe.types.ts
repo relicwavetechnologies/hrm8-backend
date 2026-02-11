@@ -93,6 +93,7 @@ export interface IStripeClient {
 export interface CreateCheckoutSessionParams {
   amount: number;
   description: string;
+  currency?: string;  // Added for multi-currency support
   metadata?: Record<string, string>;
   customerEmail?: string;
   successUrl?: string;

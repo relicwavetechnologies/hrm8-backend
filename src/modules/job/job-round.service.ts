@@ -284,10 +284,6 @@ export class JobRoundService extends BaseService {
   async saveAssessmentConfig(roundId: string, data: any) {
     const round = await this.jobRoundRepository.findById(roundId);
     if (!round) throw new HttpException(404, 'Round not found');
-    const job = await this.jobRepository.findById(round.job_id);
-    if (job && (job as any).setup_type === 'SIMPLE') {
-      throw new HttpException(403, 'Assessment configuration is not available in Simple flow. Use Advanced flow for assessments.');
-    }
     return this.jobRoundRepository.upsertAssessmentConfig(roundId, data);
   }
 }

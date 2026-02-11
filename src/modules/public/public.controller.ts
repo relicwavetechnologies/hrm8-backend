@@ -98,4 +98,28 @@ export class PublicController extends BaseController {
       return this.sendSuccess(res, { success: false });
     }
   };
+
+  getApplicationForm = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const form = await this.publicService.getApplicationForm(jobId);
+
+      if (!form) {
+        return this.sendError(res, new Error('Job not found or no longer available'));
+      }
+
+      return this.sendSuccess(res, { form });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  submitGuestApplication = async (req: Request, res: Response) => {
+    try {
+      const result = await this.publicService.submitGuestApplication(req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
 }

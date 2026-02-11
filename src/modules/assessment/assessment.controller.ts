@@ -70,10 +70,25 @@ export class AssessmentController extends BaseController {
     try {
       const { id } = req.params as { id: string };
       const { grades } = req.body;
-      // Mock grader ID if auth not fully set up in this context, or use req.user.id
       const graderId = (req as any).user?.id || 'system';
       await this.assessmentService.saveGrade(id, grades, graderId);
       return this.sendSuccess(res, { message: 'Grades saved successfully' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  saveVote = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      const { vote, comment } = req.body;
+      const userId = (req as any).user?.id;
+      if (!userId) return this.sendError(res, new Error('User not authenticated'), 401);
+      if (!vote || !['APPROVE', 'REJECT'].includes(vote)) {
+        return this.sendError(res, new Error('vote must be APPROVE or REJECT'), 400);
+      }
+      await this.assessmentService.saveVote(id, vote, comment, userId);
+      return this.sendSuccess(res, { message: 'Vote saved successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
