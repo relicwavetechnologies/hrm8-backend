@@ -53,7 +53,7 @@ export function getAccessLevelFromActor(actor: AssistantActor): ToolAccessLevel 
     }
 
     // Fallback: treat unknown HRM8 roles as regional admin for safety
-    console.warn(`[Role Mapper] Unknown HRM8 role: ${role}, defaulting to REGIONAL_ADMIN`);
+    // console.warn(`[Role Mapper] Unknown HRM8 role: ${role}, defaulting to REGIONAL_ADMIN`);
     return ToolAccessLevel.REGIONAL_ADMIN;
   }
 
@@ -67,17 +67,17 @@ export function getAccessLevelFromActor(actor: AssistantActor): ToolAccessLevel 
     const roleStr = typeof role === 'string' ? role : String(role);
 
     if (roleStr === UserRole.SUPER_ADMIN || roleStr === UserRole.ADMIN ||
-        roleStr === 'SUPER_ADMIN' || roleStr === 'ADMIN') {
+      roleStr === 'SUPER_ADMIN' || roleStr === 'ADMIN') {
       return ToolAccessLevel.COMPANY_ADMIN;
     }
 
     if (roleStr === UserRole.USER || roleStr === UserRole.VISITOR ||
-        roleStr === 'USER' || roleStr === 'VISITOR') {
+      roleStr === 'USER' || roleStr === 'VISITOR') {
       return ToolAccessLevel.COMPANY_USER;
     }
 
     // Fallback: treat unknown company roles as regular user for safety
-    console.warn(`[Role Mapper] Unknown company role: ${roleStr}, defaulting to COMPANY_USER`);
+    // console.warn(`[Role Mapper] Unknown company role: ${roleStr}, defaulting to COMPANY_USER`);
     return ToolAccessLevel.COMPANY_USER;
   }
 
@@ -89,38 +89,38 @@ export function getAccessLevelFromActor(actor: AssistantActor): ToolAccessLevel 
  * Validate that actor has required fields based on type
  */
 export function validateActor(actor: AssistantActor): { valid: boolean; error?: string } {
-  console.log('[RoleMapper] validateActor called with:', {
-    actorType: actor?.actorType,
-    userId: actor?.userId,
-    email: actor?.email,
-    consultantId: actor?.actorType === 'CONSULTANT' ? (actor as any).consultantId : undefined,
-    regionId: actor?.actorType === 'CONSULTANT' ? (actor as any).regionId : undefined,
-  });
+  // console.log('[RoleMapper] validateActor called with:', {
+  //   actorType: actor?.actorType,
+  //   userId: actor?.userId,
+  //   email: actor?.email,
+  //   consultantId: actor?.actorType === 'CONSULTANT' ? (actor as any).consultantId : undefined,
+  //   regionId: actor?.actorType === 'CONSULTANT' ? (actor as any).regionId : undefined,
+  // });
 
   if (!actor || !actor.actorType) {
-    console.error('[RoleMapper] Actor is missing or invalid');
+    // console.error('[RoleMapper] Actor is missing or invalid');
     return { valid: false, error: 'Actor is missing or invalid' };
   }
 
   if (!actor.userId || !actor.email) {
-    console.error('[RoleMapper] Actor missing userId or email');
+    // console.error('[RoleMapper] Actor missing userId or email');
     return { valid: false, error: 'Actor is missing userId or email' };
   }
 
   if (actor.actorType === 'COMPANY_USER') {
     if (!actor.companyId) {
-      console.error('[RoleMapper] Company user missing companyId');
+      // console.error('[RoleMapper] Company user missing companyId');
       return { valid: false, error: 'Company user is missing companyId' };
     }
     if (!actor.role) {
-      console.error('[RoleMapper] Company user missing role');
+      // console.error('[RoleMapper] Company user missing role');
       return { valid: false, error: 'Company user is missing role' };
     }
   }
 
   if (actor.actorType === 'HRM8_USER') {
     if (!actor.role) {
-      console.error('[RoleMapper] HRM8 user missing role');
+      // console.error('[RoleMapper] HRM8 user missing role');
       return { valid: false, error: 'HRM8 user is missing role' };
     }
 
@@ -128,25 +128,25 @@ export function validateActor(actor: AssistantActor): { valid: boolean; error?: 
     const accessLevel = getAccessLevelFromActor(actor);
     if (accessLevel === ToolAccessLevel.REGIONAL_ADMIN) {
       if (!actor.assignedRegionIds || actor.assignedRegionIds.length === 0) {
-        console.error('[RoleMapper] Regional admin has no assigned regions');
+        // console.error('[RoleMapper] Regional admin has no assigned regions');
         return { valid: false, error: 'Regional admin has no assigned regions' };
       }
     }
   }
 
   if (actor.actorType === 'CONSULTANT') {
-    console.log('[RoleMapper] Validating CONSULTANT actor');
+    // console.log('[RoleMapper] Validating CONSULTANT actor');
     if (!actor.consultantId || !actor.regionId) {
-      console.error('[RoleMapper] Consultant missing consultantId or regionId:', {
-        consultantId: actor.consultantId,
-        regionId: actor.regionId,
-      });
+      // console.error('[RoleMapper] Consultant missing consultantId or regionId:', {
+      //   consultantId: actor.consultantId,
+      //   regionId: actor.regionId,
+      // });
       return { valid: false, error: 'Consultant is missing consultantId or regionId' };
     }
-    console.log('[RoleMapper] Consultant validation passed');
+    // console.log('[RoleMapper] Consultant validation passed');
   }
 
-  console.log('[RoleMapper] Actor validation successful');
+  // console.log('[RoleMapper] Actor validation successful');
   return { valid: true };
 }
 

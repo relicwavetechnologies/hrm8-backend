@@ -11,27 +11,27 @@ export class AssistantAccessControl {
    * Uses centralized role mapper to ensure consistency
    */
   static getAccessLevel(actor: AssistantActor): ToolAccessLevel {
-    console.log('[AccessControl] getAccessLevel called for actor:', {
-      actorType: actor.actorType,
-      userId: actor.userId,
-      email: actor.email,
-    });
+    // console.log('[AccessControl] getAccessLevel called for actor:', {
+    //   actorType: actor.actorType,
+    //   userId: actor.userId,
+    //   email: actor.email,
+    // });
 
     // Validate actor first
     const validation = validateActor(actor);
-    console.log('[AccessControl] Actor validation result:', validation);
+    // console.log('[AccessControl] Actor validation result:', validation);
 
     if (!validation.valid) {
-      console.error('[AccessControl] Invalid actor:', validation.error);
+      this.logger.error('[AccessControl] Invalid actor', { error: validation.error });
       this.logger.error('Invalid actor', { error: validation.error, actor });
       throw new Error(`Invalid actor: ${validation.error}`);
     }
 
     const accessLevel = getAccessLevelFromActor(actor);
-    console.log('[AccessControl] Access level determined:', {
-      accessLevel,
-      description: getAccessLevelDescription(accessLevel),
-    });
+    // console.log('[AccessControl] Access level determined:', {
+    //   accessLevel,
+    //   description: getAccessLevelDescription(accessLevel),
+    // });
 
     this.logger.debug('Actor access level determined', {
       actorType: actor.actorType,
@@ -55,20 +55,20 @@ export class AssistantAccessControl {
    * Get allowed tools for actor
    */
   static getAllowedTools(tools: ToolDefinition[], actor: AssistantActor): ToolDefinition[] {
-    console.log('[AccessControl] Getting allowed tools for actor:', {
-      actorType: actor.actorType,
-      userId: actor.userId,
-    });
+    // console.log('[AccessControl] Getting allowed tools for actor:', {
+    //   actorType: actor.actorType,
+    //   userId: actor.userId,
+    // });
 
     const userLevel = this.getAccessLevel(actor);
-    console.log('[AccessControl] User access level:', userLevel);
+    // console.log('[AccessControl] User access level:', userLevel);
 
     const allowedTools = tools.filter((tool) => tool.allowedRoles.includes(userLevel));
-    console.log('[AccessControl] Filtered tools:', {
-      totalTools: tools.length,
-      allowedCount: allowedTools.length,
-      allowedToolNames: allowedTools.map(t => t.name),
-    });
+    // console.log('[AccessControl] Filtered tools:', {
+    //   totalTools: tools.length,
+    //   allowedCount: allowedTools.length,
+    //   allowedToolNames: allowedTools.map(t => t.name),
+    // });
 
     return allowedTools;
   }
@@ -339,9 +339,8 @@ export class AssistantAccessControl {
     }
 
     if (actor.actorType === 'HRM8_USER') {
-      return `HRM8 user. role=${actor.role}, licenseeId=${actor.licenseeId || 'N/A'}, assignedRegionIds=${
-        actor.assignedRegionIds?.join(',') || '[]'
-      }.`;
+      return `HRM8 user. role=${actor.role}, licenseeId=${actor.licenseeId || 'N/A'}, assignedRegionIds=${actor.assignedRegionIds?.join(',') || '[]'
+        }.`;
     }
 
     return 'Unknown scope';
