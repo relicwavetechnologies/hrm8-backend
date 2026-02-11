@@ -94,4 +94,95 @@ export class PublicService extends BaseService {
   async getAggregations() {
     return this.jobRepository.getPublicJobAggregations();
   }
+
+  async getApplicationForm(jobId: string) {
+    const job = await this.jobRepository.findById(jobId);
+    if (!job || job.status !== 'OPEN' || job.visibility !== 'public') {
+      return null;
+    }
+
+    // Return application form configuration
+    return {
+      jobId: job.id,
+      jobTitle: job.title,
+      questions: job.application_form_questions || [],
+      requireResume: job.require_resume !== false,
+      requireCoverLetter: job.require_cover_letter === true,
+      requirePortfolio: job.require_portfolio === true
+    };
+  }
+
+  async submitGuestApplication(data: any) {
+    // Import services
+    const { CandidateRepository } = await import('../candidate/candidate.repository');
+    const { ApplicationRepository } = await import('../application/application.repository');
+    const bcrypt = await import('bcrypt');
+    const candidateRepository = new CandidateRepository();
+    const applicationRepository = new ApplicationRepository();
+
+    const { 
+      jobId, 
+      email, 
+      password,
+      firstName, 
+      lastName, 
+      phone,
+      resumeUrl,
+      coverLetterUrl,
+      portfolioUrl,
+      answers
+    } = data;
+
+    // Validate job exists and is open
+    const job = await this.jobRepository.findById(jobId);
+    if (!job) {
+      throw new Error('Job not found');
+    }
+    if (job.status !== 'OPEN') {
+      throw new Error('Job is not accepting applications');
+    }
+
+    // Check if candidate exists
+    let candidate = await candidateRepository.findByEmail(email.toLowerCase());
+    
+    if (candidate) {
+      throw new Error('An account with this email already exists. Please login to apply.');
+    }
+
+    // Create new candidate account
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    candidate = await candidateRepository.create({
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      first_name: firstName,
+      last_name: lastName,
+      phone: phone || null,
+      status: 'ACTIVE',
+      email_verified: false
+    });
+
+    // Create application
+    const application = await applicationRepository.create({
+      candidate_id: candidate.id,
+      job_id: jobId,
+      company_id: job.company_id,
+      status: 'SUBMITTED',
+      stage: 'SCREENING',
+      resume_url: resumeUrl || null,
+      cover_letter_url: coverLetterUrl || null,
+      portfolio_url: portfolioUrl || null,
+      answers: answers || {}
+    });
+
+    return {
+      application,
+      candidate: {
+        id: candidate.id,
+        email: candidate.email,
+        firstName: candidate.first_name,
+        lastName: candidate.last_name
+      }
+    };
+  }
 }

@@ -12,7 +12,7 @@ import { Logger } from '../../utils/logger';
 export class StripeService {
   private static logger = Logger.create('stripe:service');
   /**
-   * Create a checkout session for wallet recharge
+   * Create a checkout session for wallet recharge with multi-currency support
    */
   static async createCheckoutSession(params: CreateCheckoutSessionParams): Promise<{
     sessionId: string;
@@ -24,6 +24,7 @@ export class StripeService {
     const {
       amount,
       description,
+      currency = 'usd',  // ✅ Multi-currency support
       metadata = {},
       customerEmail,
       successUrl,
@@ -37,6 +38,16 @@ export class StripeService {
 
     // Convert to cents if needed (Stripe expects cents)
     const amountInCents = amount;
+    
+    // Currency symbol mapping
+    const currencySymbols: Record<string, string> = {
+      'usd': '$',
+      'aud': 'A$',
+      'gbp': '£',
+      'eur': '€',
+      'inr': '₹'
+    };
+    const symbol = currencySymbols[currency.toLowerCase()] || currency.toUpperCase();
 
     try {
       const session = await stripe.checkout.sessions.create({
@@ -45,10 +56,10 @@ export class StripeService {
         line_items: [
           {
             price_data: {
-              currency: 'usd',
+              currency: currency.toLowerCase(),  // ✅ Dynamic currency
               product_data: {
                 name: description || 'Wallet Recharge',
-                description: `Add $${(amountInCents / 100).toFixed(2)} to wallet`,
+                description: `Add ${symbol}${(amountInCents / 100).toFixed(2)} to wallet`,
               },
               unit_amount: amountInCents,
             },
@@ -60,6 +71,7 @@ export class StripeService {
         metadata: {
           ...metadata,
           amount: amountInCents.toString(),
+          currency: currency.toUpperCase(),  // ✅ Store for webhook
         },
         customer_email: customerEmail,
       });

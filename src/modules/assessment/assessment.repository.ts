@@ -66,6 +66,13 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async findJobRoundWithEmailConfig(jobRoundId: string) {
+    return this.prisma.jobRound.findUnique({
+      where: { id: jobRoundId },
+      select: { email_config: true }
+    });
+  }
+
   async findByRoundIdWithDetails(roundId: string) {
     return this.prisma.assessment.findMany({
       where: { job_round_id: roundId },
@@ -199,12 +206,30 @@ export class AssessmentRepository extends BaseRepository {
             }
           }
         },
+        assessment_vote: {
+          include: { user: true }
+        },
         application: {
           include: {
             candidate: true
           }
         }
       }
+    });
+  }
+
+  async upsertAssessmentVote(assessmentId: string, userId: string, vote: string, comment?: string) {
+    return this.prisma.assessmentVote.upsert({
+      where: {
+        assessment_id_user_id: { assessment_id: assessmentId, user_id: userId }
+      },
+      create: {
+        assessment_id: assessmentId,
+        user_id: userId,
+        vote,
+        comment: comment ?? null
+      },
+      update: { vote, comment: comment ?? undefined }
     });
   }
 

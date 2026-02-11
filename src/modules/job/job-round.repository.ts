@@ -150,6 +150,9 @@ export class JobRoundRepository extends BaseRepository {
                 auto_move_on_pass: data.auto_move_on_pass ?? data.autoMoveOnPass ?? false,
                 auto_reject_on_fail: data.auto_reject_on_fail ?? data.autoRejectOnFail ?? false,
                 auto_reject_on_deadline: data.auto_reject_on_deadline ?? data.autoRejectOnDeadline ?? false,
+                evaluation_mode: data.evaluation_mode ?? data.evaluationMode ?? 'GRADING',
+                voting_rule: data.voting_rule ?? data.votingRule,
+                min_approvals_count: data.min_approvals_count ?? data.minApprovalsCount,
             },
             update: {
                 enabled: data.enabled,
@@ -164,6 +167,9 @@ export class JobRoundRepository extends BaseRepository {
                 auto_move_on_pass: data.auto_move_on_pass ?? data.autoMoveOnPass,
                 auto_reject_on_fail: data.auto_reject_on_fail ?? data.autoRejectOnFail,
                 auto_reject_on_deadline: data.auto_reject_on_deadline ?? data.autoRejectOnDeadline,
+                evaluation_mode: data.evaluation_mode ?? data.evaluationMode,
+                voting_rule: data.voting_rule ?? data.votingRule,
+                min_approvals_count: data.min_approvals_count ?? data.minApprovalsCount,
             },
         });
     }

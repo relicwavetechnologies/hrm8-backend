@@ -7,6 +7,9 @@ import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
 import { EmailService } from '../email/email.service';
 import { emailService } from '../email/email.service';
+import { SalaryBandService } from '../pricing/salary-band.service';
+import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
+import { jobPaymentService } from './job-payment.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
 import { env } from '../../config/env';
@@ -33,12 +36,16 @@ export class JobService extends BaseService {
 
     console.log('[JobService] createJob received data:', JSON.stringify(data, null, 2));
 
+    // Determine if this should be published immediately
+    const publishImmediately = data.publishImmediately !== false; // Default to true unless explicitly set to false
+    const servicePackage = data.servicePackage || data.hiringMode || 'full-service';
+
     const jobPayload = {
       // Explicitly map all fields to ensure no data loss
       company: { connect: { id: companyId } },
       creator: { connect: { id: createdBy } },
       job_code: jobCode,
-      status: 'DRAFT' as JobStatus,
+      status: publishImmediately ? 'OPEN' : 'DRAFT' as JobStatus, // ✅ Publish immediately
       assignment_mode: assignmentMode as AssignmentMode,
 
       title: data.title,
@@ -73,6 +80,7 @@ export class JobService extends BaseService {
       // Logistic
       close_date: data.closeDate,
       visibility: data.visibility || 'public',
+      posting_date: publishImmediately ? new Date() : null, // ✅ Set posting date
 
       // Post-job setup flow (Simple vs Advanced)
       ...(data.setupType && { setup_type: data.setupType.toUpperCase() === 'SIMPLE' ? 'SIMPLE' : 'ADVANCED' }),
@@ -89,6 +97,62 @@ export class JobService extends BaseService {
       { name: 'Recruiter', isDefault: true },
       { name: 'Interviewer', isDefault: true },
     ]);
+    
+    // Process payment if publishing immediately
+    if (publishImmediately && data.salaryMax && jobPaymentService) {
+      try {
+        // Calculate pricing
+        const bandInfo = await SalaryBandService.determineJobBand(companyId, data.salaryMax);
+        console.log('[JobService] Pricing calculated for job:', {
+          jobId: job.id,
+          isExecutiveSearch: bandInfo.isExecutiveSearch,
+          band: bandInfo.band,
+          price: bandInfo.price,
+          currency: bandInfo.currency
+        });
+        
+        // Process payment from wallet
+        const paymentResult = await jobPaymentService.payForJobFromWallet(
+          companyId,
+          job.id,
+          data.salaryMax,
+          servicePackage,
+          createdBy
+        );
+        
+        if (paymentResult.success) {
+          console.log('[JobService] ✅ Payment processed successfully for job:', job.id);
+        } else {
+          console.warn('[JobService] ⚠️  Payment failed, job created as DRAFT:', paymentResult.error);
+          // Update job back to DRAFT if payment fails
+          await this.jobRepository.update(job.id, { 
+            status: 'DRAFT',
+            posting_date: null
+          });
+        }
+      } catch (error) {
+        console.error('[JobService] Payment processing error:', error);
+        // Update job back to DRAFT if payment fails
+        await this.jobRepository.update(job.id, { 
+          status: 'DRAFT',
+          posting_date: null
+        });
+      }
+    } else if (data.salaryMax && data.salaryMax > 0) {
+      // Just calculate pricing for display (no payment)
+      try {
+        const bandInfo = await SalaryBandService.determineJobBand(companyId, data.salaryMax);
+        console.log('[JobService] Pricing calculated (no payment):', {
+          jobId: job.id,
+          isExecutiveSearch: bandInfo.isExecutiveSearch,
+          band: bandInfo.band,
+          price: bandInfo.price,
+          currency: bandInfo.currency
+        });
+      } catch (error) {
+        console.warn('[JobService] Failed to calculate job pricing:', error);
+      }
+    }
 
     return this.mapToResponse(job);
   }

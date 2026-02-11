@@ -17,6 +17,7 @@ router.post('/:token/submit', assessmentController.submitAssessment);
 // Recruiter routes
 router.get('/:id/grading', authenticate, assessmentController.getGrading);
 router.post('/:id/grade', authenticate, assessmentController.saveGrade);
+router.post('/:id/vote', authenticate, assessmentController.saveVote);
 router.post('/:id/comment', authenticate, assessmentController.saveComment);
 router.post('/:id/finalize', authenticate, assessmentController.finalizeAssessment);
 

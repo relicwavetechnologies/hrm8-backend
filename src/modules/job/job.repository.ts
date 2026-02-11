@@ -162,12 +162,30 @@ export class JobRepository extends BaseRepository {
       status: 'OPEN',
       visibility: 'public',
       archived: false,
+      NOT: {
+        posting_date: null // Only show jobs with posting dates
+      },
+      ...filters
+    };
+
+    // Properly merge OR clauses to avoid override
+    const expiresAtCondition = {
       OR: [
         { expires_at: null },
         { expires_at: { gte: new Date() } }
-      ],
-      ...filters
+      ]
     };
+
+    if (where.OR) {
+      // If filters already has OR (e.g., search), combine with AND
+      where.AND = [
+        { OR: where.OR }, // Search OR conditions
+        expiresAtCondition // Expires_at OR condition
+      ];
+      delete where.OR;
+    } else {
+      where.OR = expiresAtCondition.OR;
+    }
 
     const [jobs, total] = await Promise.all([
       this.prisma.job.findMany({

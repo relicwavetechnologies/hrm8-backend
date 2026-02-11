@@ -2,9 +2,14 @@ import { PaymentStatus, VirtualTransactionType } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { BaseService } from '../../core/service';
 import { WalletService } from '../wallet/wallet.service';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
+import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
+import { SalaryBandService } from '../pricing/salary-band.service';
 
 export type ServicePackage = 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search';
 
+// Legacy hardcoded prices - kept for backward compatibility but not used
+// Use getJobPrice() for dynamic pricing
 export const UPGRADE_PRICE_MAP = {
     shortlisting: { amount: 1990, currency: 'usd', label: 'Shortlisting' },
     full_service: { amount: 5990, currency: 'usd', label: 'Full Service' },
@@ -13,7 +18,61 @@ export const UPGRADE_PRICE_MAP = {
 
 export class JobPaymentService extends BaseService {
     /**
-     * Get payment amount for a service package
+     * Get dynamic price for job posting based on salary and service type
+     * Uses regional pricing and salary band detection
+     */
+    static async getJobPrice(
+      companyId: string,
+      salaryMax: number,
+      serviceType: 'shortlisting' | 'full-service' | 'executive-search'
+    ): Promise<{ 
+      price: number; 
+      currency: string; 
+      productCode: string; 
+      band?: string;
+      priceBookId: string;
+      priceBookVersion: string;
+    }> {
+      // Check if executive search based on salary
+      const bandInfo = await SalaryBandService.determineJobBand(companyId, salaryMax);
+      
+      if (bandInfo.isExecutiveSearch && serviceType === 'executive-search') {
+        // Use salary-band based pricing
+        const priceBook = await PriceBookSelectionService.getEffectivePriceBook(companyId);
+        return {
+          price: bandInfo.price!,
+          currency: bandInfo.currency!,
+          productCode: bandInfo.productCode!,
+          band: bandInfo.band,
+          priceBookId: priceBook.id,
+          priceBookVersion: priceBook.version || '2026-Q1',
+        };
+      }
+      
+      // Use standard recruitment pricing
+      const serviceTypeMap: Record<string, any> = {
+        'shortlisting': 'SHORTLISTING',
+        'full-service': 'FULL',
+        'executive-search': 'EXEC_BAND_1' // Lowest band if not qualified
+      };
+      
+      const result = await PriceBookSelectionService.getRecruitmentPrice(
+        companyId,
+        serviceTypeMap[serviceType]
+      );
+      
+      return {
+        price: result.price,
+        currency: result.currency,
+        productCode: result.tier.product.code,
+        priceBookId: result.priceBook.id,
+        priceBookVersion: result.priceBook.version || '2026-Q1',
+      };
+    }
+
+    /**
+     * Get payment amount for a service package (legacy)
+     * @deprecated Use getJobPrice() for dynamic pricing
      */
     static getPaymentAmount(servicePackage: ServicePackage | string): { amount: number; currency: string } | null {
         if (servicePackage === 'self-managed') {
@@ -46,65 +105,90 @@ export class JobPaymentService extends BaseService {
     }
 
     /**
-     * Process payment for a job from wallet
+     * Process payment for a job from wallet with dynamic regional pricing
      */
-    async payForJobFromWallet(companyId: string, jobId: string, servicePackage: ServicePackage | string, userId: string): Promise<{ success: boolean; error?: string }> {
-        const paymentInfo = JobPaymentService.getPaymentAmount(servicePackage);
-
-        // If free, no payment needed
-        if (!paymentInfo || paymentInfo.amount === 0) {
+    async payForJobFromWallet(
+      companyId: string,
+      jobId: string,
+      salaryMax: number,
+      servicePackage: 'shortlisting' | 'full-service' | 'executive-search',
+      userId: string
+    ): Promise<{ success: boolean; error?: string; pricing?: any }> {
+        // Self-managed is free
+        if (servicePackage === 'self-managed') {
             return { success: true };
         }
 
         try {
+            // Get dynamic pricing
+            const pricing = await JobPaymentService.getJobPrice(
+              companyId,
+              salaryMax,
+              servicePackage
+            );
+            
+            // Get currency info
+            const { pricingPeg, billingCurrency } = 
+              await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+            
+            // Validate currency lock
+            await CurrencyAssignmentService.validateCurrencyLock(
+              companyId,
+              pricing.currency
+            );
+            
             return await prisma.$transaction(async (tx) => {
                 // 1. Get account
                 const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
 
                 // 2. Check balance
-                if (account.balance < paymentInfo.amount) {
-                    throw new Error(`Insufficient wallet balance. Required: $${paymentInfo.amount.toFixed(2)}, Available: $${account.balance.toFixed(2)}.`);
+                if (account.balance < pricing.price) {
+                    throw new Error(
+                      `Insufficient wallet balance. ` +
+                      `Required: ${pricing.currency} ${pricing.price.toFixed(2)}, ` +
+                      `Available: ${pricing.currency} ${account.balance.toFixed(2)}`
+                    );
                 }
 
-                // 3. Debit account
-                await tx.virtualTransaction.create({
-                    data: {
-                        virtual_account_id: account.id,
-                        type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
-                        amount: paymentInfo.amount,
-                        balance_after: account.balance - paymentInfo.amount,
-                        direction: 'DEBIT',
-                        status: 'COMPLETED',
-                        description: `Job posting payment (${servicePackage})`,
-                        reference_type: 'JOB',
-                        reference_id: jobId,
-                        created_by: userId
-                    }
+                // 3. Debit account with pricing metadata
+                await WalletService.debitAccount({
+                  accountId: account.id,
+                  amount: pricing.price,
+                  type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
+                  description: `Job posting payment (${servicePackage}${pricing.band ? ` - ${pricing.band}` : ''})`,
+                  referenceType: 'JOB',
+                  referenceId: jobId,
+                  createdBy: userId,
+                  pricingPeg,
+                  billingCurrency: pricing.currency,
+                  priceBookId: pricing.priceBookId,
+                  priceBookVersion: pricing.priceBookVersion,
                 });
-
-                await tx.virtualAccount.update({
-                    where: { id: account.id },
-                    data: {
-                        balance: { decrement: paymentInfo.amount },
-                        total_debits: { increment: paymentInfo.amount }
-                    }
-                });
+                
+                // Lock currency on first transaction
+                try {
+                  await CurrencyAssignmentService.lockCurrency(companyId);
+                } catch (error) {
+                  // Already locked - continue
+                }
 
                 // 4. Update job payment status
                 await tx.job.update({
                     where: { id: jobId },
                     data: {
                         payment_status: 'PAID',
-                        payment_amount: paymentInfo.amount,
-                        payment_currency: paymentInfo.currency,
+                        payment_amount: pricing.price,
+                        payment_currency: pricing.currency,
                         payment_completed_at: new Date(),
                     }
                 });
 
-                return { success: true };
+                console.log(`✅ Job payment processed: ${pricing.currency} ${pricing.price}${pricing.band ? ` (${pricing.band})` : ''}`);
+
+                return { success: true, pricing };
             });
         } catch (error: any) {
-            console.error('Wallet payment failed:', error);
+            console.error('Job payment failed:', error);
             return { success: false, error: error.message || 'Payment failed' };
         }
     }

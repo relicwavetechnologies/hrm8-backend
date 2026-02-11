@@ -5,12 +5,14 @@ import {
   SubscriptionStatus, 
   VirtualTransactionType 
 } from '@prisma/client';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
+import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
 
 export interface CreateSubscriptionInput {
   companyId: string;
   planType: SubscriptionPlanType;
   name: string;
-  basePrice: number;
+  basePrice?: number;  // Optional - will be fetched from price book if not provided
   billingCycle: 'MONTHLY' | 'ANNUAL';
   jobQuota?: number | null;
   discountPercent?: number;
@@ -22,14 +24,14 @@ export interface CreateSubscriptionInput {
 
 export class SubscriptionService {
   /**
-   * Create a new subscription
+   * Create a new subscription with dynamic regional pricing
    */
   static async createSubscription(input: CreateSubscriptionInput) {
     const {
       companyId,
       planType,
       name,
-      basePrice,
+      basePrice: providedBasePrice,
       billingCycle,
       jobQuota,
       discountPercent = 0,
@@ -40,6 +42,31 @@ export class SubscriptionService {
     } = input;
 
     return await prisma.$transaction(async (tx) => {
+      // 1. Get company currency information
+      const { pricingPeg, billingCurrency } = 
+        await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+      
+      // 2. Get subscription price from price book (regional pricing)
+      let basePrice = providedBasePrice;
+      let priceBookId: string | undefined;
+      let priceBookVersion: string | undefined;
+      
+      if (!basePrice) {
+        // Fetch price from price book
+        const pricing = await PriceBookSelectionService.getSubscriptionPrice(
+          companyId,
+          planType
+        );
+        basePrice = pricing.price;
+        priceBookId = pricing.priceBook.id;
+        priceBookVersion = pricing.priceBook.version;
+      } else {
+        // Get price book for audit even if price provided
+        const priceBook = await PriceBookSelectionService.getEffectivePriceBook(companyId);
+        priceBookId = priceBook.id;
+        priceBookVersion = priceBook.version;
+      }
+      
       // Calculate end date
       const endDate = new Date(startDate);
       if (billingCycle === 'MONTHLY') {
@@ -49,7 +76,7 @@ export class SubscriptionService {
       }
       const renewalDate = new Date(endDate);
 
-      // Create subscription
+      // Create subscription with dynamic pricing
       const subscription = await tx.subscription.create({
         data: {
           company_id: companyId,
@@ -57,7 +84,7 @@ export class SubscriptionService {
           plan_type: planType,
           status: SubscriptionStatus.ACTIVE,
           base_price: basePrice,
-          currency: 'USD',
+          currency: billingCurrency,  // ✅ Dynamic currency
           billing_cycle: billingCycle,
           discount_percent: discountPercent,
           start_date: startDate,
@@ -75,19 +102,21 @@ export class SubscriptionService {
       // Get or create wallet
       const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
 
-      // Credit wallet with subscription value (prepaid balance logic)
-      // Note: The original logic credited the wallet. This implies the subscription purchase *loads* the wallet.
-      // Or does it charge it? "Credit the virtual wallet with subscription amount" -> Deposit.
-      // Usually you pay for a subscription and get credits.
-      
+      // Credit wallet with subscription value with pricing metadata
       await WalletService.creditAccount({
         accountId: account.id,
         amount: basePrice,
         type: VirtualTransactionType.SUBSCRIPTION_PURCHASE,
-        description: `${name} subscription purchase`,
+        description: `${name} subscription purchase (${billingCurrency} ${basePrice})`,
         referenceType: 'SUBSCRIPTION',
         referenceId: subscription.id,
+        pricingPeg,
+        billingCurrency,
+        priceBookId,
+        priceBookVersion,
       });
+
+      console.log(`✅ Subscription created with regional pricing: ${billingCurrency} ${basePrice} (peg: ${pricingPeg})`);
 
       return subscription;
     });
@@ -111,7 +140,7 @@ export class SubscriptionService {
   }
 
   static async processJobPosting(companyId: string, jobTitle: string, userId: string) {
-    // Logic to deduct job cost
+    // Logic to deduct job cost from subscription quota
     // 1. Find active subscription
     const subscription = await this.getActiveSubscription(companyId);
     if (!subscription) throw new Error('No active subscription');
@@ -127,17 +156,24 @@ export class SubscriptionService {
         jobCost = subscription.base_price / subscription.job_quota;
     }
 
-    // 4. Deduct from wallet
+    // 4. Deduct from wallet with currency info
     if (jobCost > 0) {
         const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
+        
+        // Get currency info for audit
+        const { pricingPeg, billingCurrency } = 
+          await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+        
         await WalletService.debitAccount({
             accountId: account.id,
             amount: jobCost,
             type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
-            description: `Job posting: ${jobTitle}`,
-            referenceType: 'JOB', // or SUBSCRIPTION
+            description: `Job posting from subscription quota: ${jobTitle}`,
+            referenceType: 'SUBSCRIPTION',
             referenceId: subscription.id,
-            createdBy: userId
+            createdBy: userId,
+            pricingPeg,
+            billingCurrency: subscription.currency || billingCurrency,
         });
     }
 

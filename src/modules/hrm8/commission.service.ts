@@ -10,10 +10,11 @@ export interface AwardCommissionInput {
     jobId?: string;
     subscriptionId?: string;
     type: CommissionType;
-    amount: number;
+    amount?: number;  // Optional - can be calculated from job/subscription
     rate?: number;
     description?: string;
     expiryDate?: Date;
+    calculateFromJob?: boolean;  // If true, calculate from job's actual payment
 }
 
 export interface RequestWithdrawalInput {
@@ -84,10 +85,78 @@ export class CommissionService extends BaseService {
         return this.mapToDTO(commission);
     }
 
-    async create(input: AwardCommissionInput) {
-        const { consultantId, amount, type, jobId, subscriptionId, description } = input;
+    /**
+     * Award commission based on regional pricing
+     * Calculates commission from job/subscription payment amount
+     */
+    async awardCommissionForPayment(
+        consultantId: string,
+        type: CommissionType,
+        jobId?: string,
+        subscriptionId?: string,
+        customRate?: number
+    ) {
+        return this.create({
+            consultantId,
+            type,
+            jobId,
+            subscriptionId,
+            calculateFromJob: true,
+            rate: customRate,
+        });
+    }
 
-        if (amount <= 0) throw new HttpException(400, 'Commission amount must be positive');
+    async create(input: AwardCommissionInput) {
+        const { 
+            consultantId, 
+            amount: providedAmount, 
+            type, 
+            jobId, 
+            subscriptionId, 
+            description,
+            rate,
+            calculateFromJob = false
+        } = input;
+
+        // Calculate amount if needed
+        let amount = providedAmount;
+        let commissionCurrency = 'USD';
+        let commissionRate = rate;
+        
+        if (calculateFromJob && (jobId || subscriptionId)) {
+            // Fetch payment details to calculate commission
+            if (jobId) {
+                const job = await prisma.job.findUnique({
+                    where: { id: jobId },
+                    select: { payment_amount: true, payment_currency: true }
+                });
+                if (job && job.payment_amount) {
+                    const consultant = await prisma.consultant.findUnique({
+                        where: { id: consultantId },
+                        select: { default_commission_rate: true }
+                    });
+                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    amount = job.payment_amount * commissionRate;
+                    commissionCurrency = job.payment_currency || 'USD';
+                }
+            } else if (subscriptionId) {
+                const subscription = await prisma.subscription.findUnique({
+                    where: { id: subscriptionId },
+                    select: { base_price: true, currency: true }
+                });
+                if (subscription && subscription.base_price) {
+                    const consultant = await prisma.consultant.findUnique({
+                        where: { id: consultantId },
+                        select: { default_commission_rate: true }
+                    });
+                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    amount = subscription.base_price * commissionRate;
+                    commissionCurrency = subscription.currency || 'USD';
+                }
+            }
+        }
+
+        if (!amount || amount <= 0) throw new HttpException(400, 'Commission amount must be positive');
 
         return this.commissionRepository.transaction(async (tx) => {
             // Need to fetch consultant for region_id. Using global prisma for now inside tx context if possible or assume tx has access
