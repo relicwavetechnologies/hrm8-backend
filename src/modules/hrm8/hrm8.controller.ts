@@ -72,6 +72,26 @@ export class Hrm8Controller extends BaseController {
     }
   };
 
+  getProfileDetail = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.hrm8User) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.hrm8Service.getProfileDetail(req.hrm8User.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateProfileDetail = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.hrm8User) return this.sendError(res, new Error('Not authenticated'));
+      const result = await this.hrm8Service.updateProfileDetail(req.hrm8User.id, req.body || {});
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   /**
    * Get system overview with aggregated metrics
    * GET /hrm8/settings/overview

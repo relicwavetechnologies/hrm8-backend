@@ -71,4 +71,27 @@ export class Hrm8Repository extends BaseRepository {
       where: { licensee_id: licenseeId },
     });
   }
+
+  async findLicenseeById(licenseeId: string) {
+    return this.prisma.regionalLicensee.findUnique({
+      where: { id: licenseeId },
+      include: {
+        regions: {
+          orderBy: [{ country: 'asc' }, { name: 'asc' }],
+        },
+      },
+    });
+  }
+
+  async updateLicensee(licenseeId: string, data: Prisma.RegionalLicenseeUpdateInput) {
+    return this.prisma.regionalLicensee.update({
+      where: { id: licenseeId },
+      data,
+      include: {
+        regions: {
+          orderBy: [{ country: 'asc' }, { name: 'asc' }],
+        },
+      },
+    });
+  }
 }
