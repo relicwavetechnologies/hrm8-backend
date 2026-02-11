@@ -23,7 +23,8 @@ export class JobController extends BaseController {
     this.jobService = new JobService(
       new JobRepository(),
       new ApplicationRepository(),
-      new NotificationService(new NotificationRepository())
+      new NotificationService(new NotificationRepository()),
+      this.jobRoundService
     );
     this.jobRoundService = new JobRoundService(
       new JobRoundRepository(),
