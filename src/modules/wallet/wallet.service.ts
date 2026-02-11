@@ -7,6 +7,8 @@ import {
   TransactionStatus
 } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
+import { PricingAuditService } from '../pricing/pricing-audit.service';
 
 export class WalletService {
   /**
@@ -134,6 +136,10 @@ export class WalletService {
     referenceId?: string;
     referenceType?: string;
     createdBy?: string;
+    pricingPeg?: string;
+    billingCurrency?: string;
+    priceBookId?: string;
+    priceBookVersion?: string;
   }) {
     if (params.amount <= 0) {
       throw new HttpException(400, 'Amount must be positive');
@@ -142,6 +148,15 @@ export class WalletService {
     return prisma.$transaction(async (tx) => {
       const account = await tx.virtualAccount.findUnique({ where: { id: params.accountId } });
       if (!account) throw new HttpException(404, 'Account not found');
+      
+      // Lock currency on first transaction for companies
+      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
+        try {
+          await CurrencyAssignmentService.lockCurrency(account.owner_id);
+        } catch (error) {
+          // Already locked or error - continue
+        }
+      }
 
       const newBalance = account.balance + params.amount;
 
@@ -156,7 +171,11 @@ export class WalletService {
           description: params.description,
           reference_id: params.referenceId,
           reference_type: params.referenceType,
-          created_by: params.createdBy
+          created_by: params.createdBy,
+          pricing_peg_used: params.pricingPeg,
+          billing_currency_used: params.billingCurrency,
+          price_book_id: params.priceBookId,
+          price_book_version: params.priceBookVersion
         }
       });
 
@@ -183,6 +202,10 @@ export class WalletService {
     referenceId?: string;
     referenceType?: string;
     createdBy?: string;
+    pricingPeg?: string;
+    billingCurrency?: string;
+    priceBookId?: string;
+    priceBookVersion?: string;
   }) {
     if (params.amount <= 0) {
       throw new HttpException(400, 'Amount must be positive');
@@ -191,9 +214,26 @@ export class WalletService {
     return prisma.$transaction(async (tx) => {
       const account = await tx.virtualAccount.findUnique({ where: { id: params.accountId } });
       if (!account) throw new HttpException(404, 'Account not found');
+      
+      // Validate currency lock for companies
+      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
+        await CurrencyAssignmentService.validateCurrencyLock(
+          account.owner_id,
+          params.billingCurrency
+        );
+      }
 
       if (account.balance < params.amount) {
         throw new HttpException(400, 'Insufficient balance');
+      }
+      
+      // Lock currency on first transaction for companies
+      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
+        try {
+          await CurrencyAssignmentService.lockCurrency(account.owner_id);
+        } catch (error) {
+          // Already locked - continue
+        }
       }
 
       const newBalance = account.balance - params.amount;
@@ -209,7 +249,11 @@ export class WalletService {
           description: params.description,
           reference_id: params.referenceId,
           reference_type: params.referenceType,
-          created_by: params.createdBy
+          created_by: params.createdBy,
+          pricing_peg_used: params.pricingPeg,
+          billing_currency_used: params.billingCurrency,
+          price_book_id: params.priceBookId,
+          price_book_version: params.priceBookVersion
         }
       });
 

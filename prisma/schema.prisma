@@ -35,6 +35,12 @@ model Company {
   attribution_locked      Boolean                    @default(false) @map("attribution_locked")
   attribution_locked_at   DateTime?                  @map("attribution_locked_at")
   sales_agent_id          String?                    @map("sales_agent_id")
+  // Global Pricing Fields
+  pricing_peg             String?                    @default("USD") @map("pricing_peg")
+  billing_currency        String?                    @default("USD") @map("billing_currency")
+  currency_locked_at      DateTime?                  @map("currency_locked_at")
+  country                 String?                    @map("country")
+  region_code             String?                    @map("region_code")
   careers_page_about      String?                    @map("careers_page_about")
   careers_page_banner     String?                    @map("careers_page_banner")
   careers_page_logo       String?                    @map("careers_page_logo")
@@ -65,6 +71,7 @@ model Company {
   verification_tokens     VerificationToken[]
   conversion_requests     LeadConversionRequest[]
   refund_requests         TransactionRefundRequest[]
+  enterprise_overrides    EnterpriseOverride[]
 
   @@index([domain])
   @@index([verification_status])
@@ -2114,36 +2121,52 @@ model Product {
 }
 
 model PriceBook {
-  id          String      @id @default(uuid())
-  name        String
-  description String?
-  is_global   Boolean     @default(false) @map("is_global")
-  region_id   String?     @map("region_id")
-  currency    String      @default("USD")
-  is_active   Boolean     @default(true) @map("is_active")
-  created_at  DateTime    @default(now()) @map("created_at")
-  updated_at  DateTime    @default(now()) @updatedAt @map("updated_at")
-  companies   Company[]
-  region      Region?     @relation(fields: [region_id], references: [id])
-  tiers       PriceTier[]
+  id                    String                @id @default(uuid())
+  name                  String
+  description           String?
+  is_global             Boolean               @default(false) @map("is_global")
+  region_id             String?               @map("region_id")
+  currency              String                @default("USD")
+  is_active             Boolean               @default(true) @map("is_active")
+  created_at            DateTime              @default(now()) @map("created_at")
+  updated_at            DateTime              @default(now()) @updatedAt @map("updated_at")
+  // Global Pricing Fields
+  pricing_peg           String?               @map("pricing_peg")
+  billing_currency      String?               @map("billing_currency")
+  version               String?
+  effective_from        DateTime?             @map("effective_from")
+  effective_to          DateTime?             @map("effective_to")
+  is_approved           Boolean               @default(false) @map("is_approved")
+  approved_by           String?               @map("approved_by")
+  approved_at           DateTime?             @map("approved_at")
+  companies             Company[]
+  region                Region?               @relation(fields: [region_id], references: [id])
+  tiers                 PriceTier[]
+  enterprise_overrides  EnterpriseOverride[]
 
   @@index([region_id])
   @@index([is_global])
+  @@index([pricing_peg])
+  @@index([is_approved])
 }
 
 model PriceTier {
-  id            String    @id @default(uuid())
-  price_book_id String    @map("price_book_id")
-  product_id    String    @map("product_id")
-  name          String
-  min_quantity  Int       @default(1) @map("min_quantity")
-  max_quantity  Int?      @map("max_quantity")
-  unit_price    Float     @map("unit_price")
-  period        String    @default("MONTHLY")
-  created_at    DateTime  @default(now()) @map("created_at")
-  updated_at    DateTime  @default(now()) @updatedAt @map("updated_at")
-  price_book    PriceBook @relation(fields: [price_book_id], references: [id], onDelete: Cascade)
-  product       Product   @relation(fields: [product_id], references: [id])
+  id              String    @id @default(uuid())
+  price_book_id   String    @map("price_book_id")
+  product_id      String    @map("product_id")
+  name            String
+  min_quantity    Int       @default(1) @map("min_quantity")
+  max_quantity    Int?      @map("max_quantity")
+  unit_price      Float     @map("unit_price")
+  period          String    @default("MONTHLY")
+  created_at      DateTime  @default(now()) @map("created_at")
+  updated_at      DateTime  @default(now()) @updatedAt @map("updated_at")
+  // Executive Search Band Fields
+  salary_band_min Decimal?  @map("salary_band_min") @db.Decimal(12, 2)
+  salary_band_max Decimal?  @map("salary_band_max") @db.Decimal(12, 2)
+  band_name       String?   @map("band_name")
+  price_book      PriceBook @relation(fields: [price_book_id], references: [id], onDelete: Cascade)
+  product         Product   @relation(fields: [product_id], references: [id])
 
   @@index([price_book_id])
   @@index([product_id])
@@ -2329,6 +2352,12 @@ model VirtualTransaction {
   failed_reason         String?                @map("failed_reason")
   created_by            String?                @map("created_by")
   created_at            DateTime               @default(now()) @map("created_at")
+  // Pricing Audit Trail
+  pricing_peg_used      String?                @map("pricing_peg_used")
+  billing_currency_used String?                @map("billing_currency_used")
+  price_book_id         String?                @map("price_book_id")
+  price_book_version    String?                @map("price_book_version")
+  override_id           String?                @map("override_id")
   virtual_account       VirtualAccount         @relation(fields: [virtual_account_id], references: [id])
 
   @@index([virtual_account_id])
@@ -3201,6 +3230,46 @@ enum SmsStatus {
   SENT
   DELIVERED
   FAILED
+}
+
+// Global Pricing Models
+
+model CountryPricingMap {
+  id               String   @id @default(uuid())
+  country_code     String   @unique
+  country_name     String
+  pricing_peg      String   // USD, AUD, GBP, EUR, INR
+  billing_currency String   // USD, AUD, GBP, EUR, INR
+  is_active        Boolean  @default(true) @map("is_active")
+  created_at       DateTime @default(now()) @map("created_at")
+  updated_at       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([country_code])
+  @@index([pricing_peg])
+  @@map("country_pricing_map")
+}
+
+model EnterpriseOverride {
+  id               String    @id @default(uuid())
+  company_id       String    @map("company_id")
+  pricing_peg      String?   @map("pricing_peg")
+  billing_currency String?   @map("billing_currency")
+  price_book_id    String?   @map("price_book_id")
+  scope            String[]  // ["SUBSCRIPTION", "RECRUITMENT", "ASSESSMENTS"]
+  effective_from   DateTime  @map("effective_from")
+  effective_to     DateTime? @map("effective_to")
+  created_by       String    @map("created_by")
+  approved_by      String?   @map("approved_by")
+  is_active        Boolean   @default(true) @map("is_active")
+  notes            String?
+  created_at       DateTime  @default(now()) @map("created_at")
+  updated_at       DateTime  @default(now()) @updatedAt @map("updated_at")
+  company          Company   @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  price_book       PriceBook? @relation(fields: [price_book_id], references: [id])
+
+  @@index([company_id, effective_from])
+  @@index([is_active])
+  @@map("enterprise_override")
 }
 
 
