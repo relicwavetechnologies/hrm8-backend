@@ -1,5 +1,6 @@
 import { BaseService } from '../../core/service';
 import { JobRepository } from './job.repository';
+import { JobRoundService } from './job-round.service';
 import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType, InvitationStatus } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
@@ -16,7 +17,8 @@ export class JobService extends BaseService {
   constructor(
     private jobRepository: JobRepository,
     private applicationRepository?: ApplicationRepository,
-    private notificationService?: NotificationService
+    private notificationService?: NotificationService,
+    private jobRoundService?: JobRoundService
   ) {
     super();
   }
@@ -128,6 +130,14 @@ export class JobService extends BaseService {
     });
 
     const updatedJob = await this.jobRepository.update(id, updateData);
+
+    // If switching to SIMPLE flow, ensure default rounds exist
+    if (data.setupType === 'simple' || data.setupType === 'SIMPLE') {
+      if (this.jobRoundService) {
+        await this.jobRoundService.initializeSimpleRounds(id);
+      }
+    }
+
     return this.mapToResponse(updatedJob);
   }
 
