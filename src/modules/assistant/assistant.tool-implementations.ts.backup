@@ -1,0 +1,1567 @@
+import { z } from 'zod';
+import { prisma } from '../../utils/prisma';
+import { AssistantActor } from './assistant.types';
+import { AssistantAccessControl } from './assistant.access-control';
+
+// ============================================================================
+// SHARED SCHEMAS
+// ============================================================================
+
+const textQuerySchema = z.string().trim().min(2).max(120);
+const uuidSchema = z.string().uuid();
+const timeRangeSchema = z
+  .object({
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  })
+  .optional();
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+const SEARCH_STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'jobs',
+  'job',
+  'recent',
+  'posted',
+  'status',
+  'show',
+  'about',
+  'of',
+  'at',
+  'in',
+  'on',
+]);
+
+function extractSearchTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !SEARCH_STOP_WORDS.has(token))
+    .slice(0, 6);
+}
+
+function buildTokenAndFilter(tokens: string[], fields: string[]): any {
+  if (!tokens.length) return null;
+
+  return {
+    AND: tokens.map((token) => ({
+      OR: fields.map((field) => {
+        const parts = field.split('.');
+        if (parts.length === 1) {
+          return { [field]: { contains: token, mode: 'insensitive' as const } };
+        } else {
+          // Nested field like "company.name"
+          const [relation, nestedField] = parts;
+          return {
+            [relation]: {
+              is: { [nestedField]: { contains: token, mode: 'insensitive' as const } },
+            },
+          };
+        }
+      }),
+    })),
+  };
+}
+
+// ============================================================================
+// TOOL SCHEMAS
+// ============================================================================
+
+export const getCandidateCompleteOverviewSchema = z.object({
+  candidateQuery: textQuerySchema.describe('Candidate ID, email, or full name'),
+  includeAssessments: z.boolean().optional().default(true),
+  includeInterviews: z.boolean().optional().default(true),
+  includeOffers: z.boolean().optional().default(true),
+});
+
+export const getJobCompleteDashboardSchema = z.object({
+  jobQuery: textQuerySchema.describe('Job ID, job code, job title, or company name/domain'),
+  includeAnalytics: z.boolean().optional().default(true),
+});
+
+export const getConsultantPerformanceSchema = z.object({
+  consultantQuery: textQuerySchema.optional().describe('Consultant ID or email (admins only)'),
+  timeRange: timeRangeSchema,
+});
+
+export const getConsultantCommissionSchema = z.object({
+  consultantQuery: textQuerySchema.optional().describe('Consultant ID or email (admins only)'),
+  status: z.enum(['ALL', 'PENDING', 'APPROVED', 'PAID', 'WITHDRAWN']).optional().default('ALL'),
+});
+
+export const getHiringFunnelAnalyticsSchema = z.object({
+  scope: z.enum(['company', 'region', 'job']),
+  identifier: z.string().optional(),
+  timeRange: timeRangeSchema,
+});
+
+export const getInterviewDetailsSchema = z.object({
+  applicationId: uuidSchema.optional(),
+  jobQuery: textQuerySchema.optional(),
+  candidateQuery: textQuerySchema.optional(),
+});
+
+export const getAssessmentResultsSchema = z.object({
+  applicationId: uuidSchema,
+  includeResponses: z.boolean().optional().default(false),
+});
+
+export const getOfferStatusSchema = z.object({
+  applicationId: uuidSchema.optional(),
+  candidateQuery: textQuerySchema.optional(),
+  jobQuery: textQuerySchema.optional(),
+});
+
+export const getLeadPipelineSchema = z.object({
+  regionId: uuidSchema.optional(),
+  consultantQuery: textQuerySchema.optional(),
+  status: z.enum(['ALL', 'NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED']).optional().default('ALL'),
+});
+
+export const getCompanyFinancialSummarySchema = z.object({
+  companyId: uuidSchema.optional(),
+  timeRange: timeRangeSchema,
+});
+
+export const getCommunicationHistorySchema = z.object({
+  entityType: z.enum(['candidate', 'company', 'job', 'application']),
+  entityId: z.string(),
+  communicationType: z.enum(['email', 'call', 'sms', 'notification', 'all']).optional().default('all'),
+  limit: z.number().int().min(1).max(50).optional().default(20),
+});
+
+export const getActivityFeedSchema = z.object({
+  scope: z.enum(['job', 'candidate', 'company', 'consultant']),
+  identifier: z.string(),
+  limit: z.number().int().min(1).max(100).optional().default(50),
+  activityTypes: z.array(z.string()).optional(),
+});
+
+export const getMyDailyBriefingSchema = z.object({});
+
+export const getRegionalPerformanceSchema = z.object({
+  regionId: uuidSchema.optional(),
+  timeRange: timeRangeSchema,
+});
+
+// ============================================================================
+// TOOL IMPLEMENTATIONS
+// ============================================================================
+
+/**
+ * Get comprehensive candidate overview with all related data
+ */
+export async function getCandidateCompleteOverview(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { candidateQuery, includeAssessments, includeInterviews, includeOffers } =
+    getCandidateCompleteOverviewSchema.parse(args);
+
+  // Build scope filters
+  let applicationScopeWhere: any = {};
+
+  if (actor.actorType === 'COMPANY_USER') {
+    applicationScopeWhere = {
+      job: { is: { company_id: actor.companyId } },
+    };
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      applicationScopeWhere = {
+        job: { is: { region_id: { in: regionScope } } },
+      };
+    }
+
+    // Consultants: only assigned jobs
+    if (AssistantAccessControl.isConsultant(actor)) {
+      applicationScopeWhere = {
+        job: { is: { ...applicationScopeWhere.job?.is, assigned_consultant_id: actor.userId } },
+      };
+    }
+  }
+
+  // Find candidate
+  const candidate = await prisma.candidate.findFirst({
+    where: {
+      OR: [
+        { id: candidateQuery },
+        { email: { equals: candidateQuery, mode: 'insensitive' } },
+        {
+          AND: candidateQuery.includes(' ')
+            ? candidateQuery
+                .split(' ')
+                .slice(0, 2)
+                .map((part) => ({
+                  OR: [
+                    { first_name: { contains: part, mode: 'insensitive' } },
+                    { last_name: { contains: part, mode: 'insensitive' } },
+                  ],
+                }))
+            : [
+                {
+                  OR: [
+                    { first_name: { contains: candidateQuery, mode: 'insensitive' } },
+                    { last_name: { contains: candidateQuery, mode: 'insensitive' } },
+                  ],
+                },
+              ],
+        },
+      ],
+      applications: { some: applicationScopeWhere },
+    },
+    include: {
+      applications: {
+        where: applicationScopeWhere,
+        include: {
+          job: {
+            select: {
+              id: true,
+              title: true,
+              job_code: true,
+              company: { select: { name: true, domain: true } },
+              status: true,
+            },
+          },
+        },
+        orderBy: { updated_at: 'desc' },
+        take: 10,
+      },
+    },
+  });
+
+  if (!candidate) {
+    return { found: false, reason: 'Candidate not found in your access scope.' };
+  }
+
+  const applicationIds = candidate.applications.map((app) => app.id);
+
+  // Fetch additional data in parallel
+  const [assessments, interviews, offers, recentActivity] = await Promise.all([
+    includeAssessments && applicationIds.length
+      ? prisma.assessmentResponse.findMany({
+          where: { application_id: { in: applicationIds } },
+          include: {
+            assessment: { select: { id: true, title: true, type: true } },
+          },
+          orderBy: { completed_at: 'desc' },
+          take: 10,
+        })
+      : Promise.resolve([]),
+
+    includeInterviews && applicationIds.length
+      ? prisma.videoInterview.findMany({
+          where: { application_id: { in: applicationIds } },
+          include: {
+            application: {
+              select: {
+                job: { select: { title: true } },
+              },
+            },
+          },
+          orderBy: { scheduled_at: 'desc' },
+          take: 10,
+        })
+      : Promise.resolve([]),
+
+    includeOffers && applicationIds.length
+      ? prisma.offerLetter.findMany({
+          where: { application_id: { in: applicationIds } },
+          include: {
+            application: {
+              select: {
+                job: { select: { title: true } },
+              },
+            },
+            offer_negotiations: {
+              orderBy: { created_at: 'desc' },
+              take: 3,
+            },
+          },
+          orderBy: { created_at: 'desc' },
+          take: 5,
+        })
+      : Promise.resolve([]),
+
+    prisma.activity.findMany({
+      where: {
+        entity_type: 'CANDIDATE',
+        entity_id: candidate.id,
+      },
+      orderBy: { created_at: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        action: true,
+        description: true,
+        created_at: true,
+        user_id: true,
+      },
+    }),
+  ]);
+
+  return {
+    found: true,
+    candidate: {
+      id: candidate.id,
+      fullName: `${candidate.first_name} ${candidate.last_name}`.trim(),
+      email: candidate.email,
+      phone: candidate.phone,
+      status: candidate.status,
+      updatedAt: candidate.updated_at,
+    },
+    applications: candidate.applications.map((app) => ({
+      id: app.id,
+      jobId: app.job_id,
+      jobTitle: app.job.title,
+      jobCode: app.job.job_code,
+      companyName: app.job.company?.name,
+      status: app.status,
+      stage: app.stage,
+      score: app.score,
+      appliedDate: app.applied_date,
+      updatedAt: app.updated_at,
+    })),
+    assessments: assessments.map((ar) => ({
+      id: ar.id,
+      assessmentTitle: ar.assessment?.title,
+      assessmentType: ar.assessment?.type,
+      score: ar.score,
+      completedAt: ar.completed_at,
+    })),
+    interviews: interviews.map((vi) => ({
+      id: vi.id,
+      jobTitle: vi.application?.job.title,
+      scheduledAt: vi.scheduled_at,
+      status: vi.status,
+      type: vi.type,
+      duration: vi.duration,
+    })),
+    offers: offers.map((offer) => ({
+      id: offer.id,
+      jobTitle: offer.application?.job.title,
+      status: offer.status,
+      sentAt: offer.sent_at,
+      expiresAt: offer.expires_at,
+      negotiationsCount: offer.offer_negotiations.length,
+    })),
+    recentActivity: recentActivity.map((activity) => ({
+      action: activity.action,
+      description: activity.description,
+      createdAt: activity.created_at,
+    })),
+    summary: {
+      totalApplications: candidate.applications.length,
+      assessmentsCompleted: assessments.length,
+      interviewsScheduled: interviews.length,
+      offersReceived: offers.length,
+    },
+  };
+}
+
+/**
+ * Get comprehensive job dashboard with all metrics
+ */
+export async function getJobCompleteDashboard(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { jobQuery, includeAnalytics } = getJobCompleteDashboardSchema.parse(args);
+
+  const searchTokens = extractSearchTokens(jobQuery);
+  const tokenFilter = buildTokenAndFilter(searchTokens, ['title', 'job_code', 'company.name', 'company.domain']);
+
+  // Build base scope
+  let baseWhere: any = {};
+  if (actor.actorType === 'COMPANY_USER') {
+    baseWhere.company_id = actor.companyId;
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      baseWhere.region_id = { in: regionScope };
+    }
+
+    if (AssistantAccessControl.isConsultant(actor)) {
+      baseWhere.assigned_consultant_id = actor.userId;
+    }
+  }
+
+  // Find job
+  const job = await prisma.job.findFirst({
+    where: {
+      ...baseWhere,
+      OR: [
+        { id: jobQuery },
+        { job_code: { equals: jobQuery, mode: 'insensitive' } },
+        { title: { contains: jobQuery, mode: 'insensitive' } },
+        { company: { is: { name: { contains: jobQuery, mode: 'insensitive' } } } },
+        { company: { is: { domain: { contains: jobQuery, mode: 'insensitive' } } } },
+        ...(tokenFilter ? [tokenFilter] : []),
+      ],
+    },
+    include: {
+      company: { select: { id: true, name: true, domain: true } },
+      _count: { select: { applications: true } },
+    },
+  });
+
+  if (!job) {
+    return { found: false, reason: 'Job not found in your access scope.' };
+  }
+
+  // Fetch related data in parallel
+  const [pipelineByStage, pipelineByStatus, topCandidates, upcomingInterviews, pendingOffers, analytics] =
+    await Promise.all([
+      prisma.application.groupBy({
+        by: ['stage'],
+        where: { job_id: job.id },
+        _count: { _all: true },
+      }),
+
+      prisma.application.groupBy({
+        by: ['status'],
+        where: { job_id: job.id },
+        _count: { _all: true },
+      }),
+
+      prisma.application.findMany({
+        where: { job_id: job.id, status: { in: ['SHORTLISTED', 'INTERVIEW', 'OFFER'] } },
+        include: {
+          candidate: { select: { id: true, first_name: true, last_name: true, email: true } },
+        },
+        orderBy: [{ score: 'desc' }, { updated_at: 'desc' }],
+        take: 10,
+      }),
+
+      prisma.videoInterview.findMany({
+        where: {
+          application: { is: { job_id: job.id } },
+          scheduled_at: { gte: new Date() },
+          status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        },
+        include: {
+          application: {
+            include: {
+              candidate: { select: { first_name: true, last_name: true, email: true } },
+            },
+          },
+        },
+        orderBy: { scheduled_at: 'asc' },
+        take: 10,
+      }),
+
+      prisma.offerLetter.findMany({
+        where: {
+          application: { is: { job_id: job.id } },
+          status: { in: ['SENT', 'NEGOTIATING'] },
+        },
+        include: {
+          application: {
+            include: {
+              candidate: { select: { first_name: true, last_name: true, email: true } },
+            },
+          },
+        },
+        orderBy: { sent_at: 'desc' },
+        take: 5,
+      }),
+
+      includeAnalytics
+        ? prisma.jobAnalytics.findUnique({
+            where: { job_id: job.id },
+          })
+        : Promise.resolve(null),
+    ]);
+
+  return {
+    found: true,
+    job: {
+      id: job.id,
+      jobCode: job.job_code,
+      title: job.title,
+      status: job.status,
+      companyName: job.company?.name,
+      companyDomain: job.company?.domain,
+      location: job.location,
+      department: job.department,
+      vacancies: job.number_of_vacancies,
+      assignmentMode: job.assignment_mode,
+      assignedConsultantId: job.assigned_consultant_id,
+      postedAt: job.posted_at,
+      closeDate: job.close_date,
+      updatedAt: job.updated_at,
+    },
+    pipeline: {
+      byStage: pipelineByStage.map((item) => ({ stage: item.stage, count: item._count._all })),
+      byStatus: pipelineByStatus.map((item) => ({ status: item.status, count: item._count._all })),
+      totalApplications: job._count.applications,
+    },
+    topCandidates: topCandidates.map((app) => ({
+      applicationId: app.id,
+      candidateName: `${app.candidate.first_name} ${app.candidate.last_name}`.trim(),
+      candidateEmail: app.candidate.email,
+      status: app.status,
+      stage: app.stage,
+      score: app.score,
+      updatedAt: app.updated_at,
+    })),
+    upcomingInterviews: upcomingInterviews.map((vi) => ({
+      candidateName: `${vi.application.candidate.first_name} ${vi.application.candidate.last_name}`.trim(),
+      scheduledAt: vi.scheduled_at,
+      type: vi.type,
+      status: vi.status,
+    })),
+    pendingOffers: pendingOffers.map((offer) => ({
+      candidateName: `${offer.application.candidate.first_name} ${offer.application.candidate.last_name}`.trim(),
+      status: offer.status,
+      sentAt: offer.sent_at,
+      expiresAt: offer.expires_at,
+    })),
+    analytics: analytics
+      ? {
+          viewCount: analytics.view_count,
+          applicationCount: analytics.application_count,
+          avgTimeToHire: analytics.avg_time_to_hire_days,
+        }
+      : null,
+  };
+}
+
+/**
+ * Get consultant performance metrics
+ */
+export async function getConsultantPerformance(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { consultantQuery, timeRange } = getConsultantPerformanceSchema.parse(args);
+
+  // Enforce self-scope for consultants
+  const consultantId = await AssistantAccessControl.enforceConsultantSelfScope(actor, consultantQuery);
+
+  // Build time filter
+  const timeFilter: any = {};
+  if (timeRange?.from) timeFilter.gte = new Date(timeRange.from);
+  if (timeRange?.to) timeFilter.lte = new Date(timeRange.to);
+
+  // Fetch consultant data
+  const [consultant, assignedJobs, placements, commissions, activities] = await Promise.all([
+    prisma.consultant.findUnique({
+      where: { id: consultantId },
+      include: {
+        region: { select: { name: true } },
+      },
+    }),
+
+    prisma.consultantJobAssignment.findMany({
+      where: {
+        consultant_id: consultantId,
+        ...(Object.keys(timeFilter).length ? { assigned_at: timeFilter } : {}),
+      },
+      include: {
+        job: {
+          select: {
+            id: true,
+            title: true,
+            job_code: true,
+            status: true,
+            company: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { assigned_at: 'desc' },
+      take: 20,
+    }),
+
+    prisma.application.groupBy({
+      by: ['status'],
+      where: {
+        job: { is: { assigned_consultant_id: consultantId } },
+        ...(Object.keys(timeFilter).length ? { updated_at: timeFilter } : {}),
+      },
+      _count: { _all: true },
+    }),
+
+    prisma.commission.aggregate({
+      where: {
+        consultant_id: consultantId,
+        ...(Object.keys(timeFilter).length ? { created_at: timeFilter } : {}),
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    }),
+
+    prisma.activity.count({
+      where: {
+        user_id: consultantId,
+        ...(Object.keys(timeFilter).length ? { created_at: timeFilter } : {}),
+      },
+    }),
+  ]);
+
+  if (!consultant) {
+    return { found: false, reason: 'Consultant not found.' };
+  }
+
+  return {
+    found: true,
+    consultant: {
+      id: consultant.id,
+      name: `${consultant.first_name || ''} ${consultant.last_name || ''}`.trim(),
+      email: consultant.email,
+      regionName: consultant.region?.name,
+      status: consultant.status,
+    },
+    assignments: {
+      total: assignedJobs.length,
+      jobs: assignedJobs.map((assignment) => ({
+        jobId: assignment.job.id,
+        jobTitle: assignment.job.title,
+        jobCode: assignment.job.job_code,
+        companyName: assignment.job.company?.name,
+        status: assignment.job.status,
+        assignedAt: assignment.assigned_at,
+      })),
+    },
+    placements: {
+      total: placements.reduce((sum, item) => sum + item._count._all, 0),
+      byStatus: placements.map((item) => ({ status: item.status, count: item._count._all })),
+    },
+    commissions: {
+      total: commissions._sum.amount || 0,
+      count: commissions._count.id,
+    },
+    activityCount: activities,
+  };
+}
+
+/**
+ * Get consultant commission details
+ */
+export async function getConsultantCommission(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { consultantQuery, status } = getConsultantCommissionSchema.parse(args);
+
+  const consultantId = await AssistantAccessControl.enforceConsultantSelfScope(actor, consultantQuery);
+
+  const statusFilter: any = {};
+  if (status !== 'ALL') {
+    statusFilter.status = status;
+  }
+
+  const [commissions, withdrawals, summary] = await Promise.all([
+    prisma.commission.findMany({
+      where: {
+        consultant_id: consultantId,
+        ...statusFilter,
+      },
+      include: {
+        application: {
+          select: {
+            candidate: { select: { first_name: true, last_name: true } },
+            job: { select: { title: true, company: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    }),
+
+    prisma.commissionWithdrawal.findMany({
+      where: { consultant_id: consultantId },
+      orderBy: { requested_at: 'desc' },
+      take: 20,
+    }),
+
+    prisma.commission.groupBy({
+      by: ['status'],
+      where: { consultant_id: consultantId },
+      _sum: { amount: true },
+      _count: { id: true },
+    }),
+  ]);
+
+  return {
+    found: true,
+    commissions: commissions.map((comm) => ({
+      id: comm.id,
+      amount: comm.amount,
+      status: comm.status,
+      candidateName: `${comm.application?.candidate.first_name || ''} ${
+        comm.application?.candidate.last_name || ''
+      }`.trim(),
+      jobTitle: comm.application?.job.title,
+      companyName: comm.application?.job.company?.name,
+      createdAt: comm.created_at,
+      approvedAt: comm.approved_at,
+      paidAt: comm.paid_at,
+    })),
+    withdrawals: withdrawals.map((wd) => ({
+      id: wd.id,
+      amount: wd.amount,
+      status: wd.status,
+      requestedAt: wd.requested_at,
+      processedAt: wd.processed_at,
+    })),
+    summary: {
+      byStatus: summary.map((item) => ({
+        status: item.status,
+        amount: item._sum.amount || 0,
+        count: item._count.id,
+      })),
+      totalEarned: summary.reduce((sum, item) => sum + (item._sum.amount || 0), 0),
+    },
+  };
+}
+
+/**
+ * Get hiring funnel analytics
+ */
+export async function getHiringFunnelAnalytics(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { scope, identifier, timeRange } = getHiringFunnelAnalyticsSchema.parse(args);
+
+  const timeFilter: any = {};
+  if (timeRange?.from) timeFilter.gte = new Date(timeRange.from);
+  if (timeRange?.to) timeFilter.lte = new Date(timeRange.to);
+
+  let baseWhere: any = {};
+
+  if (scope === 'company') {
+    if (actor.actorType === 'COMPANY_USER') {
+      baseWhere.job = { is: { company_id: actor.companyId } };
+    } else if (identifier) {
+      baseWhere.job = { is: { company_id: identifier } };
+    } else {
+      return { found: false, reason: 'Company identifier required for company scope.' };
+    }
+  } else if (scope === 'region') {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      baseWhere.job = { is: { region_id: { in: regionScope } } };
+    }
+  } else if (scope === 'job') {
+    if (!identifier) {
+      return { found: false, reason: 'Job identifier required for job scope.' };
+    }
+    baseWhere.job_id = identifier;
+  }
+
+  if (Object.keys(timeFilter).length) {
+    baseWhere.created_at = timeFilter;
+  }
+
+  const [byStage, byStatus, timeToHireData] = await Promise.all([
+    prisma.application.groupBy({
+      by: ['stage'],
+      where: baseWhere,
+      _count: { _all: true },
+    }),
+
+    prisma.application.groupBy({
+      by: ['status'],
+      where: baseWhere,
+      _count: { _all: true },
+    }),
+
+    prisma.application.findMany({
+      where: {
+        ...baseWhere,
+        status: 'HIRED',
+        applied_date: { not: null },
+      },
+      select: {
+        applied_date: true,
+        updated_at: true,
+      },
+    }),
+  ]);
+
+  const timeToHireValues = timeToHireData
+    .map((app) => {
+      if (!app.applied_date) return null;
+      const days = Math.floor((app.updated_at.getTime() - app.applied_date.getTime()) / (1000 * 60 * 60 * 24));
+      return days;
+    })
+    .filter((val): val is number => val !== null);
+
+  const avgTimeToHire =
+    timeToHireValues.length > 0 ? timeToHireValues.reduce((sum, val) => sum + val, 0) / timeToHireValues.length : 0;
+
+  return {
+    found: true,
+    scope,
+    funnel: {
+      byStage: byStage.map((item) => ({ stage: item.stage, count: item._count._all })),
+      byStatus: byStatus.map((item) => ({ status: item.status, count: item._count._all })),
+    },
+    metrics: {
+      totalApplications: byStatus.reduce((sum, item) => sum + item._count._all, 0),
+      avgTimeToHireDays: Math.round(avgTimeToHire),
+      hiredCount: timeToHireValues.length,
+    },
+  };
+}
+
+/**
+ * Get interview details
+ */
+export async function getInterviewDetails(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { applicationId, jobQuery, candidateQuery } = getInterviewDetailsSchema.parse(args);
+
+  let applicationWhere: any = {};
+
+  if (applicationId) {
+    applicationWhere.id = applicationId;
+  } else if (candidateQuery || jobQuery) {
+    if (candidateQuery) {
+      applicationWhere.candidate = {
+        OR: [
+          { id: candidateQuery },
+          { email: { equals: candidateQuery, mode: 'insensitive' } },
+          { first_name: { contains: candidateQuery, mode: 'insensitive' } },
+          { last_name: { contains: candidateQuery, mode: 'insensitive' } },
+        ],
+      };
+    }
+    if (jobQuery) {
+      applicationWhere.job = {
+        is: {
+          OR: [
+            { id: jobQuery },
+            { job_code: { equals: jobQuery, mode: 'insensitive' } },
+            { title: { contains: jobQuery, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+  } else {
+    return { found: false, reason: 'Please provide applicationId, candidateQuery, or jobQuery.' };
+  }
+
+  // Apply scoping
+  if (actor.actorType === 'COMPANY_USER') {
+    const existingJobFilter = applicationWhere.job?.is || {};
+    applicationWhere.job = { is: { ...existingJobFilter, company_id: actor.companyId } };
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      const existingJobFilter = applicationWhere.job?.is || {};
+      applicationWhere.job = { is: { ...existingJobFilter, region_id: { in: regionScope } } };
+    }
+  }
+
+  const applications = await prisma.application.findMany({
+    where: applicationWhere,
+    include: {
+      candidate: { select: { first_name: true, last_name: true, email: true } },
+      job: { select: { title: true, job_code: true } },
+    },
+    take: 5,
+  });
+
+  if (!applications.length) {
+    return { found: false, reason: 'No applications found in your scope.' };
+  }
+
+  const applicationIds = applications.map((app) => app.id);
+
+  const interviews = await prisma.videoInterview.findMany({
+    where: { application_id: { in: applicationIds } },
+    include: {
+      application: {
+        select: {
+          candidate: { select: { first_name: true, last_name: true } },
+          job: { select: { title: true } },
+        },
+      },
+      interview_feedback: true,
+    },
+    orderBy: { scheduled_at: 'desc' },
+  });
+
+  return {
+    found: true,
+    interviews: interviews.map((vi) => ({
+      id: vi.id,
+      candidateName: `${vi.application.candidate.first_name} ${vi.application.candidate.last_name}`.trim(),
+      jobTitle: vi.application.job.title,
+      scheduledAt: vi.scheduled_at,
+      status: vi.status,
+      type: vi.type,
+      duration: vi.duration,
+      feedbackCount: vi.interview_feedback.length,
+    })),
+  };
+}
+
+/**
+ * Get assessment results
+ */
+export async function getAssessmentResults(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { applicationId, includeResponses } = getAssessmentResultsSchema.parse(args);
+
+  // Verify application is in scope
+  let applicationWhere: any = { id: applicationId };
+
+  if (actor.actorType === 'COMPANY_USER') {
+    applicationWhere.job = { is: { company_id: actor.companyId } };
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      applicationWhere.job = { is: { region_id: { in: regionScope } } };
+    }
+  }
+
+  const application = await prisma.application.findFirst({
+    where: applicationWhere,
+    select: { id: true },
+  });
+
+  if (!application) {
+    return { found: false, reason: 'Application not found in your scope.' };
+  }
+
+  const assessmentResponses = await prisma.assessmentResponse.findMany({
+    where: { application_id: applicationId },
+    include: {
+      assessment: {
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          description: true,
+        },
+      },
+      ...(includeResponses
+        ? {
+            assessment_question_responses: {
+              include: {
+                assessment_question: { select: { question_text: true, question_type: true } },
+              },
+            },
+          }
+        : {}),
+    },
+    orderBy: { completed_at: 'desc' },
+  });
+
+  return {
+    found: true,
+    assessments: assessmentResponses.map((ar) => ({
+      id: ar.id,
+      assessmentTitle: ar.assessment?.title,
+      assessmentType: ar.assessment?.type,
+      score: ar.score,
+      completedAt: ar.completed_at,
+      responses: includeResponses
+        ? (ar as any).assessment_question_responses?.map((aqr: any) => ({
+            question: aqr.assessment_question?.question_text,
+            questionType: aqr.assessment_question?.question_type,
+            response: aqr.response_value,
+          }))
+        : undefined,
+    })),
+  };
+}
+
+/**
+ * Get offer status and negotiations
+ */
+export async function getOfferStatus(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { applicationId, candidateQuery, jobQuery } = getOfferStatusSchema.parse(args);
+
+  let applicationWhere: any = {};
+
+  if (applicationId) {
+    applicationWhere.id = applicationId;
+  } else if (candidateQuery || jobQuery) {
+    if (candidateQuery) {
+      applicationWhere.candidate = {
+        OR: [
+          { id: candidateQuery },
+          { email: { equals: candidateQuery, mode: 'insensitive' } },
+        ],
+      };
+    }
+    if (jobQuery) {
+      applicationWhere.job = {
+        is: {
+          OR: [
+            { id: jobQuery },
+            { job_code: { equals: jobQuery, mode: 'insensitive' } },
+            { title: { contains: jobQuery, mode: 'insensitive' } },
+          ],
+        },
+      };
+    }
+  } else {
+    return { found: false, reason: 'Please provide applicationId, candidateQuery, or jobQuery.' };
+  }
+
+  // Apply scoping
+  if (actor.actorType === 'COMPANY_USER') {
+    const existingJobFilter = applicationWhere.job?.is || {};
+    applicationWhere.job = { is: { ...existingJobFilter, company_id: actor.companyId } };
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      const existingJobFilter = applicationWhere.job?.is || {};
+      applicationWhere.job = { is: { ...existingJobFilter, region_id: { in: regionScope } } };
+    }
+  }
+
+  const applications = await prisma.application.findMany({
+    where: applicationWhere,
+    select: { id: true },
+    take: 10,
+  });
+
+  if (!applications.length) {
+    return { found: false, reason: 'No applications found in your scope.' };
+  }
+
+  const applicationIds = applications.map((app) => app.id);
+
+  const offers = await prisma.offerLetter.findMany({
+    where: { application_id: { in: applicationIds } },
+    include: {
+      application: {
+        include: {
+          candidate: { select: { first_name: true, last_name: true, email: true } },
+          job: { select: { title: true, company: { select: { name: true } } } },
+        },
+      },
+      offer_negotiations: {
+        orderBy: { created_at: 'desc' },
+      },
+    },
+    orderBy: { created_at: 'desc' },
+  });
+
+  return {
+    found: true,
+    offers: offers.map((offer) => ({
+      id: offer.id,
+      candidateName: `${offer.application.candidate.first_name} ${offer.application.candidate.last_name}`.trim(),
+      candidateEmail: offer.application.candidate.email,
+      jobTitle: offer.application.job.title,
+      companyName: offer.application.job.company?.name,
+      status: offer.status,
+      sentAt: offer.sent_at,
+      expiresAt: offer.expires_at,
+      acceptedAt: offer.accepted_at,
+      rejectedAt: offer.rejected_at,
+      negotiations: offer.offer_negotiations.map((neg) => ({
+        id: neg.id,
+        status: neg.status,
+        createdAt: neg.created_at,
+      })),
+    })),
+  };
+}
+
+/**
+ * Get lead pipeline
+ */
+export async function getLeadPipeline(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { regionId, consultantQuery, status } = getLeadPipelineSchema.parse(args);
+
+  if (actor.actorType === 'COMPANY_USER') {
+    return { found: false, reason: 'This tool is only available for HRM8 users and consultants.' };
+  }
+
+  let baseWhere: any = {};
+
+  // Apply region scope
+  if (regionId) {
+    baseWhere.region_id = regionId;
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (regionScope && regionScope.length > 0) {
+      baseWhere.region_id = { in: regionScope };
+    }
+  }
+
+  // Apply consultant filter
+  if (consultantQuery) {
+    const consultantId = await AssistantAccessControl.enforceConsultantSelfScope(actor, consultantQuery);
+    baseWhere.assigned_consultant_id = consultantId;
+  } else if (AssistantAccessControl.isConsultant(actor)) {
+    baseWhere.assigned_consultant_id = actor.userId;
+  }
+
+  // Apply status filter
+  if (status !== 'ALL') {
+    baseWhere.status = status;
+  }
+
+  const [leads, opportunities] = await Promise.all([
+    prisma.lead.findMany({
+      where: baseWhere,
+      include: {
+        company: { select: { name: true, domain: true } },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    }),
+
+    prisma.opportunity.findMany({
+      where: {
+        lead: { is: baseWhere },
+      },
+      include: {
+        lead: {
+          select: {
+            company: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      take: 50,
+    }),
+  ]);
+
+  return {
+    found: true,
+    leads: leads.map((lead) => ({
+      id: lead.id,
+      companyName: lead.company?.name,
+      companyDomain: lead.company?.domain,
+      status: lead.status,
+      source: lead.source,
+      createdAt: lead.created_at,
+    })),
+    opportunities: opportunities.map((opp) => ({
+      id: opp.id,
+      companyName: opp.lead?.company?.name,
+      stage: opp.stage,
+      value: opp.value,
+      closeDate: opp.expected_close_date,
+      probability: opp.probability,
+    })),
+  };
+}
+
+/**
+ * Get company financial summary
+ */
+export async function getCompanyFinancialSummary(
+  args: Record<string, unknown>,
+  actor: AssistantActor
+): Promise<unknown> {
+  const { companyId, timeRange } = getCompanyFinancialSummarySchema.parse(args);
+
+  let targetCompanyId: string;
+
+  if (actor.actorType === 'COMPANY_USER') {
+    targetCompanyId = actor.companyId;
+  } else if (companyId) {
+    // Verify company is in scope
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    const company = await prisma.company.findFirst({
+      where: {
+        id: companyId,
+        ...(regionScope && regionScope.length > 0 ? { region_id: { in: regionScope } } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (!company) {
+      return { found: false, reason: 'Company not found in your scope.' };
+    }
+
+    targetCompanyId = company.id;
+  } else {
+    return { found: false, reason: 'Company ID required.' };
+  }
+
+  const timeFilter: any = {};
+  if (timeRange?.from) timeFilter.gte = new Date(timeRange.from);
+  if (timeRange?.to) timeFilter.lte = new Date(timeRange.to);
+
+  const [subscriptions, bills, revenue] = await Promise.all([
+    prisma.subscription.findMany({
+      where: {
+        company_id: targetCompanyId,
+        ...(Object.keys(timeFilter).length ? { created_at: timeFilter } : {}),
+      },
+      orderBy: { created_at: 'desc' },
+      take: 10,
+    }),
+
+    prisma.bill.findMany({
+      where: {
+        company_id: targetCompanyId,
+        ...(Object.keys(timeFilter).length ? { created_at: timeFilter } : {}),
+      },
+      orderBy: { created_at: 'desc' },
+      take: 20,
+    }),
+
+    prisma.bill.aggregate({
+      where: {
+        company_id: targetCompanyId,
+        status: 'PAID',
+        ...(Object.keys(timeFilter).length ? { paid_at: timeFilter } : {}),
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  return {
+    found: true,
+    subscriptions: subscriptions.map((sub) => ({
+      id: sub.id,
+      plan: sub.plan_type,
+      status: sub.status,
+      startDate: sub.start_date,
+      endDate: sub.end_date,
+    })),
+    bills: bills.map((bill) => ({
+      id: bill.id,
+      amount: bill.amount,
+      status: bill.status,
+      dueDate: bill.due_date,
+      paidAt: bill.paid_at,
+    })),
+    totalRevenue: revenue._sum.amount || 0,
+  };
+}
+
+/**
+ * Get communication history
+ */
+export async function getCommunicationHistory(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { entityType, entityId, communicationType, limit } = getCommunicationHistorySchema.parse(args);
+
+  // Verify entity is in scope based on type
+  // This is simplified - you'd want more robust checks
+  const includeEmail = communicationType === 'all' || communicationType === 'email';
+  const includeCall = communicationType === 'all' || communicationType === 'call';
+  const includeSms = communicationType === 'all' || communicationType === 'sms';
+
+  const [emails, calls, sms] = await Promise.all([
+    includeEmail
+      ? prisma.emailLog.findMany({
+          where: {
+            OR: [
+              { entity_type: entityType.toUpperCase(), entity_id: entityId },
+              { recipient_email: entityId }, // If entityId is email
+            ],
+          },
+          orderBy: { sent_at: 'desc' },
+          take: limit,
+        })
+      : Promise.resolve([]),
+
+    includeCall
+      ? prisma.callLog.findMany({
+          where: {
+            OR: [
+              { entity_type: entityType.toUpperCase(), entity_id: entityId },
+              { phone_number: entityId }, // If entityId is phone
+            ],
+          },
+          orderBy: { created_at: 'desc' },
+          take: limit,
+        })
+      : Promise.resolve([]),
+
+    includeSms
+      ? prisma.smsLog.findMany({
+          where: {
+            OR: [
+              { entity_type: entityType.toUpperCase(), entity_id: entityId },
+              { phone_number: entityId },
+            ],
+          },
+          orderBy: { sent_at: 'desc' },
+          take: limit,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return {
+    found: true,
+    communications: {
+      emails: emails.map((email) => ({
+        id: email.id,
+        type: 'email',
+        subject: email.subject,
+        to: email.recipient_email,
+        sentAt: email.sent_at,
+        status: email.status,
+      })),
+      calls: calls.map((call) => ({
+        id: call.id,
+        type: 'call',
+        phoneNumber: call.phone_number,
+        duration: call.duration,
+        createdAt: call.created_at,
+        outcome: call.outcome,
+      })),
+      sms: sms.map((message) => ({
+        id: message.id,
+        type: 'sms',
+        phoneNumber: message.phone_number,
+        sentAt: message.sent_at,
+        status: message.status,
+      })),
+    },
+  };
+}
+
+/**
+ * Get activity feed
+ */
+export async function getActivityFeed(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { scope, identifier, limit, activityTypes } = getActivityFeedSchema.parse(args);
+
+  const where: any = {
+    entity_type: scope.toUpperCase(),
+    entity_id: identifier,
+  };
+
+  if (activityTypes && activityTypes.length > 0) {
+    where.action = { in: activityTypes };
+  }
+
+  const activities = await prisma.activity.findMany({
+    where,
+    orderBy: { created_at: 'desc' },
+    take: limit,
+  });
+
+  return {
+    found: true,
+    activities: activities.map((activity) => ({
+      id: activity.id,
+      action: activity.action,
+      description: activity.description,
+      createdAt: activity.created_at,
+      userId: activity.user_id,
+    })),
+  };
+}
+
+/**
+ * Get consultant daily briefing
+ */
+export async function getMyDailyBriefing(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  if (!AssistantAccessControl.isConsultant(actor)) {
+    return { found: false, reason: 'This tool is only available for consultants.' };
+  }
+
+  const today = new Date();
+  const sevenDaysFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [assignedJobs, upcomingInterviews, pendingApplications, recentCommissions] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        assigned_consultant_id: actor.userId,
+        status: { in: ['OPEN', 'IN_PROGRESS'] },
+      },
+      select: {
+        id: true,
+        title: true,
+        job_code: true,
+        company: { select: { name: true } },
+        _count: { select: { applications: true } },
+      },
+      take: 10,
+    }),
+
+    prisma.videoInterview.findMany({
+      where: {
+        application: {
+          is: {
+            job: {
+              is: { assigned_consultant_id: actor.userId },
+            },
+          },
+        },
+        scheduled_at: {
+          gte: today,
+          lte: sevenDaysFromNow,
+        },
+        status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+      },
+      include: {
+        application: {
+          include: {
+            candidate: { select: { first_name: true, last_name: true, email: true } },
+            job: { select: { title: true } },
+          },
+        },
+      },
+      orderBy: { scheduled_at: 'asc' },
+      take: 10,
+    }),
+
+    prisma.application.findMany({
+      where: {
+        job: {
+          is: { assigned_consultant_id: actor.userId },
+        },
+        status: { in: ['PENDING_REVIEW', 'SHORTLISTED'] },
+      },
+      include: {
+        candidate: { select: { first_name: true, last_name: true, email: true } },
+        job: { select: { title: true } },
+      },
+      orderBy: { updated_at: 'asc' },
+      take: 10,
+    }),
+
+    prisma.commission.aggregate({
+      where: {
+        consultant_id: actor.userId,
+        created_at: {
+          gte: thirtyDaysAgo,
+        },
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    }),
+  ]);
+
+  return {
+    found: true,
+    date: today.toISOString(),
+    summary: {
+      assignedJobsCount: assignedJobs.length,
+      upcomingInterviewsCount: upcomingInterviews.length,
+      pendingApplicationsCount: pendingApplications.length,
+      monthlyCommissionsAmount: recentCommissions._sum.amount || 0,
+      monthlyCommissionsCount: recentCommissions._count.id,
+    },
+    assignedJobs: assignedJobs.map((job) => ({
+      id: job.id,
+      title: job.title,
+      jobCode: job.job_code,
+      companyName: job.company?.name,
+      applicationsCount: job._count.applications,
+    })),
+    upcomingInterviews: upcomingInterviews.map((vi) => ({
+      candidateName: `${vi.application.candidate.first_name} ${vi.application.candidate.last_name}`.trim(),
+      jobTitle: vi.application.job.title,
+      scheduledAt: vi.scheduled_at,
+      type: vi.type,
+    })),
+    pendingApplications: pendingApplications.map((app) => ({
+      candidateName: `${app.candidate.first_name} ${app.candidate.last_name}`.trim(),
+      jobTitle: app.job.title,
+      status: app.status,
+      updatedAt: app.updated_at,
+    })),
+  };
+}
+
+/**
+ * Get regional performance metrics
+ */
+export async function getRegionalPerformance(args: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  const { regionId, timeRange } = getRegionalPerformanceSchema.parse(args);
+
+  if (actor.actorType === 'COMPANY_USER') {
+    return { found: false, reason: 'This tool is only available for HRM8 users.' };
+  }
+
+  let targetRegionId: string | undefined;
+
+  if (AssistantAccessControl.isGlobalAdmin(actor)) {
+    targetRegionId = regionId;
+  } else {
+    const regionScope = AssistantAccessControl.getRegionScope(actor);
+    if (!regionScope || regionScope.length === 0) {
+      return { found: false, reason: 'No assigned regions.' };
+    }
+
+    if (regionId) {
+      if (!regionScope.includes(regionId)) {
+        return { found: false, reason: 'Region not in your scope.' };
+      }
+      targetRegionId = regionId;
+    } else {
+      targetRegionId = regionScope[0]; // Default to first assigned region
+    }
+  }
+
+  if (!targetRegionId) {
+    return { found: false, reason: 'Region ID required.' };
+  }
+
+  const timeFilter: any = {};
+  if (timeRange?.from) timeFilter.gte = new Date(timeRange.from);
+  if (timeRange?.to) timeFilter.lte = new Date(timeRange.to);
+
+  const [region, revenue, jobs, placements, consultants] = await Promise.all([
+    prisma.region.findUnique({
+      where: { id: targetRegionId },
+      select: { id: true, name: true, code: true },
+    }),
+
+    prisma.regionalRevenue.aggregate({
+      where: {
+        region_id: targetRegionId,
+        ...(Object.keys(timeFilter).length ? { period_start: timeFilter } : {}),
+      },
+      _sum: { total_revenue: true },
+    }),
+
+    prisma.job.count({
+      where: {
+        region_id: targetRegionId,
+        ...(Object.keys(timeFilter).length ? { created_at: timeFilter } : {}),
+      },
+    }),
+
+    prisma.application.count({
+      where: {
+        job: { is: { region_id: targetRegionId } },
+        status: 'HIRED',
+        ...(Object.keys(timeFilter).length ? { updated_at: timeFilter } : {}),
+      },
+    }),
+
+    prisma.consultant.count({
+      where: {
+        region_id: targetRegionId,
+        status: 'ACTIVE',
+      },
+    }),
+  ]);
+
+  if (!region) {
+    return { found: false, reason: 'Region not found.' };
+  }
+
+  return {
+    found: true,
+    region: {
+      id: region.id,
+      name: region.name,
+      code: region.code,
+    },
+    metrics: {
+      totalRevenue: revenue._sum.total_revenue || 0,
+      totalJobs: jobs,
+      totalPlacements: placements,
+      activeConsultants: consultants,
+    },
+  };
+}

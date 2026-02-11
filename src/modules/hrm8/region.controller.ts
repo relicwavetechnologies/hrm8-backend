@@ -38,6 +38,17 @@ export class RegionController extends BaseController {
         }
     };
 
+    getOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const result = await this.regionService.getOverview({
+                regionIds: req.assignedRegionIds,
+            });
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.regionService.create(req.body);

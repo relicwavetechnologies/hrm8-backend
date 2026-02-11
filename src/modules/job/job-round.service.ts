@@ -52,6 +52,37 @@ export class JobRoundService extends BaseService {
     await createIfMissing('REJECTED', 'Rejected', 1001, 'ASSESSMENT');
   }
 
+  async initializeSimpleRounds(jobId: string): Promise<void> {
+    // 1. Ensure fixed rounds exist
+    await this.initializeFixedRounds(jobId);
+
+    // 2. Ensure "Screening" and "Interview" exist
+    //    We check by name for simplicity in this flow.
+    const allRounds = await this.jobRoundRepository.findByJobId(jobId);
+    const hasScreening = allRounds.some(r => r.name === 'Screening');
+    const hasInterview = allRounds.some(r => r.name === 'Interview');
+
+    if (!hasScreening) {
+      await this.jobRoundRepository.create({
+        job: { connect: { id: jobId } },
+        name: 'Screening',
+        type: 'INTERVIEW', // Using INTERVIEW so it stands out, even if manual
+        order: 2,
+        is_fixed: false,
+      });
+    }
+
+    if (!hasInterview) {
+      await this.jobRoundRepository.create({
+        job: { connect: { id: jobId } },
+        name: 'Interview',
+        type: 'INTERVIEW',
+        order: 3,
+        is_fixed: false,
+      });
+    }
+  }
+
   private mapToResponse(round: any) {
     if (!round) return null;
     return {
