@@ -3,6 +3,8 @@ import { BaseController } from '../../core/controller';
 import { ConsultantService } from './consultant.service';
 import { ConsultantCandidateService } from './consultant-candidate.service';
 import { ConsultantWithdrawalService } from './consultant-withdrawal.service';
+import { CommissionService } from '../hrm8/commission.service';
+import { CommissionRepository } from '../hrm8/commission.repository';
 import { ConversationService } from '../communication/conversation.service';
 import { ConsultantAuthenticatedRequest } from '../../types';
 import { ApplicationStatus, ApplicationStage } from '@prisma/client';
@@ -358,6 +360,28 @@ export class ConsultantController extends BaseController {
       const { activityType, notes } = req.body;
       await this.consultantService.logJobActivity(consultantId, jobId as string, activityType, notes);
       return this.sendSuccess(res, { message: 'Activity logged' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  requestCommission = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
+
+      const commissionService = new CommissionService(new CommissionRepository());
+      const commission = await commissionService.requestCommission({
+        consultantId,
+        type: req.body.type,
+        amount: req.body.amount,
+        jobId: req.body.jobId,
+        subscriptionId: req.body.subscriptionId,
+        description: req.body.description,
+        calculateFromJob: req.body.calculateFromJob,
+        rate: req.body.rate,
+      });
+      return this.sendSuccess(res, { commission });
     } catch (error) {
       return this.sendError(res, error);
     }

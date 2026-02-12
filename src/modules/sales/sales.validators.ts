@@ -29,10 +29,11 @@ export class SalesValidators {
   }
 
   static validateLeadData(data: any): void {
-    if (!data.company_name || typeof data.company_name !== 'string') {
+    const companyName = data.company_name ?? data.companyName;
+    if (!companyName || typeof companyName !== 'string') {
       throw new HttpException(400, 'Company name is required and must be a string');
     }
-    if (data.company_name.trim().length < 2) {
+    if (companyName.trim().length < 2) {
       throw new HttpException(400, 'Company name must be at least 2 characters');
     }
 
@@ -41,9 +42,7 @@ export class SalesValidators {
     }
     this.validateEmail(data.email);
 
-    if (!data.country || typeof data.country !== 'string') {
-      throw new HttpException(400, 'Country is required');
-    }
+    // Country is derived from consultant's region - not required from request
 
     if (data.phone) {
       this.validatePhone(data.phone);

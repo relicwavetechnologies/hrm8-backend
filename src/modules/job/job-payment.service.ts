@@ -111,7 +111,7 @@ export class JobPaymentService extends BaseService {
       companyId: string,
       jobId: string,
       salaryMax: number,
-      servicePackage: 'shortlisting' | 'full-service' | 'executive-search',
+      servicePackage: ServicePackage | string,
       userId: string
     ): Promise<{ success: boolean; error?: string; pricing?: any }> {
         // Self-managed is free
@@ -124,7 +124,7 @@ export class JobPaymentService extends BaseService {
             const pricing = await JobPaymentService.getJobPrice(
               companyId,
               salaryMax,
-              servicePackage
+              servicePackage as 'shortlisting' | 'full-service' | 'executive-search'
             );
             
             // Get currency info

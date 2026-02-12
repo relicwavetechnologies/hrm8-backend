@@ -9,12 +9,13 @@ import { EmailService } from '../email/email.service';
 import { emailService } from '../email/email.service';
 import { SalaryBandService } from '../pricing/salary-band.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
-import { jobPaymentService } from './job-payment.service';
+import { jobPaymentService, JobPaymentService } from './job-payment.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
 import { env } from '../../config/env';
-import { jobPaymentService, JobPaymentService } from './job-payment.service';
 import { jobAllocationService } from './job-allocation.service';
+import { CommissionService } from '../hrm8/commission.service';
+import { CommissionRepository } from '../hrm8/commission.repository';
 
 export class JobService extends BaseService {
   constructor(
@@ -54,6 +55,7 @@ export class JobService extends BaseService {
       location: data.location,
 
       hiring_mode: data.hiringMode,
+      service_package: data.servicePackage || data.hiringMode?.toLowerCase().replace(/_/g, '-') || undefined,
       work_arrangement: (data.workArrangement?.toUpperCase().replace('-', '_')) || 'ON_SITE',
       employment_type: (data.employmentType?.toUpperCase().replace('-', '_')) || 'FULL_TIME',
       // experience_level: data.experienceLevel, // Removed: Not in schema
@@ -167,6 +169,7 @@ export class JobService extends BaseService {
       ...data,
       // Manual mapping for updates
       hiring_mode: data.hiringMode,
+      service_package: data.servicePackage ?? (data.hiringMode ? data.hiringMode.toLowerCase().replace(/_/g, '-') : undefined),
       work_arrangement: data.workArrangement ? (data.workArrangement.toUpperCase().replace('-', '_')) : undefined,
       employment_type: data.employmentType ? (data.employmentType.toUpperCase().replace('-', '_')) : undefined,
       // experience_level: data.experienceLevel,
@@ -408,13 +411,22 @@ export class JobService extends BaseService {
       throw new HttpException(400, 'Only draft jobs can be published');
     }
 
-    const servicePackage = job.service_package || 'self-managed';
+    // Derive servicePackage from service_package or hiring_mode (service_package often not persisted)
+    const hiringModeToServicePackage: Record<string, string> = {
+      SELF_MANAGED: 'self-managed',
+      SHORTLISTING: 'shortlisting',
+      FULL_SERVICE: 'full-service',
+      EXECUTIVE_SEARCH: 'executive-search',
+    };
+    const servicePackage = job.service_package
+      || hiringModeToServicePackage[job.hiring_mode || ''] || 'self-managed';
 
     // 1. Process payment if required
     if (JobPaymentService.requiresPayment(servicePackage) && job.payment_status !== 'PAID') {
       const paymentResult = await jobPaymentService.payForJobFromWallet(
         companyId,
         id,
+        (job.salary_max ?? job.salary_min ?? 0) || 0,
         servicePackage,
         userId || job.created_by
       );
@@ -434,10 +446,30 @@ export class JobService extends BaseService {
     const updatedJob = await this.jobRepository.update(id, updateData);
 
     // 4. Auto-allocate to consultant if applicable
+    let assignedConsultantId: string | undefined;
     if (updatedJob.assignment_mode === 'AUTO' || updatedJob.hiring_mode !== 'SELF_MANAGED') {
-      await jobAllocationService.autoAssignJob(id).catch(err => {
+      const assignResult = await jobAllocationService.autoAssignJob(id).catch(err => {
         console.error(`[JobService] Auto-allocation failed for job ${id}:`, err);
+        return null;
       });
+      assignedConsultantId = assignResult?.consultantId;
+    }
+
+    // 5. Auto-create PENDING commission when job was paid and consultant assigned
+    if (updatedJob.payment_status === 'PAID' && assignedConsultantId) {
+      try {
+        const commissionService = new CommissionService(new CommissionRepository());
+        await commissionService.requestCommission({
+          consultantId: assignedConsultantId,
+          type: 'RECRUITMENT_SERVICE',
+          jobId: id,
+          calculateFromJob: true,
+          description: `Commission for job: ${updatedJob.title}`,
+        });
+        console.log(`[JobService] Created PENDING commission for consultant ${assignedConsultantId} on job ${id}`);
+      } catch (err) {
+        console.error(`[JobService] Failed to create commission for job ${id}:`, err);
+      }
     }
 
     // Trigger notification

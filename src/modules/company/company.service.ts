@@ -49,10 +49,17 @@ export class CompanyService extends BaseService {
       sales_agent: data.salesAgentId ? { connect: { id: data.salesAgentId } } : undefined,
     });
     
-    // Assign pricing peg and billing currency based on country
-    if (data.countryCode) {
+    // Assign pricing peg and billing currency from country code or region
+    let countryCode = data.countryCode;
+    if (!countryCode && (data.regionId || data.countryOrRegion)) {
+      countryCode = (await CurrencyAssignmentService.resolveCountryCode(
+        data.countryOrRegion,
+        data.regionId
+      )) ?? undefined;
+    }
+    if (countryCode) {
       try {
-        await CurrencyAssignmentService.assignCurrencyToCompany(company.id, data.countryCode);
+        await CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
       } catch (error) {
         console.warn(`Failed to assign currency to company ${company.id}:`, error);
         // Continue - company will default to USD

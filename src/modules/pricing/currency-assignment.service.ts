@@ -2,6 +2,24 @@ import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 
 /**
+ * Maps country name (e.g. "India", "United States") to ISO country code for pricing map lookup
+ */
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  India: 'IN', 'United States': 'US', USA: 'US', America: 'US',
+  Australia: 'AU', 'New Zealand': 'NZ', UK: 'GB', 'United Kingdom': 'GB',
+  Ireland: 'IE', Germany: 'DE', France: 'FR', Netherlands: 'NL', Spain: 'ES',
+  Italy: 'IT', Belgium: 'BE', Austria: 'AT', Finland: 'FI', Portugal: 'PT',
+  Luxembourg: 'LU', Pakistan: 'PK', 'Sri Lanka': 'LK', Bangladesh: 'BD',
+  Canada: 'CA', Singapore: 'SG', 'Hong Kong': 'HK', Japan: 'JP',
+  'South Korea': 'KR', Malaysia: 'MY', Thailand: 'TH', Philippines: 'PH',
+  Indonesia: 'ID', Vietnam: 'VN', UAE: 'AE', 'United Arab Emirates': 'AE',
+  'Saudi Arabia': 'SA', Qatar: 'QA', Kuwait: 'KW', Bahrain: 'BH', Oman: 'OM',
+  Israel: 'IL', Mexico: 'MX', Brazil: 'BR', Argentina: 'AR', Chile: 'CL',
+  Colombia: 'CO', 'South Africa': 'ZA', Nigeria: 'NG', Kenya: 'KE', Egypt: 'EG',
+  Switzerland: 'CH', Norway: 'NO', Sweden: 'SE', Denmark: 'DK', Poland: 'PL',
+};
+
+/**
  * Currency Assignment Service
  * Handles pricing peg and billing currency assignment and locking
  * 
@@ -11,6 +29,54 @@ import { HttpException } from '../../core/http-exception';
  * - No dynamic FX conversion allowed
  */
 export class CurrencyAssignmentService {
+  /**
+   * Resolve country code from country name, region, or raw code
+   */
+  static async resolveCountryCode(countryOrRegion: string | null | undefined, regionId?: string | null): Promise<string | null> {
+    if (regionId) {
+      const region = await prisma.region.findUnique({
+        where: { id: regionId },
+        select: { country: true }
+      });
+      if (region?.country) {
+        const code = COUNTRY_NAME_TO_CODE[region.country] ??
+          (region.country.length === 2 ? region.country.toUpperCase() : null);
+        if (code) return code;
+        // Fallback: lookup by country_name in CountryPricingMap
+        const map = await prisma.countryPricingMap.findFirst({
+          where: {
+            OR: [
+              { country_name: { equals: region.country, mode: 'insensitive' } },
+              { country_name: { contains: region.country, mode: 'insensitive' } }
+            ],
+            is_active: true
+          },
+          select: { country_code: true }
+        });
+        if (map) return map.country_code;
+      }
+    }
+    if (countryOrRegion) {
+      const trimmed = String(countryOrRegion).trim();
+      if (trimmed.length === 2) return trimmed.toUpperCase();
+      const code = COUNTRY_NAME_TO_CODE[trimmed];
+      if (code) return code;
+      // Fallback: lookup by country_name in CountryPricingMap
+      const map = await prisma.countryPricingMap.findFirst({
+        where: {
+          OR: [
+            { country_name: { equals: trimmed, mode: 'insensitive' } },
+            { country_name: { contains: trimmed, mode: 'insensitive' } }
+          ],
+          is_active: true
+        },
+        select: { country_code: true }
+      });
+      if (map) return map.country_code;
+    }
+    return null;
+  }
+
   /**
    * Assign pricing peg and billing currency to a company based on country
    * Called during company creation

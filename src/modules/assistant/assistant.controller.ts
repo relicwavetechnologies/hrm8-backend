@@ -42,7 +42,7 @@ export class AssistantController extends BaseController {
         {
           actorType: 'HRM8_USER',
           userId: req.hrm8User.id,
-          email: req.hrm8User.email,
+          email: req.hrm8User.email ?? '',
           role: req.hrm8User.role,
           licenseeId: req.hrm8User.licenseeId,
           assignedRegionIds: req.assignedRegionIds,
@@ -96,7 +96,7 @@ export class AssistantController extends BaseController {
         {
           actorType: 'CONSULTANT',
           userId: req.consultant.id,
-          email: req.consultant.email,
+          email: req.consultant.email ?? '',
           consultantId: req.consultant.id,
           regionId: consultant.region_id,
         },
@@ -120,7 +120,7 @@ export class AssistantController extends BaseController {
         {
           actorType: 'HRM8_USER',
           userId: req.hrm8User.id,
-          email: req.hrm8User.email,
+          email: req.hrm8User.email ?? '',
           role: req.hrm8User.role,
           licenseeId: req.hrm8User.licenseeId,
           assignedRegionIds: req.assignedRegionIds,

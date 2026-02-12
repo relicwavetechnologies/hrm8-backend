@@ -119,24 +119,32 @@ export class Consultant360Service extends BaseService {
   }
 
   async createLead(consultantId: string, data: any) {
-    const consultant = await this.repository.findConsultant(consultantId);
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      include: { region: true },
+    });
     if (!consultant) throw new HttpException(404, 'Consultant not found');
+    if (!consultant.region_id) {
+      throw new HttpException(400, 'Consultant must have an assigned region to create leads');
+    }
 
-    if (!data.company_name || !data.email || !data.country) {
-      throw new HttpException(400, 'Missing required fields: company_name, email, country');
+    const companyName = data.company_name ?? data.companyName;
+    if (!companyName || !data.email) {
+      throw new HttpException(400, 'Missing required fields: company name, email');
     }
 
     return this.repository.createLead({
-      company_name: data.company_name,
+      company_name: companyName,
       email: data.email,
       phone: data.phone || null,
       website: data.website || null,
-      country: data.country,
+      country: consultant.region?.country || 'Unknown',
       city: data.city || null,
       state_province: data.state || null,
+      region: { connect: { id: consultant.region_id } },
       creator: { connect: { id: consultantId } },
       status: 'NEW',
-      lead_source: data.source || 'WEBSITE'
+      lead_source: data.source || 'WEBSITE',
     });
   }
 
@@ -152,18 +160,20 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Consultant does not have an assigned region');
     }
 
+    // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.repository.createConversionRequest({
       lead: { connect: { id: leadId } },
       consultant: { connect: { id: consultantId } },
       region: { connect: { id: consultant.region_id } },
-      company_name: data.company_name,
-      email: data.email,
-      phone: data.phone || null,
-      website: data.website || null,
-      country: data.country,
-      city: data.city || null,
-      state_province: data.state || null,
-      agent_notes: data.notes || null,
+      company_name: lead.company_name,
+      email: lead.email,
+      phone: lead.phone || null,
+      website: lead.website || null,
+      country: lead.country,
+      city: lead.city || null,
+      state_province: lead.state_province || null,
+      agent_notes: data.agentNotes || data.notes || null,
+      temp_password: data.tempPassword || null,
       status: 'PENDING'
     });
   }
@@ -247,6 +257,30 @@ export class Consultant360Service extends BaseService {
   }
 
   // --- Commissions ---
+  async requestCommission(consultantId: string, data: {
+    type: 'PLACEMENT' | 'SUBSCRIPTION_SALE' | 'RECRUITMENT_SERVICE' | 'CUSTOM';
+    amount?: number;
+    jobId?: string;
+    subscriptionId?: string;
+    description?: string;
+    calculateFromJob?: boolean;
+    rate?: number;
+  }) {
+    const { CommissionService } = await import('../hrm8/commission.service');
+    const { CommissionRepository } = await import('../hrm8/commission.repository');
+    const commissionService = new CommissionService(new CommissionRepository());
+    return commissionService.requestCommission({
+      consultantId,
+      type: data.type,
+      amount: data.amount,
+      jobId: data.jobId,
+      subscriptionId: data.subscriptionId,
+      description: data.description,
+      calculateFromJob: data.calculateFromJob,
+      rate: data.rate
+    });
+  }
+
   async getCommissions(consultantId: string, filters?: { status?: string }) {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');

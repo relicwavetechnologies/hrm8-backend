@@ -17,6 +17,17 @@ export interface AwardCommissionInput {
     calculateFromJob?: boolean;  // If true, calculate from job's actual payment
 }
 
+export interface RequestCommissionInput {
+    consultantId: string;
+    type: CommissionType;
+    amount?: number;
+    jobId?: string;
+    subscriptionId?: string;
+    description?: string;
+    calculateFromJob?: boolean;
+    rate?: number;
+}
+
 export interface RequestWithdrawalInput {
     consultantId: string;
     amount: number;
@@ -224,11 +235,135 @@ export class CommissionService extends BaseService {
         });
     }
 
+    /**
+     * Request commission (consultant-initiated) - creates PENDING, no wallet credit.
+     * Admin must confirm to credit VirtualAccount.
+     */
+    async requestCommission(input: RequestCommissionInput) {
+        const {
+            consultantId,
+            amount: providedAmount,
+            type,
+            jobId,
+            subscriptionId,
+            description,
+            rate,
+            calculateFromJob = false
+        } = input;
+
+        let amount = providedAmount;
+        let commissionRate = rate;
+
+        if (calculateFromJob && (jobId || subscriptionId)) {
+            if (jobId) {
+                const job = await prisma.job.findUnique({
+                    where: { id: jobId },
+                    select: { payment_amount: true }
+                });
+                if (job?.payment_amount) {
+                    const consultant = await prisma.consultant.findUnique({
+                        where: { id: consultantId },
+                        select: { default_commission_rate: true }
+                    });
+                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    amount = job.payment_amount * commissionRate;
+                }
+            } else if (subscriptionId) {
+                const subscription = await prisma.subscription.findUnique({
+                    where: { id: subscriptionId },
+                    select: { base_price: true }
+                });
+                if (subscription?.base_price) {
+                    const consultant = await prisma.consultant.findUnique({
+                        where: { id: consultantId },
+                        select: { default_commission_rate: true }
+                    });
+                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    amount = subscription.base_price * commissionRate;
+                }
+            }
+        }
+
+        if (!amount || amount <= 0) throw new HttpException(400, 'Commission amount must be positive');
+
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { region_id: true }
+        });
+        if (!consultant) throw new HttpException(404, 'Consultant not found');
+        if (!consultant.region_id) throw new HttpException(400, 'Consultant must have a region assigned');
+
+        return prisma.commission.create({
+            data: {
+                consultant_id: consultantId,
+                region_id: consultant.region_id,
+                job_id: jobId ?? undefined,
+                subscription_id: subscriptionId ?? undefined,
+                type,
+                amount,
+                description: description || `Commission request: ${type}`,
+                status: CommissionStatus.PENDING
+            }
+        });
+    }
+
     async confirm(id: string) {
-        // Typically used if status was PENDING. 
-        return this.commissionRepository.update(id, {
-            status: CommissionStatus.CONFIRMED,
-            confirmed_at: new Date()
+        const commission = await this.commissionRepository.findById(id);
+        if (!commission) throw new HttpException(404, 'Commission not found');
+
+        if (commission.status !== CommissionStatus.PENDING) {
+            return this.commissionRepository.update(id, {
+                status: CommissionStatus.CONFIRMED,
+                confirmed_at: new Date()
+            });
+        }
+
+        // PENDING → CONFIRMED: credit VirtualAccount so amount reflects in wallet
+        return this.commissionRepository.transaction(async (tx) => {
+            const consultantId = commission.consultant_id;
+            const amount = Number(commission.amount);
+            const description = commission.description || `Commission ${commission.type}`;
+
+            let account = await tx.virtualAccount.findUnique({
+                where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+            });
+
+            if (!account) {
+                account = await tx.virtualAccount.create({
+                    data: {
+                        owner_type: 'CONSULTANT',
+                        owner_id: consultantId,
+                        balance: 0,
+                        status: 'ACTIVE'
+                    }
+                });
+            }
+
+            const balanceAfter = Number(account.balance) + amount;
+
+            await tx.virtualTransaction.create({
+                data: {
+                    virtual_account_id: account.id,
+                    type: VirtualTransactionType.COMMISSION_EARNED,
+                    amount,
+                    balance_after: balanceAfter,
+                    direction: 'CREDIT',
+                    status: 'COMPLETED',
+                    description: `Commission approved: ${description}`,
+                    reference_id: commission.id,
+                    reference_type: 'COMMISSION'
+                }
+            });
+
+            await tx.virtualAccount.update({
+                where: { id: account.id },
+                data: { balance: { increment: amount }, total_credits: { increment: amount } }
+            });
+
+            return tx.commission.update({
+                where: { id },
+                data: { status: CommissionStatus.CONFIRMED, confirmed_at: new Date() }
+            });
         });
     }
 
