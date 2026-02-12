@@ -32,33 +32,33 @@ export class AssistantStreamService {
   private readonly logger = Logger.create('assistant-stream');
 
   async streamHrm8(actor: AssistantActor, rawBody: any, res: Response): Promise<void> {
-    console.log('[StreamService] streamHrm8 called with actor:', {
-      actorType: actor.actorType,
-      userId: actor.userId,
-      email: actor.email,
-      consultantId: actor.actorType === 'CONSULTANT' ? actor.consultantId : undefined,
-      regionId: actor.actorType === 'CONSULTANT' ? actor.regionId : undefined,
-    });
+    // console.log('[StreamService] streamHrm8 called with actor:', {
+    //   actorType: actor.actorType,
+    //   userId: actor.userId,
+    //   email: actor.email,
+    //   consultantId: actor.actorType === 'CONSULTANT' ? actor.consultantId : undefined,
+    //   regionId: actor.actorType === 'CONSULTANT' ? actor.regionId : undefined,
+    // });
 
     if (!process.env.OPENAI_API_KEY) {
-      console.error('[StreamService] Missing OPENAI_API_KEY');
+      this.logger.error('[StreamService] Missing OPENAI_API_KEY');
       throw new Error('Assistant is not configured. Missing OPENAI_API_KEY.');
     }
 
     const modelId = process.env.OPENAI_MODEL || 'gpt-4o-mini';
     const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    console.log('[StreamService] Normalizing messages from rawBody');
+    // console.log('[StreamService] Normalizing messages from rawBody');
     const messages = this.normalizeMessages(rawBody);
-    console.log('[StreamService] Normalized messages count:', messages.length);
+    // console.log('[StreamService] Normalized messages count:', messages.length);
 
     // Get allowed tools for this actor
-    console.log('[StreamService] Getting allowed tools for actor');
+    // console.log('[StreamService] Getting allowed tools for actor');
     const allowedTools = AssistantAccessControl.getAllowedTools(TOOL_REGISTRY, actor);
-    console.log('[StreamService] Allowed tools:', {
-      count: allowedTools.length,
-      toolNames: allowedTools.map(t => t.name),
-    });
+    // console.log('[StreamService] Allowed tools:', {
+    //   count: allowedTools.length,
+    //   toolNames: allowedTools.map(t => t.name),
+    // });
 
     this.logger.info('assistant.stream.start', {
       actorType: actor.actorType,
@@ -78,19 +78,19 @@ export class AssistantStreamService {
       execute: async (args: Record<string, unknown>) => this.executeToolBatch(args, actor, allowedTools),
     });
 
-    console.log('[StreamService] About to call streamText with:', {
-      modelId,
-      messagesCount: messages.length,
-      toolsCount: Object.keys(aiSdkTools).length,
-    });
+    // console.log('[StreamService] About to call streamText with:', {
+    //   modelId,
+    //   messagesCount: messages.length,
+    //   toolsCount: Object.keys(aiSdkTools).length,
+    // });
 
-    console.log('[StreamService] Messages before conversion:', JSON.stringify(messages, null, 2));
+    // console.log('[StreamService] Messages before conversion:', JSON.stringify(messages, null, 2));
     const coreMessages = convertToCoreMessages(messages);
-    console.log('[StreamService] Messages after conversion:', JSON.stringify(coreMessages, null, 2));
+    // console.log('[StreamService] Messages after conversion:', JSON.stringify(coreMessages, null, 2));
 
     // Build system prompt (async now)
     const systemPrompt = await this.buildSystemPrompt(actor, allowedTools);
-    console.log('[StreamService] System prompt length:', systemPrompt.length);
+    // console.log('[StreamService] System prompt length:', systemPrompt.length);
 
     try {
       const result = streamText({
@@ -101,7 +101,7 @@ export class AssistantStreamService {
         maxSteps: 10,
         tools: aiSdkTools,
         onError: (error) => {
-          console.error('[StreamService] OpenAI stream error:', error);
+          this.logger.error('[StreamService] OpenAI stream error', { error });
           this.logger.error('OpenAI streaming error', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
@@ -110,10 +110,10 @@ export class AssistantStreamService {
         },
       });
 
-      console.log('[StreamService] streamText created, converting to DataStreamResponse');
+      // console.log('[StreamService] streamText created, converting to DataStreamResponse');
       const streamResponse = result.toDataStreamResponse();
 
-      console.log('[StreamService] DataStreamResponse created with status:', streamResponse.status);
+      // console.log('[StreamService] DataStreamResponse created with status:', streamResponse.status);
       res.status(streamResponse.status);
 
       streamResponse.headers.forEach((value: string, key: string) => {
@@ -121,26 +121,26 @@ export class AssistantStreamService {
       });
 
       if (!streamResponse.body) {
-        console.warn('[StreamService] No response body, ending response');
+        // console.warn('[StreamService] No response body, ending response');
         res.end();
         return;
       }
 
-      console.log('[StreamService] Starting stream pipe to response');
+      // console.log('[StreamService] Starting stream pipe to response');
       const readable = Readable.fromWeb(streamResponse.body as any);
 
       readable.on('error', (error) => {
-        console.error('[StreamService] Stream error:', error);
+        this.logger.error('[StreamService] Stream error', { error });
         this.logger.error('Stream pipe error', { error, actorId: actor.userId });
       });
 
       readable.on('end', () => {
-        console.log('[StreamService] Stream ended successfully');
+        // console.log('[StreamService] Stream ended successfully');
       });
 
       readable.pipe(res);
     } catch (error) {
-      console.error('[StreamService] Error in streamText execution:', error);
+      this.logger.error('[StreamService] Error in streamText execution', { error });
       this.logger.error('StreamText error', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -158,27 +158,27 @@ export class AssistantStreamService {
   }
 
   private normalizeMessages(rawBody: any): UIMessage[] {
-    console.log('[StreamService] normalizeMessages - rawBody type:', typeof rawBody);
-    console.log('[StreamService] normalizeMessages - has messages:', Array.isArray(rawBody?.messages));
-    console.log('[StreamService] normalizeMessages - has message:', typeof rawBody?.message);
+    // console.log('[StreamService] normalizeMessages - rawBody type:', typeof rawBody);
+    // console.log('[StreamService] normalizeMessages - has messages:', Array.isArray(rawBody?.messages));
+    // console.log('[StreamService] normalizeMessages - has message:', typeof rawBody?.message);
 
     const incoming = Array.isArray(rawBody?.messages) ? rawBody.messages : [];
 
     if (incoming.length > 0) {
-      console.log('[StreamService] normalizeMessages - using incoming messages, count:', incoming.length);
+      // console.log('[StreamService] normalizeMessages - using incoming messages, count:', incoming.length);
       const filtered = incoming.filter((item: unknown) => item && typeof item === 'object');
-      console.log('[StreamService] normalizeMessages - filtered to:', filtered.length);
+      // console.log('[StreamService] normalizeMessages - filtered to:', filtered.length);
       return filtered;
     }
 
     const fallback = typeof rawBody?.message === 'string' ? rawBody.message.trim() : '';
 
     if (!fallback) {
-      console.log('[StreamService] normalizeMessages - no messages found, returning empty array');
+      // console.log('[StreamService] normalizeMessages - no messages found, returning empty array');
       return [];
     }
 
-    console.log('[StreamService] normalizeMessages - using fallback message');
+    // console.log('[StreamService] normalizeMessages - using fallback message');
     return [
       {
         id: 'fallback-user-message',
@@ -200,12 +200,12 @@ export class AssistantStreamService {
         parameters: toolDef.parameters,
         execute: async (args: Record<string, unknown>) => {
           try {
-            console.log(`[StreamService] Executing tool: ${toolDef.name} `);
+            // console.log(`[StreamService] Executing tool: ${toolDef.name} `);
             const result = await this.executeTool(toolDef, args, actor);
-            console.log(`[StreamService] Tool ${toolDef.name} completed: `, { success: result.success });
+            // console.log(`[StreamService] Tool ${toolDef.name} completed: `, { success: result.success });
             return result;
           } catch (error) {
-            console.error(`[StreamService] Tool ${toolDef.name} threw error: `, error);
+            this.logger.error(`[StreamService] Tool ${toolDef.name} threw error`, { error });
             throw error;
           }
         },

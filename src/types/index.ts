@@ -605,14 +605,4 @@ export interface ConsultantAuthenticatedRequest extends Request {
   };
 }
 
-export interface Hrm8AuthenticatedRequest extends Request {
-  hrm8User?: {
-    id: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-    licenseeId?: string;
-  };
-  assignedRegionIds?: string[];
-}
+export type Hrm8AuthenticatedRequest = Request;

@@ -20,15 +20,15 @@ export class JobController extends BaseController {
 
   constructor() {
     super();
+    this.jobRoundService = new JobRoundService(
+      new JobRoundRepository(),
+      new JobRepository()
+    );
     this.jobService = new JobService(
       new JobRepository(),
       new ApplicationRepository(),
       new NotificationService(new NotificationRepository()),
       this.jobRoundService
-    );
-    this.jobRoundService = new JobRoundService(
-      new JobRoundRepository(),
-      new JobRepository()
     );
     this.assessmentService = new AssessmentService(
       new AssessmentRepository()
@@ -40,8 +40,12 @@ export class JobController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const job = await this.jobService.createJob(req.user.companyId, req.user.id, req.body);
 
-      // Initialize rounds for new job
-      await this.jobRoundService.initializeFixedRounds(job.id);
+      // Initialize rounds for new job based on setup type
+      if (job.setupType === 'simple' || (req.body.setupType && req.body.setupType.toLowerCase() === 'simple')) {
+        await this.jobRoundService.initializeSimpleRounds(job.id);
+      } else {
+        await this.jobRoundService.initializeFixedRounds(job.id);
+      }
 
       return this.sendSuccess(res, { job });
     } catch (error) {

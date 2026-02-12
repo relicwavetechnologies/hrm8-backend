@@ -28,7 +28,6 @@ import {
   getMyDailyBriefingSchema,
   getRegionalPerformance,
   getRegionalPerformanceSchema,
-  // New personalization tools
   getMyCompanies,
   getMyCompaniesSchema,
   getMyCandidates,

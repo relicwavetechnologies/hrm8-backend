@@ -11,6 +11,7 @@ declare global {
                 role: string;
                 licenseeId?: string;
             };
+            assignedRegionIds?: string[];
         }
     }
 }
