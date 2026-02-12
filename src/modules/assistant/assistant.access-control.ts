@@ -33,12 +33,12 @@ export class AssistantAccessControl {
     //   description: getAccessLevelDescription(accessLevel),
     // });
 
-    this.logger.debug('Actor access level determined', {
-      actorType: actor.actorType,
-      userId: actor.userId,
-      accessLevel,
-      description: getAccessLevelDescription(accessLevel),
-    });
+    // this.logger.debug('Actor access level determined', {
+    //   actorType: actor.actorType,
+    //   userId: actor.userId,
+    //   accessLevel,
+    //   description: getAccessLevelDescription(accessLevel),
+    // });
 
     return accessLevel;
   }

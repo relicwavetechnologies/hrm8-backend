@@ -38,7 +38,7 @@ export async function authenticate(
       const session = await sessionRepository.findBySessionId(sessionId);
 
       if (!session) {
-        console.warn('[authenticate] Session not found or expired for ID:', sessionId);
+        // console.warn('[authenticate] Session not found or expired for ID:', sessionId);
         res.clearCookie('sessionId', getSessionCookieOptions());
         res.status(401).json({
           success: false,
@@ -72,11 +72,11 @@ export async function authenticate(
         };
         return next();
       } catch (e) {
-        console.warn('[authenticate] Invalid JWT token');
+        // console.warn('[authenticate] Invalid JWT token');
       }
     }
 
-    console.error('[authenticate] No valid session or token found');
+    // console.error('[authenticate] No valid session or token found');
     res.status(401).json({
       success: false,
       error: 'Not authenticated. Please login.',
@@ -84,7 +84,7 @@ export async function authenticate(
     return;
 
   } catch (error) {
-    console.error('[authenticate] Error during authentication:', error);
+    // console.error('[authenticate] Error during authentication:', error);
     res.status(401).json({
       success: false,
       error: 'Authentication failed',

@@ -60,12 +60,12 @@ export class AssistantStreamService {
     //   toolNames: allowedTools.map(t => t.name),
     // });
 
-    this.logger.info('assistant.stream.start', {
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      accessLevel: AssistantAccessControl.getAccessLevel(actor),
-      allowedToolsCount: allowedTools.length,
-    });
+    // this.logger.info('assistant.stream.start', {
+    //   actorType: actor.actorType,
+    //   actorId: actor.userId,
+    //   accessLevel: AssistantAccessControl.getAccessLevel(actor),
+    //   allowedToolsCount: allowedTools.length,
+    // });
 
     // Build AI SDK tools from allowed tools
     const aiSdkTools = this.buildAiSdkTools(allowedTools, actor);
@@ -249,13 +249,13 @@ export class AssistantStreamService {
 
       const durationMs = Date.now() - startedAt;
 
-      this.logger.info('assistant.stream.tool.success', {
-        tool: toolDef.name,
-        actorType: actor.actorType,
-        actorId: actor.userId,
-        sensitivity: toolDef.dataSensitivity,
-        durationMs,
-      });
+      // this.logger.info('assistant.stream.tool.success', {
+      //   tool: toolDef.name,
+      //   actorType: actor.actorType,
+      //   actorId: actor.userId,
+      //   sensitivity: toolDef.dataSensitivity,
+      //   durationMs,
+      // });
 
       // Create audit log for sensitive tools
       if (toolDef.dataSensitivity === 'HIGH' || toolDef.dataSensitivity === 'CRITICAL') {
@@ -339,13 +339,13 @@ export class AssistantStreamService {
 
     const durationMs = Date.now() - startedAt;
 
-    this.logger.info('assistant.stream.tool.batch', {
-      actorType: actor.actorType,
-      actorId: actor.userId,
-      durationMs,
-      totalCalls: calls.length,
-      succeededCalls: results.filter((item) => item.result.success).length,
-    });
+    // this.logger.info('assistant.stream.tool.batch', {
+    //   actorType: actor.actorType,
+    //   actorId: actor.userId,
+    //   durationMs,
+    //   totalCalls: calls.length,
+    //   succeededCalls: results.filter((item) => item.result.success).length,
+    // });
 
     return {
       success: results.some((item) => item.result.success),

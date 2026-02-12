@@ -155,7 +155,7 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
   {
     name: 'get_regional_performance',
     description:
-      'Get regional performance metrics including revenue, placements, active jobs, and consultant activity. Only for HRM8 users with regional or global admin access.',
+      'Get regional performance metrics including revenue, placements, active jobs, and consultant activity. Only for HRM8 users with regional or global admin access. If no regionId is provided, returns data for all assigned regions.',
     parameters: getRegionalPerformanceSchema,
     allowedRoles: [ToolAccessLevel.GLOBAL_ADMIN, ToolAccessLevel.REGIONAL_ADMIN],
     requiresRegionScope: true,

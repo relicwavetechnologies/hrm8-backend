@@ -24,6 +24,7 @@ import { AlertController } from './alert.controller';
 import { OverviewController } from './overview.controller';
 import { AttributionController } from './attribution.controller';
 import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
+import { requireHrm8Role } from '../../middlewares/hrm8-auth.middleware';
 
 import { CareersRequestController } from './careers-request.controller';
 
@@ -166,18 +167,18 @@ router.delete('/pricing/promo-codes/:id', authenticateHrm8, pricingController.de
 router.post('/pricing/promo-codes/validate', authenticateHrm8, pricingController.validatePromoCode);
 
 // Region Routes
-router.get('/regions', authenticateHrm8, regionController.getAll);
-router.get('/regions/overview', authenticateHrm8, regionController.getOverview);
-router.get('/regions/:id', authenticateHrm8, regionController.getById);
-router.post('/regions', authenticateHrm8, regionController.create);
-router.put('/regions/:id', authenticateHrm8, regionController.update);
-router.delete('/regions/:id', authenticateHrm8, regionController.delete);
-router.post('/regions/:regionId/assign-licensee', authenticateHrm8, regionController.assignLicensee);
-router.post('/regions/:regionId/unassign-licensee', authenticateHrm8, regionController.unassignLicensee);
-router.get('/regions/:regionId/transfer-impact', authenticateHrm8, regionController.getTransferImpact);
+router.get('/regions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getAll);
+router.get('/regions/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getOverview);
+router.get('/regions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getById);
+router.post('/regions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.create);
+router.put('/regions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.update);
+router.delete('/regions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.delete);
+router.post('/regions/:regionId/assign-licensee', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.assignLicensee);
+router.post('/regions/:regionId/unassign-licensee', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.unassignLicensee);
+router.get('/regions/:regionId/transfer-impact', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.getTransferImpact);
 // Legacy alias for ATS compatibility
-router.post('/regions/:regionId/transfer', authenticateHrm8, regionController.transferOwnership);
-router.post('/regions/:regionId/transfer-ownership', authenticateHrm8, regionController.transferOwnership);
+router.post('/regions/:regionId/transfer', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.transferOwnership);
+router.post('/regions/:regionId/transfer-ownership', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.transferOwnership);
 
 // Staff Management Routes
 router.get('/consultants/overview', authenticateHrm8, staffController.getOverview);

@@ -104,7 +104,7 @@ export const getHiringFunnelAnalyticsSchema = z.object({
 });
 
 export const getInterviewDetailsSchema = z.object({
-  applicationId: uuidSchema.optional(),
+  applicationId: z.string().uuid().nullish().transform((val) => val || undefined),
   jobQuery: textQuerySchema.optional(),
   candidateQuery: textQuerySchema.optional(),
 });
@@ -115,19 +115,19 @@ export const getAssessmentResultsSchema = z.object({
 });
 
 export const getOfferStatusSchema = z.object({
-  applicationId: uuidSchema.optional(),
+  applicationId: z.string().uuid().nullish().transform((val) => val || undefined),
   candidateQuery: textQuerySchema.optional(),
   jobQuery: textQuerySchema.optional(),
 });
 
 export const getLeadPipelineSchema = z.object({
-  regionId: uuidSchema.optional(),
+  regionId: z.string().uuid().nullish().transform((val) => val || undefined),
   consultantQuery: textQuerySchema.optional(),
   status: z.enum(['ALL', 'NEW', 'CONTACTED', 'QUALIFIED', 'CONVERTED']).optional().default('ALL'),
 });
 
 export const getCompanyFinancialSummarySchema = z.object({
-  companyId: uuidSchema.optional(),
+  companyId: z.string().uuid().nullish().transform((val) => val || undefined),
   timeRange: timeRangeSchema,
 });
 
@@ -149,7 +149,12 @@ export const getActivityFeedSchema = z.object({
 export const getMyDailyBriefingSchema = z.object({});
 
 export const getRegionalPerformanceSchema = z.object({
-  regionId: uuidSchema.optional(),
+  regionId: z
+    .string()
+    .uuid()
+    .nullish()
+    .transform((val) => val || undefined)
+    .describe('Optional region UUID. Leave empty or omit to use all your assigned regions.'),
   timeRange: timeRangeSchema,
 });
 
@@ -167,8 +172,13 @@ export const getMyQuickStatsSchema = z.object({});
 
 // New admin search tool schemas
 export const searchConsultantsSchema = z.object({
-  query: textQuerySchema.describe('Consultant name, email, or partial match'),
-  regionId: uuidSchema.optional().describe('Filter by specific region'),
+  query: textQuerySchema.describe('Consultant name, email, or partial match. Required field.'),
+  regionId: z
+    .string()
+    .uuid()
+    .nullish()
+    .transform((val) => val || undefined)
+    .describe('Optional region UUID to filter results. Leave empty or omit to search all accessible regions.'),
   limit: z.number().int().min(1).max(50).optional().default(20),
 });
 
@@ -186,7 +196,7 @@ export const getRecentAuditLogsSchema = z.object({
 
 export const getRevenueAnalyticsSchema = z.object({
   timeRange: z.enum(['TODAY', 'THIS_WEEK', 'THIS_MONTH', 'THIS_QUARTER', 'THIS_YEAR', 'ALL_TIME']).optional().default('THIS_MONTH'),
-  regionId: uuidSchema.optional().describe('Filter by specific region'),
+  regionId: z.string().uuid().nullish().transform((val) => val || undefined).describe('Optional region UUID to filter results. Leave empty to use all regions.'),
   includeCompanyBreakdown: z.boolean().optional().default(true),
   includeSharingInsights: z.boolean().optional().default(true).describe('Include HRM8 vs Licensee share details'),
 });

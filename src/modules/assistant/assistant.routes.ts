@@ -9,9 +9,10 @@ const controller = new AssistantController();
 
 // Company-side assistant (ATS/admin company users)
 router.post('/chat', authenticate, controller.companyChat);
+router.post('/chat/stream', authenticate, controller.companyChatStream);
 
 // Consultant-side assistant
-router.post('/chat/stream', authenticateConsultant, controller.consultantChatStream);
+router.post('/chat/consultant/stream', authenticateConsultant, controller.consultantChatStream);
 
 // HRM8 admin-side assistant
 router.post('/chat/hrm8', authenticateHrm8, controller.hrm8Chat);

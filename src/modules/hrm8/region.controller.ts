@@ -15,11 +15,12 @@ export class RegionController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { ownerType, licenseeId, country } = req.query;
+            const { ownerType, licenseeId, country, isActive } = req.query;
             const result = await this.regionService.getAll({
                 ownerType: ownerType as RegionOwnerType,
                 licenseeId: licenseeId as string,
                 country: country as string,
+                isActive: isActive as string | undefined,
                 regionIds: req.assignedRegionIds,
             });
             return this.sendSuccess(res, { regions: result });
@@ -31,8 +32,11 @@ export class RegionController extends BaseController {
     getById = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionService.getById(id as string);
-            return this.sendSuccess(res, result);
+            const result = await this.regionService.getById(id as string, {
+                regionIds: req.assignedRegionIds,
+                role: req.hrm8User?.role,
+            });
+            return this.sendSuccess(res, { region: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -51,8 +55,8 @@ export class RegionController extends BaseController {
 
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.regionService.create(req.body);
-            return this.sendSuccess(res, result);
+            const result = await this.regionService.create(req.body, req.hrm8User?.id);
+            return this.sendSuccess(res, { region: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -61,8 +65,8 @@ export class RegionController extends BaseController {
     update = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionService.update(id as string, req.body);
-            return this.sendSuccess(res, result);
+            const result = await this.regionService.update(id as string, req.body, req.hrm8User?.id);
+            return this.sendSuccess(res, { region: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -71,8 +75,8 @@ export class RegionController extends BaseController {
     delete = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            await this.regionService.delete(id as string);
-            return this.sendSuccess(res, { message: 'Region deleted successfully' });
+            const result = await this.regionService.delete(id as string, req.hrm8User?.id);
+            return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -82,8 +86,8 @@ export class RegionController extends BaseController {
         try {
             const { regionId } = req.params;
             const { licenseeId } = req.body;
-            const result = await this.regionService.assignLicensee(regionId as string, licenseeId as string);
-            return this.sendSuccess(res, result);
+            const result = await this.regionService.assignLicensee(regionId as string, licenseeId as string, req.hrm8User?.id);
+            return this.sendSuccess(res, { region: result });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -92,8 +96,8 @@ export class RegionController extends BaseController {
     unassignLicensee = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { regionId } = req.params;
-            const result = await this.regionService.unassignLicensee(regionId as string);
-            return this.sendSuccess(res, result);
+            const result = await this.regionService.unassignLicensee(regionId as string, req.hrm8User?.id);
+            return this.sendSuccess(res, { region: result });
         } catch (error) {
             return this.sendError(res, error);
         }

@@ -52,18 +52,18 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
             return null;
         }
 
-        console.log('[WS Auth] Session ID found:', sessionId.substring(0, 10) + '...');
+        // console.log('[WS Auth] Session ID found:', sessionId.substring(0, 10) + '...');
 
         // 3. Check Candidate Session FIRST (since candidateSessionId cookie exists)
         const { prisma } = await import('../utils/prisma');
 
-        console.log('[WS Auth] Checking candidateSession table FIRST...');
+        // console.log('[WS Auth] Checking candidateSession table FIRST...');
         const candidateSession = await prisma.candidateSession.findUnique({
             where: { session_id: sessionId },
             include: { candidate: true }
         });
         if (candidateSession && candidateSession.expires_at > new Date()) {
-            console.log('[WS Auth] Found CANDIDATE session for:', candidateSession.email);
+            // console.log('[WS Auth] Found CANDIDATE session for:', candidateSession.email);
             return {
                 userId: candidateSession.candidate_id,
                 email: candidateSession.email,
@@ -71,12 +71,12 @@ export async function authenticateWebSocket(req: IncomingMessage): Promise<WebSo
                 name: `${candidateSession.candidate.first_name} ${candidateSession.candidate.last_name}`
             };
         }
-        console.log('[WS Auth] No candidate session found, checking employer session...');
+        // console.log('[WS Auth] No candidate session found, checking employer session...');
 
         // 4. Lookup via SessionRepository (Employers/HR users)
         const session = await sessionRepository.findBySessionId(sessionId);
         if (session) {
-            console.log('[WS Auth] Found EMPLOYER session for:', session.email);
+            // console.log('[WS Auth] Found EMPLOYER session for:', session.email);
             return {
                 userId: session.userId,
                 email: session.email,

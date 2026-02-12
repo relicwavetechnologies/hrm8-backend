@@ -28,7 +28,7 @@ export class SessionRepository extends BaseRepository {
   }
 
   async findBySessionId(sessionId: string): Promise<SessionData | null> {
-    console.log(`[SessionRepository.findBySessionId] Looking up session: ${sessionId}`);
+    // console.log(`[SessionRepository.findBySessionId] Looking up session: ${sessionId}`);
 
     const session = await this.prisma.session.findUnique({
       where: { session_id: sessionId },
@@ -36,24 +36,24 @@ export class SessionRepository extends BaseRepository {
     });
 
     if (!session) {
-      console.log(`[SessionRepository.findBySessionId] Session not found for: ${sessionId}`);
+      // console.log(`[SessionRepository.findBySessionId] Session not found for: ${sessionId}`);
       return null;
     }
 
     if (new Date() > session.expires_at) {
-      console.log(`[SessionRepository.findBySessionId] Session expired for: ${sessionId}`);
+      // console.log(`[SessionRepository.findBySessionId] Session expired for: ${sessionId}`);
       await this.deleteBySessionId(sessionId);
       return null;
     }
 
-    console.log(`[SessionRepository.findBySessionId] Session found for user: ${session.user_id}`);
+    // console.log(`[SessionRepository.findBySessionId] Session found for user: ${session.user_id}`);
     return this.mapPrismaToSession(session);
   }
 
   async deleteBySessionId(sessionId: string): Promise<void> {
     await this.prisma.session.delete({
       where: { session_id: sessionId },
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   private mapPrismaToSession(prismaSession: any): SessionData {

@@ -32,6 +32,43 @@ export class AssistantController extends BaseController {
     }
   };
 
+  companyChatStream = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        console.error('[Assistant] Company user not authenticated');
+        return this.sendError(res, new Error('Not authenticated'), 401);
+      }
+
+      // console.log('[Assistant] Company user authenticated:', {
+      //   id: req.user.id,
+      //   email: req.user.email,
+      //   role: req.user.role,
+      //   companyId: req.user.companyId,
+      // });
+
+      // console.log('[Assistant] Starting stream for company user:', {
+      //   userId: req.user.id,
+      //   companyId: req.user.companyId,
+      // });
+
+      await this.streamService.streamHrm8(
+        {
+          actorType: 'COMPANY_USER',
+          userId: req.user.id,
+          email: req.user.email,
+          companyId: req.user.companyId,
+          role: req.user.role,
+        },
+        req.body,
+        res
+      );
+      return;
+    } catch (error) {
+      console.error('[Assistant] Company stream error:', error);
+      return this.sendError(res, error, 400);
+    }
+  };
+
   hrm8Chat = async (req: Hrm8AuthenticatedRequest, res: Response) => {
     try {
       if (!req.hrm8User) {
@@ -63,11 +100,11 @@ export class AssistantController extends BaseController {
         return this.sendError(res, new Error('Not authenticated'), 401);
       }
 
-      console.log('[Assistant] Consultant authenticated:', {
-        id: req.consultant.id,
-        email: req.consultant.email,
-        role: req.consultant.role,
-      });
+      // console.log('[Assistant] Consultant authenticated:', {
+      //   id: req.consultant.id,
+      //   email: req.consultant.email,
+      //   role: req.consultant.role,
+      // });
 
       // Fetch consultant details to get region_id
       const consultant = await prisma.consultant.findUnique({
@@ -75,7 +112,7 @@ export class AssistantController extends BaseController {
         select: { id: true, email: true, role: true, region_id: true },
       });
 
-      console.log('[Assistant] Consultant from DB:', consultant);
+      // console.log('[Assistant] Consultant from DB:', consultant);
 
       if (!consultant) {
         console.error('[Assistant] Consultant not found in database');
@@ -87,10 +124,10 @@ export class AssistantController extends BaseController {
         return this.sendError(res, new Error('No region assigned to consultant'), 400);
       }
 
-      console.log('[Assistant] Starting stream for consultant:', {
-        consultantId: req.consultant.id,
-        regionId: consultant.region_id,
-      });
+      // console.log('[Assistant] Starting stream for consultant:', {
+      //   consultantId: req.consultant.id,
+      //   regionId: consultant.region_id,
+      // });
 
       await this.streamService.streamHrm8(
         {

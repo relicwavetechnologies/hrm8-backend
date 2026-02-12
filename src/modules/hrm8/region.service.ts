@@ -9,26 +9,117 @@ export class RegionService extends BaseService {
         super();
     }
 
-    async create(data: any) {
-        const existing = await this.regionRepository.findByCode(data.code);
+    private parseBoolean(value: unknown): boolean | undefined {
+        if (typeof value === 'boolean') return value;
+        if (typeof value !== 'string') return undefined;
+        if (value.toLowerCase() === 'true') return true;
+        if (value.toLowerCase() === 'false') return false;
+        return undefined;
+    }
+
+    private async assertLicenseeExists(licenseeId: string) {
+        const licensee = await prisma.regionalLicensee.findUnique({
+            where: { id: licenseeId },
+            select: { id: true, status: true },
+        });
+        if (!licensee) {
+            throw new HttpException(404, 'Licensee not found');
+        }
+        if (licensee.status !== 'ACTIVE') {
+            throw new HttpException(400, 'Only ACTIVE licensees can be assigned');
+        }
+    }
+
+    private async audit(
+        action: string,
+        entityId: string,
+        performedBy: string | undefined,
+        description: string,
+        changes?: Record<string, unknown>
+    ) {
+        await prisma.auditLog.create({
+            data: {
+                entity_type: 'REGION',
+                entity_id: entityId,
+                action,
+                performed_by: performedBy || 'system',
+                description,
+                changes: (changes || null) as any,
+            },
+        });
+    }
+
+    private normalizeRegionInput(data: any, partial = false) {
+        const normalized: Record<string, unknown> = {};
+
+        const ownerType = (data.ownerType ?? data.owner_type) as RegionOwnerType | undefined;
+        const licenseeId = (data.licenseeId ?? data.licensee_id) as string | undefined;
+        const isActive = this.parseBoolean(data.isActive ?? data.is_active);
+
+        const setIfDefined = (key: string, value: unknown) => {
+            if (value !== undefined) normalized[key] = value;
+        };
+
+        setIfDefined('name', data.name);
+        setIfDefined('code', data.code);
+        setIfDefined('country', data.country);
+        setIfDefined('state_province', data.stateProvince ?? data.state_province);
+        setIfDefined('city', data.city);
+        setIfDefined('boundaries', data.boundaries);
+        setIfDefined('is_active', isActive);
+
+        if (!partial || ownerType !== undefined) {
+            setIfDefined('owner_type', ownerType);
+        }
+
+        if (!partial || licenseeId !== undefined) {
+            setIfDefined('licensee_id', licenseeId);
+        }
+
+        return normalized;
+    }
+
+    private async validateOwnerAndLicensee(
+        mappedData: Record<string, unknown>,
+        currentRegion?: { owner_type: RegionOwnerType; licensee_id: string | null }
+    ) {
+        const ownerType = (mappedData.owner_type ?? currentRegion?.owner_type) as RegionOwnerType | undefined;
+        const licenseeId = (mappedData.licensee_id ?? currentRegion?.licensee_id) as string | null | undefined;
+
+        if (ownerType === 'LICENSEE') {
+            if (!licenseeId) {
+                throw new HttpException(400, 'licenseeId is required when ownerType is LICENSEE');
+            }
+            await this.assertLicenseeExists(licenseeId);
+        }
+
+        if (ownerType === 'HRM8') {
+            mappedData.licensee_id = null;
+        }
+    }
+
+    async create(data: any, performedBy?: string) {
+        const mappedData = this.normalizeRegionInput(data);
+        const code = mappedData.code as string | undefined;
+        if (!code) {
+            throw new HttpException(400, 'code is required');
+        }
+
+        const existing = await this.regionRepository.findByCode(code);
         if (existing) {
             throw new HttpException(409, 'Region code already exists');
         }
 
-        const mappedData = {
-            ...data,
-            state_province: data.stateProvince,
-            owner_type: data.ownerType,
-            is_active: data.isActive,
-        };
-        // Remove camelCase keys to avoid "Unknown argument" errors if strict validation is on, 
-        // though usually Prisma just ignores unknown fields if not in strict mode, 
-        // but clearly here it's complaining.
-        delete mappedData.stateProvince;
-        delete mappedData.ownerType;
-        delete mappedData.isActive;
+        await this.validateOwnerAndLicensee(mappedData);
 
-        return this.regionRepository.create(mappedData);
+        const created = await this.regionRepository.create(mappedData as any);
+        await this.audit('CREATE_REGION', created.id, performedBy, 'Region created', {
+            name: created.name,
+            code: created.code,
+            owner_type: created.owner_type,
+            licensee_id: created.licensee_id,
+        });
+        return this.mapToDTO(created);
     }
 
     private mapToDTO(region: any) {
@@ -41,7 +132,13 @@ export class RegionService extends BaseService {
         };
     }
 
-    async getById(id: string) {
+    async getById(id: string, opts?: { regionIds?: string[]; role?: string }) {
+        if (opts?.role === 'REGIONAL_LICENSEE') {
+            if (!opts.regionIds || opts.regionIds.length === 0 || !opts.regionIds.includes(id)) {
+                throw new HttpException(404, 'Region not found');
+            }
+        }
+
         const region = await this.regionRepository.findById(id);
         if (!region) {
             throw new HttpException(404, 'Region not found');
@@ -50,12 +147,14 @@ export class RegionService extends BaseService {
     }
 
     async getAll(filters: any) {
-        const { ownerType, licenseeId, regionIds, country } = filters;
+        const { ownerType, licenseeId, regionIds, country, isActive } = filters;
         const where: any = {};
         if (ownerType && ownerType !== 'all') where.owner_type = ownerType;
         if (licenseeId) where.licensee_id = licenseeId;
         if (regionIds) where.id = { in: regionIds };
         if (country) where.country = country;
+        const active = this.parseBoolean(isActive);
+        if (active !== undefined) where.is_active = active;
 
         const regions = await this.regionRepository.findMany({
             where,
@@ -254,41 +353,97 @@ export class RegionService extends BaseService {
         };
     }
 
-    async update(id: string, data: any) {
-        if (data.code) {
-            const existing = await this.regionRepository.findByCode(data.code);
+    async update(id: string, data: any, performedBy?: string) {
+        const currentRegion = await this.regionRepository.findById(id);
+        if (!currentRegion) {
+            throw new HttpException(404, 'Region not found');
+        }
+
+        const mappedData = this.normalizeRegionInput(data, true);
+
+        if (mappedData.code) {
+            const existing = await this.regionRepository.findByCode(String(mappedData.code));
             if (existing && existing.id !== id) {
                 throw new HttpException(409, 'Region code already exists');
             }
         }
 
-        const mappedData = { ...data };
-        if (data.stateProvince !== undefined) {
-            mappedData.state_province = data.stateProvince;
-            delete mappedData.stateProvince;
-        }
-        if (data.ownerType !== undefined) {
-            mappedData.owner_type = data.ownerType;
-            delete mappedData.ownerType;
-        }
-        if (data.isActive !== undefined) {
-            mappedData.is_active = data.isActive;
-            delete mappedData.isActive;
-        }
+        await this.validateOwnerAndLicensee(mappedData, {
+            owner_type: currentRegion.owner_type,
+            licensee_id: currentRegion.licensee_id,
+        });
 
-        return this.regionRepository.update(id, mappedData);
+        const updated = await this.regionRepository.update(id, mappedData as any);
+        await this.audit('UPDATE_REGION', id, performedBy, 'Region updated', {
+            previous: {
+                name: currentRegion.name,
+                code: currentRegion.code,
+                owner_type: currentRegion.owner_type,
+                licensee_id: currentRegion.licensee_id,
+                is_active: currentRegion.is_active,
+            },
+            current: {
+                name: updated.name,
+                code: updated.code,
+                owner_type: updated.owner_type,
+                licensee_id: updated.licensee_id,
+                is_active: updated.is_active,
+            },
+        });
+        return this.mapToDTO(updated);
     }
 
-    async delete(id: string) {
-        return this.regionRepository.delete(id);
+    async delete(id: string, performedBy?: string) {
+        const existing = await this.regionRepository.findById(id);
+        if (!existing) {
+            throw new HttpException(404, 'Region not found');
+        }
+
+        const impact = await this.getTransferImpact(id);
+        const hasDependencies = Object.values(impact).some((count) => Number(count) > 0);
+
+        if (hasDependencies) {
+            await this.regionRepository.update(id, { is_active: false });
+            await this.audit('DEACTIVATE_REGION', id, performedBy, 'Region deactivated due to linked records', {
+                impact,
+            });
+            return {
+                message: 'Region has linked records and was deactivated instead of deleted',
+                deactivated: true,
+                impact,
+            };
+        }
+
+        await this.regionRepository.delete(id);
+        await this.audit('DELETE_REGION', id, performedBy, 'Region deleted');
+        return {
+            message: 'Region deleted successfully',
+            deleted: true,
+        };
     }
 
-    async assignLicensee(regionId: string, licenseeId: string) {
-        return this.regionRepository.assignLicensee(regionId, licenseeId);
+    async assignLicensee(regionId: string, licenseeId: string, performedBy?: string) {
+        await this.assertLicenseeExists(licenseeId);
+        const region = await this.regionRepository.findById(regionId);
+        if (!region) throw new HttpException(404, 'Region not found');
+
+        const updated = await this.regionRepository.assignLicensee(regionId, licenseeId);
+        await this.audit('ASSIGN_LICENSEE', regionId, performedBy, 'Licensee assigned to region', {
+            from_licensee_id: region.licensee_id,
+            to_licensee_id: licenseeId,
+        });
+        return this.mapToDTO(updated);
     }
 
-    async unassignLicensee(regionId: string) {
-        return this.regionRepository.unassignLicensee(regionId);
+    async unassignLicensee(regionId: string, performedBy?: string) {
+        const region = await this.regionRepository.findById(regionId);
+        if (!region) throw new HttpException(404, 'Region not found');
+
+        const updated = await this.regionRepository.unassignLicensee(regionId);
+        await this.audit('UNASSIGN_LICENSEE', regionId, performedBy, 'Licensee unassigned from region', {
+            from_licensee_id: region.licensee_id,
+        });
+        return this.mapToDTO(updated);
     }
 
     async getTransferImpact(id: string) {
@@ -320,6 +475,7 @@ export class RegionService extends BaseService {
     }
 
     async transferOwnership(regionId: string, targetLicenseeId: string, auditNote?: string, performedBy?: string) {
+        await this.assertLicenseeExists(targetLicenseeId);
         const impact = await this.getTransferImpact(regionId);
 
         const updatedRegion = await prisma.$transaction(async (tx) => {
@@ -358,7 +514,7 @@ export class RegionService extends BaseService {
         });
 
         return {
-            region: updatedRegion,
+            region: this.mapToDTO(updatedRegion),
             transferredCounts: impact,
         };
     }
