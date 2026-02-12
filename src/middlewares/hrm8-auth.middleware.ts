@@ -1,10 +1,11 @@
-import { Response, NextFunction } from 'express';
+/// <reference path="../types/express.d.ts" />
+import { Request, Response, NextFunction } from 'express';
 import { Hrm8AuthenticatedRequest } from '../types';
 import { Hrm8Repository } from '../modules/hrm8/hrm8.repository';
 import { getSessionCookieOptions } from '../utils/session';
 
 export async function authenticateHrm8(
-  req: Hrm8AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
@@ -48,6 +49,7 @@ export async function authenticateHrm8(
       assignedRegionIds = regions.map(r => r.id);
     }
 
+    // Set hrm8User on the request object (globally augmented)
     req.hrm8User = {
       id: session.user.id,
       email: session.user.email,
@@ -73,7 +75,7 @@ export async function authenticateHrm8(
  * @param allowedRoles - Array of allowed roles (e.g., ['GLOBAL_ADMIN', 'REGIONAL_LICENSEE'])
  */
 export function requireHrm8Role(allowedRoles: string[]) {
-  return (req: Hrm8AuthenticatedRequest, res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.hrm8User) {
       res.status(401).json({ success: false, error: 'Not authenticated' });
       return;
