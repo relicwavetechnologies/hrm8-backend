@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import type { AuthenticatedRequest } from '../../types';
 import { PriceBookSelectionService } from './price-book-selection.service';
 import { SalaryBandService } from './salary-band.service';
 import { CurrencyAssignmentService } from './currency-assignment.service';
@@ -11,7 +12,7 @@ export class PricingController {
    */
   static async getSubscriptionTiers(req: Request, res: Response) {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = (req as AuthenticatedRequest).user?.companyId;
       if (!companyId) {
         return res.status(400).json({
           success: false,
@@ -40,7 +41,7 @@ export class PricingController {
    */
   static async getRecruitmentServices(req: Request, res: Response) {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = (req as AuthenticatedRequest).user?.companyId;
       if (!companyId) {
         return res.status(400).json({
           success: false,
@@ -69,7 +70,7 @@ export class PricingController {
    */
   static async getExecutiveSearchBands(req: Request, res: Response) {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = (req as AuthenticatedRequest).user?.companyId;
       if (!companyId) {
         return res.status(400).json({
           success: false,
@@ -98,7 +99,7 @@ export class PricingController {
    */
   static async calculateJobPrice(req: Request, res: Response) {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = (req as AuthenticatedRequest).user?.companyId;
       if (!companyId) {
         return res.status(400).json({
           success: false,
@@ -162,7 +163,7 @@ export class PricingController {
    */
   static async getCompanyCurrency(req: Request, res: Response) {
     try {
-      const companyId = req.user?.companyId;
+      const companyId = (req as AuthenticatedRequest).user?.companyId;
       if (!companyId) {
         return res.status(400).json({
           success: false,
@@ -191,7 +192,10 @@ export class PricingController {
    */
   static async getPricingAudit(req: Request, res: Response) {
     try {
-      const { companyId } = req.params;
+      const companyId = Array.isArray(req.params.companyId) ? req.params.companyId[0] : req.params.companyId;
+      if (!companyId) {
+        return res.status(400).json({ success: false, message: 'Company ID required' });
+      }
       
       // TODO: Add admin permission check
       

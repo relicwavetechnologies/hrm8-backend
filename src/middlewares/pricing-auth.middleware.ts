@@ -1,155 +1,59 @@
 /**
  * Pricing Authorization Middleware
- * Handles access control for pricing management based on admin roles
+ * Handles access control for pricing management based on admin roles.
+ * Must be used after authenticateHrm8 (req.hrm8User must be set).
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { prisma } from '../utils/prisma';
-
-// Extend Express Request to include hrm8User
-declare global {
-  namespace Express {
-    interface Request {
-      hrm8User?: {
-        id: string;
-        user_id: string;
-        role: 'GLOBAL_ADMIN' | 'REGIONAL_LICENSEE';
-        status: string;
-        region_id: string | null;
-      };
-    }
-  }
-}
 
 /**
  * Require user to be a Global Admin
  * Used for: Creating/editing price books, enterprise overrides, global settings
  */
-export const requireGlobalAdmin = async (
+export const requireGlobalAdmin = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  try {
-    const user = req.user;
-    
-    if (!user || !user.id) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
-
-    // Check if user is HRM8 staff
-    const hrm8User = await prisma.hrm8User.findUnique({
-      where: { user_id: user.id },
-      select: { 
-        id: true,
-        user_id: true,
-        role: true, 
-        status: true,
-        region_id: true
-      }
-    });
-
-    if (!hrm8User) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. HRM8 staff only.'
-      });
-    }
-
-    if (hrm8User.status !== 'ACTIVE') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Account not active.'
-      });
-    }
-
-    if (hrm8User.role !== 'GLOBAL_ADMIN') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Global admin privileges required.'
-      });
-    }
-
-    // Attach hrm8User to request for use in controllers
-    req.hrm8User = hrm8User as any;
-
-    next();
-  } catch (error) {
-    console.error('Global admin check error:', error);
-    return res.status(500).json({
+  const hrm8User = req.hrm8User;
+  if (!hrm8User) {
+    return res.status(401).json({
       success: false,
-      message: 'Authorization check failed'
+      message: 'Authentication required'
     });
   }
+  if (hrm8User.role !== 'GLOBAL_ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Global admin privileges required.'
+    });
+  }
+  next();
 };
 
 /**
  * Require user to be either Global Admin or Regional Licensee
  * Used for: Viewing pricing, managing regional data
  */
-export const requireRegionalOrGlobalAdmin = async (
+export const requireRegionalOrGlobalAdmin = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  try {
-    const user = req.user;
-    
-    if (!user || !user.id) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required'
-      });
-    }
-
-    // Check if user is HRM8 staff
-    const hrm8User = await prisma.hrm8User.findUnique({
-      where: { user_id: user.id },
-      select: { 
-        id: true,
-        user_id: true,
-        role: true, 
-        status: true,
-        region_id: true
-      }
-    });
-
-    if (!hrm8User) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. HRM8 staff only.'
-      });
-    }
-
-    if (hrm8User.status !== 'ACTIVE') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Account not active.'
-      });
-    }
-
-    // Allow both GLOBAL_ADMIN and REGIONAL_LICENSEE
-    if (hrm8User.role !== 'GLOBAL_ADMIN' && hrm8User.role !== 'REGIONAL_LICENSEE') {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied. Admin privileges required.'
-      });
-    }
-
-    // Attach hrm8User to request for use in controllers
-    req.hrm8User = hrm8User as any;
-
-    next();
-  } catch (error) {
-    console.error('Admin check error:', error);
-    return res.status(500).json({
+  const hrm8User = req.hrm8User;
+  if (!hrm8User) {
+    return res.status(401).json({
       success: false,
-      message: 'Authorization check failed'
-      });
+      message: 'Authentication required'
+    });
   }
+  if (hrm8User.role !== 'GLOBAL_ADMIN' && hrm8User.role !== 'REGIONAL_LICENSEE') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Admin privileges required.'
+    });
+  }
+  next();
 };
 
 /**
@@ -172,17 +76,17 @@ export const validateRegionalAccess = (resourceRegionId?: string) => {
       return next();
     }
 
-    // Regional admin can only access their region
+    // Regional admin: use licenseeId for region check (region_id from express.d.ts)
+    const regionId = hrm8User.region_id;
     if (hrm8User.role === 'REGIONAL_LICENSEE') {
-      if (!hrm8User.region_id) {
+      if (!regionId && !hrm8User.licenseeId) {
         return res.status(403).json({
           success: false,
           message: 'Regional admin must be assigned to a region'
         });
       }
 
-      // If resource region is specified and doesn't match
-      if (resourceRegionId && resourceRegionId !== hrm8User.region_id) {
+      if (resourceRegionId && regionId && resourceRegionId !== regionId) {
         return res.status(403).json({
           success: false,
           message: 'Access denied. You can only access data from your assigned region.'
@@ -208,12 +112,10 @@ export const applyRegionalFilter = (
 ): any => {
   const hrm8User = req.hrm8User;
   
-  // Global admin sees all
   if (!hrm8User || hrm8User.role === 'GLOBAL_ADMIN') {
     return where;
   }
   
-  // Regional admin filtered by region
   if (hrm8User.role === 'REGIONAL_LICENSEE' && hrm8User.region_id) {
     return {
       ...where,

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { WalletService } from './wallet.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 import { AuthenticatedRequest } from '../../types';
 import { VirtualAccountOwner } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
@@ -195,18 +196,43 @@ export class WalletController extends BaseController {
   createSubscription = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { ownerType, ownerId } = this.getOwnerInfo(req);
-      const { planName, amount, billingCycle } = req.body;
+      const body = req.body as {
+        planName?: string; planType?: string; name?: string;
+        amount?: number; basePrice?: number;
+        billingCycle?: string; jobQuota?: number; autoRenew?: boolean;
+      };
+      const planName = body.planName ?? body.name;
+      const amount = body.amount ?? body.basePrice;
+      const billingCycle = (body.billingCycle || 'MONTHLY') as 'MONTHLY' | 'ANNUAL';
 
-      if (!planName || !amount) {
-        throw new HttpException(400, 'Missing required fields: planName, amount');
+      if (!planName || amount == null) {
+        throw new HttpException(400, 'Missing required fields: planName/name and amount/basePrice');
       }
 
+      // Company subscriptions: use SubscriptionService (credits wallet, dynamic regional pricing)
+      if (ownerType === 'COMPANY') {
+        const planType = (body.planType || planName).toUpperCase().replace(/-/g, '_');
+        const subscription = await SubscriptionService.createSubscription({
+          companyId: ownerId,
+          planType: planType as any,
+          name: planName,
+          basePrice: amount,
+          billingCycle,
+          jobQuota: body.jobQuota ?? undefined,
+          autoRenew: body.autoRenew ?? true,
+        });
+        return this.sendSuccess(res, {
+          subscription,
+          message: 'Subscription activated. Wallet has been credited.',
+        });
+      }
+
+      // Non-company (e.g. consultant): legacy path
       const subscription = await WalletService.createSubscription(ownerType, ownerId, {
         name: planName,
-        amount,
-        billingCycle: billingCycle || 'MONTHLY'
+        amount: Number(amount),
+        billingCycle,
       });
-
       return this.sendSuccess(res, { subscription });
     } catch (error) {
       return this.sendError(res, error);

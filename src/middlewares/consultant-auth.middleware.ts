@@ -156,3 +156,47 @@ export async function authenticateConsultant(
     });
   }
 }
+
+/**
+ * Strict consultant auth - NO admin bypass. Use for financial routes (earnings, balance, withdraw)
+ * to prevent admin accidentally viewing another consultant's financial data.
+ */
+export async function authenticateConsultantStrict(
+  req: ConsultantAuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  let token = '';
+  if (authHeader?.startsWith('Bearer ')) token = authHeader.split(' ')[1];
+  else if (req.cookies?.consultantToken) token = req.cookies.consultantToken;
+
+  if (!token) {
+    res.status(401).json({ success: false, error: 'Consultant login required' });
+    return;
+  }
+
+  const session = await prisma.consultantSession.findUnique({
+    where: { session_id: token },
+    include: { consultant: true },
+  });
+
+  if (session && session.expires_at >= new Date()) {
+    const consultant = session.consultant;
+    if (!consultant || consultant.status !== 'ACTIVE') {
+      res.status(401).json({ success: false, error: 'Consultant not active' });
+      return;
+    }
+    req.consultant = {
+      id: consultant.id,
+      email: consultant.email,
+      firstName: consultant.first_name,
+      lastName: consultant.last_name,
+      role: consultant.role,
+    };
+    next();
+    return;
+  }
+
+  res.status(401).json({ success: false, error: 'Session expired or invalid' });
+}

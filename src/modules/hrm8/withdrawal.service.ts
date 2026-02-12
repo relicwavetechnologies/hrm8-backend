@@ -79,16 +79,48 @@ export class WithdrawalService extends BaseService {
     async processPayment(id: string, notes?: string) {
         const w = await prisma.commissionWithdrawal.findUnique({ where: { id } });
         if (!w) throw new HttpException(404, 'Withdrawal not found');
-        if (w.status !== 'APPROVED') throw new HttpException(400, 'Withdrawal must be approved first');
+        if (w.status !== 'APPROVED' && w.status !== 'PROCESSING') {
+            throw new HttpException(400, 'Withdrawal must be approved first');
+        }
 
-        // Mark as COMPLETED (Paid)
-        return prisma.commissionWithdrawal.update({
-            where: { id },
-            data: {
-                status: 'COMPLETED',
-                processed_at: new Date(),
-                notes: notes ? `${w.notes || ''}\n${notes}` : w.notes
+        // If APPROVED, debit wallet (admin processing manually). If PROCESSING, consultant already debited via executeWithdrawal.
+        const needsDebit = w.status === 'APPROVED';
+
+        return prisma.$transaction(async (tx) => {
+            if (needsDebit) {
+                const account = await tx.virtualAccount.findFirst({
+                    where: { owner_type: 'CONSULTANT', owner_id: w.consultant_id }
+                });
+                if (account) {
+                    const balanceAfter = Number(account.balance) - w.amount;
+                    await tx.virtualTransaction.create({
+                        data: {
+                            virtual_account_id: account.id,
+                            type: 'COMMISSION_WITHDRAWAL',
+                            amount: w.amount,
+                            balance_after: balanceAfter,
+                            direction: 'DEBIT',
+                            status: 'COMPLETED',
+                            description: 'Withdrawal processed',
+                            reference_id: w.id,
+                            reference_type: 'COMMISSION_WITHDRAWAL'
+                        }
+                    });
+                    await tx.virtualAccount.update({
+                        where: { id: account.id },
+                        data: { balance: { decrement: w.amount }, total_debits: { increment: w.amount } }
+                    });
+                }
             }
+
+            return tx.commissionWithdrawal.update({
+                where: { id },
+                data: {
+                    status: 'COMPLETED',
+                    processed_at: new Date(),
+                    notes: notes ? `${w.notes || ''}\n${notes}` : w.notes
+                }
+            });
         });
     }
 }

@@ -91,6 +91,20 @@ export class Consultant360Controller extends BaseController {
   };
 
   // Commissions
+  requestCommission = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) {
+        throw new HttpException(401, 'Unauthorized');
+      }
+
+      const commission = await this.service.requestCommission(consultantId, req.body);
+      return this.sendSuccess(res, { commission });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   getCommissions = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;

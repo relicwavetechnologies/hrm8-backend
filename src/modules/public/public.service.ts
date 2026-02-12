@@ -101,14 +101,14 @@ export class PublicService extends BaseService {
       return null;
     }
 
-    // Return application form configuration
+    const appForm = (job.application_form as Record<string, unknown>) || {};
     return {
       jobId: job.id,
       jobTitle: job.title,
-      questions: job.application_form_questions || [],
-      requireResume: job.require_resume !== false,
-      requireCoverLetter: job.require_cover_letter === true,
-      requirePortfolio: job.require_portfolio === true
+      questions: (appForm.questions as unknown[]) || [],
+      requireResume: (appForm.requireResume as boolean) !== false,
+      requireCoverLetter: (appForm.requireCoverLetter as boolean) === true,
+      requirePortfolio: (appForm.requirePortfolio as boolean) === true
     };
   }
 
@@ -154,25 +154,24 @@ export class PublicService extends BaseService {
     
     candidate = await candidateRepository.create({
       email: email.toLowerCase(),
-      password: hashedPassword,
+      password_hash: hashedPassword,
       first_name: firstName,
       last_name: lastName,
       phone: phone || null,
       status: 'ACTIVE',
       email_verified: false
-    });
+    } as any);
 
     // Create application
     const application = await applicationRepository.create({
-      candidate_id: candidate.id,
-      job_id: jobId,
-      company_id: job.company_id,
-      status: 'SUBMITTED',
-      stage: 'SCREENING',
+      candidate: { connect: { id: candidate.id } },
+      job: { connect: { id: jobId } },
+      status: 'NEW',
+      stage: 'NEW_APPLICATION',
       resume_url: resumeUrl || null,
       cover_letter_url: coverLetterUrl || null,
       portfolio_url: portfolioUrl || null,
-      answers: answers || {}
+      custom_answers: (answers || {}) as object
     });
 
     return {

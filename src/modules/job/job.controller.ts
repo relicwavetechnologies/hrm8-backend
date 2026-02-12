@@ -41,7 +41,7 @@ export class JobController extends BaseController {
       const job = await this.jobService.createJob(req.user.companyId, req.user.id, req.body);
 
       // Initialize rounds for new job based on setup type
-      if (job.setupType === 'simple' || (req.body.setupType && req.body.setupType.toLowerCase() === 'simple')) {
+      if (job.setup_type === 'SIMPLE' || (req.body.setupType && req.body.setupType.toLowerCase() === 'simple')) {
         await this.jobRoundService.initializeSimpleRounds(job.id);
       } else {
         await this.jobRoundService.initializeFixedRounds(job.id);

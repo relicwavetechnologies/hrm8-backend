@@ -4,43 +4,40 @@ import { WithdrawalStatus, CommissionStatus } from '@prisma/client';
 
 export class ConsultantWithdrawalService {
 
+    /**
+     * Unified balance using VirtualAccount as single source of truth (aligns with Consultant360).
+     */
     async calculateBalance(consultantId: string) {
-        // 1. Get all commissions for the consultant
-        const allCommissions = await prisma.commission.findMany({
-            where: {
-                consultant_id: consultantId,
-                status: { not: 'CANCELLED' }
-            }
+        const account = await prisma.virtualAccount.findUnique({
+            where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
         });
 
-        // 2. Find commissions currently locked in active withdrawals
+        const availableBalance = account ? Number(account.balance) : 0;
+        const totalCredits = account ? Number(account.total_credits || 0) : 0;
+        const totalDebits = account ? Number(account.total_debits || 0) : 0;
+
+        const allCommissions = await prisma.commission.findMany({
+            where: { consultant_id: consultantId, status: { not: 'CANCELLED' } }
+        });
+
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: {
-                    in: ['PENDING', 'APPROVED', 'PROCESSING']
-                }
+                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
             },
             select: { commission_ids: true }
         });
-
         const lockedCommissionIds = new Set<string>();
-        activeWithdrawals.forEach(w => {
-            w.commission_ids.forEach(id => lockedCommissionIds.add(id));
-        });
+        activeWithdrawals.forEach(w => w.commission_ids.forEach(id => lockedCommissionIds.add(id)));
 
-        // 3. Categorize commissions and calculate balances
         const availableCommissionsList: any[] = [];
-        let availableBalance = 0;
         let pendingBalance = 0;
         let totalEarned = 0;
 
         allCommissions.forEach(c => {
             const amount = Number(c.amount) || 0;
             totalEarned += amount;
-
             if (c.status === 'CONFIRMED' && !lockedCommissionIds.has(c.id)) {
-                availableBalance += amount;
                 availableCommissionsList.push({
                     id: c.id,
                     amount,
@@ -52,18 +49,11 @@ export class ConsultantWithdrawalService {
             }
         });
 
-        // 4. Calculate total withdrawn
-        const completedWithdrawals = await prisma.commissionWithdrawal.aggregate({
-            where: {
-                consultant_id: consultantId,
-                status: 'COMPLETED'
-            },
-            _sum: {
-                amount: true
-            }
+        const completedSum = await prisma.commissionWithdrawal.aggregate({
+            where: { consultant_id: consultantId, status: 'COMPLETED' },
+            _sum: { amount: true }
         });
-
-        const totalWithdrawn = completedWithdrawals._sum.amount || 0;
+        const totalWithdrawn = completedSum._sum.amount || 0;
 
         return {
             availableBalance,
@@ -83,7 +73,12 @@ export class ConsultantWithdrawalService {
     }) {
         if (data.amount <= 0) throw new HttpException(400, 'Invalid amount');
 
-        // Verify commissions belong to consultant and are CONFIRMED
+        const account = await prisma.virtualAccount.findUnique({
+            where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+        });
+        const balance = account ? Number(account.balance) : 0;
+        if (balance < data.amount) throw new HttpException(400, 'Insufficient balance for withdrawal');
+
         const commissions = await prisma.commission.findMany({
             where: {
                 id: { in: data.commissionIds },
@@ -183,20 +178,40 @@ export class ConsultantWithdrawalService {
         if (withdrawal.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
         if (withdrawal.status !== 'APPROVED') throw new HttpException(400, 'Withdrawal must be approved before execution');
 
-        // Process payment based on payment method
-        const result = await prisma.commissionWithdrawal.update({
-            where: { id: withdrawalId },
-            data: {
-                status: 'PROCESSING',
-                processed_at: new Date()
+        return prisma.$transaction(async (tx) => {
+            await tx.commissionWithdrawal.update({
+                where: { id: withdrawalId },
+                data: { status: 'PROCESSING', processed_at: new Date() }
+            });
+
+            const account = await tx.virtualAccount.findUnique({
+                where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+            });
+            if (account) {
+                await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: 'COMMISSION_WITHDRAWAL',
+                        amount: withdrawal.amount,
+                        balance_after: Number(account.balance) - withdrawal.amount,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: 'Withdrawal executed',
+                        reference_id: withdrawalId,
+                        reference_type: 'COMMISSION_WITHDRAWAL'
+                    }
+                });
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: { balance: { decrement: withdrawal.amount }, total_debits: { increment: withdrawal.amount } }
+                });
             }
+
+            return tx.commissionWithdrawal.findUnique({
+                where: { id: withdrawalId },
+                include: { consultant: true }
+            });
         });
-
-        // TODO: Integrate with actual payment processor (Stripe, bank transfer, etc.)
-        // For now, we're just updating the status
-        // In production, this would trigger actual payment processing
-
-        return result;
     }
 
     async getStripeStatus(consultantId: string) {

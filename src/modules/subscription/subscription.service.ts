@@ -45,26 +45,32 @@ export class SubscriptionService {
       // 1. Get company currency information
       const { pricingPeg, billingCurrency } = 
         await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+      const currency = billingCurrency ?? 'USD';
       
       // 2. Get subscription price from price book (regional pricing)
       let basePrice = providedBasePrice;
       let priceBookId: string | undefined;
       let priceBookVersion: string | undefined;
       
-      if (!basePrice) {
+      const supportedPlanTypes = ['PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE', 'RPO'] as const;
+      const canFetchPrice = supportedPlanTypes.includes(planType as typeof supportedPlanTypes[number]);
+
+      if (!basePrice && canFetchPrice) {
         // Fetch price from price book
         const pricing = await PriceBookSelectionService.getSubscriptionPrice(
           companyId,
-          planType
+          planType as 'PAYG' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'ENTERPRISE' | 'RPO'
         );
         basePrice = pricing.price;
         priceBookId = pricing.priceBook.id;
-        priceBookVersion = pricing.priceBook.version;
+        priceBookVersion = pricing.priceBook.version ?? undefined;
+      } else if (!basePrice) {
+        throw new Error(`Base price required for plan type: ${planType}`);
       } else {
         // Get price book for audit even if price provided
         const priceBook = await PriceBookSelectionService.getEffectivePriceBook(companyId);
         priceBookId = priceBook.id;
-        priceBookVersion = priceBook.version;
+        priceBookVersion = priceBook.version ?? undefined;
       }
       
       // Calculate end date
@@ -84,7 +90,7 @@ export class SubscriptionService {
           plan_type: planType,
           status: SubscriptionStatus.ACTIVE,
           base_price: basePrice,
-          currency: billingCurrency,  // ✅ Dynamic currency
+          currency,  // Dynamic currency
           billing_cycle: billingCycle,
           discount_percent: discountPercent,
           start_date: startDate,

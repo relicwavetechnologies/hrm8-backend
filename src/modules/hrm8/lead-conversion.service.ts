@@ -8,6 +8,7 @@ import { UserRepository } from '../user/user.repository';
 import { passwordResetService } from '../auth/password-reset.service';
 import { AuditLogService } from './audit-log.service';
 import { AuditLogRepository } from './audit-log.repository';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 export class LeadConversionService extends BaseService {
     private userRepository: UserRepository;
@@ -54,7 +55,11 @@ export class LeadConversionService extends BaseService {
         // 4. Update request status
 
         const tempPassword = request.temp_password || 'vAbhi2678';
-        const domain = request.website ? request.website.replace(/^https?:\/\//, '').split('/')[0] : `company-${request.id}.local`;
+        // Ensure unique domain: extract from website if present, append lead_id to avoid collisions
+        const baseDomain = request.website
+            ? request.website.replace(/^https?:\/\//, '').split('/')[0].replace(/\./g, '-')
+            : 'company';
+        const domain = `${baseDomain}-${request.lead_id}.local`;
 
         const { updatedRequest, company, userId } = await prisma.$transaction(async (tx) => {
             // const passwordHash = await hashPassword(tempPassword); // If needed for creating user
@@ -105,13 +110,26 @@ export class LeadConversionService extends BaseService {
                         password_hash: passwordHash,
                         company_id: company.id,
                         role: 'ADMIN',
-                        status: 'INVITED',
+                        status: 'ACTIVE', // Allow immediate login with temp password
                     },
                 });
                 userId = newUser.id;
             }
             return { updatedRequest, company, userId };
         });
+
+        // Assign pricing peg and billing currency from region/country
+        try {
+            const countryCode = await CurrencyAssignmentService.resolveCountryCode(
+                request.country,
+                request.region_id
+            );
+            if (countryCode) {
+                await CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+            }
+        } catch (err) {
+            console.warn(`[LeadConversion] Could not assign currency for company ${company.id}:`, err);
+        }
 
         if (request.email) {
             await passwordResetService.requestLeadConversionInvite(

@@ -38,6 +38,7 @@ router.post('/conversations/:conversationId/messages', authenticateConsultant, c
 router.patch('/conversations/:conversationId/read', authenticateConsultant, consultantController.markMessagesRead);
 
 // Commissions & Withdrawals
+router.post('/commissions/request', authenticateConsultant, consultantController.requestCommission);
 router.get('/commissions', authenticateConsultant, consultantController.getCommissions);
 router.get('/commissions/balance', authenticateConsultant, consultantController.getWithdrawalBalance);
 router.get('/commissions/withdrawals', authenticateConsultant, consultantController.getWithdrawals);
