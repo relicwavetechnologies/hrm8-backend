@@ -22,7 +22,7 @@ export class SubscriptionController extends BaseController {
 
   getActive = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const companyId = (req.params.companyId || req.user?.companyId) as string;
+      const companyId = (req.params.companyId || req.params.id || req.user?.companyId) as string;
       if (!companyId) return this.sendError(res, new Error('Company ID required'), 400);
 
       // Verify access
@@ -36,7 +36,7 @@ export class SubscriptionController extends BaseController {
         return this.sendSuccess(res, null);
       }
       
-      const PLAN_HIERARCHY = ['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM'];
+      const PLAN_HIERARCHY = ['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM', 'PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'RPO'];
       const currentPlanIndex = PLAN_HIERARCHY.indexOf(subscription.plan_type);
       const canUpgrade = currentPlanIndex >= 0 && currentPlanIndex < PLAN_HIERARCHY.length - 2;
       const nextTier = canUpgrade ? PLAN_HIERARCHY[currentPlanIndex + 1] : null;
