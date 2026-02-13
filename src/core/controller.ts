@@ -28,7 +28,11 @@ export abstract class BaseController {
     });
 
     if (error instanceof Error) {
-      return res.status(statusCode).json({ success: false, error: error.message });
+      const payload: Record<string, unknown> = { success: false, error: error.message };
+      if (error instanceof HttpException && error.details) {
+        payload.data = error.details;
+      }
+      return res.status(statusCode).json(payload);
     }
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
