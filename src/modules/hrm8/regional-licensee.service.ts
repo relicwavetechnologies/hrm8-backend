@@ -2,8 +2,13 @@ import { BaseService } from '../../core/service';
 import { RegionalLicenseeRepository } from './regional-licensee.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
-import { LicenseeStatus, HRM8UserRole, JobStatus } from '@prisma/client';
+import { BillStatus, HRM8UserRole, HRM8UserStatus, JobStatus, LicenseeStatus } from '@prisma/client';
 import { hashPassword } from '../../utils/password';
+
+type LicenseeScope = {
+    role?: string;
+    licenseeId?: string;
+};
 
 export class RegionalLicenseeService extends BaseService {
     constructor(private regionalLicenseeRepository: RegionalLicenseeRepository) {
@@ -22,7 +27,48 @@ export class RegionalLicenseeService extends BaseService {
             managerContact: licensee.manager_contact,
             financeContact: licensee.finance_contact,
             complianceContact: licensee.compliance_contact,
+            createdAt: licensee.created_at,
+            updatedAt: licensee.updated_at,
         };
+    }
+
+    private getScopedWhere(scope?: LicenseeScope) {
+        if (scope?.role === 'REGIONAL_LICENSEE') {
+            if (!scope.licenseeId) throw new HttpException(403, 'Licensee scope is missing');
+            return { id: scope.licenseeId };
+        }
+        return {};
+    }
+
+    private assertScopedAccess(id: string, scope?: LicenseeScope) {
+        if (scope?.role === 'REGIONAL_LICENSEE' && scope.licenseeId !== id) {
+            throw new HttpException(404, 'Licensee not found');
+        }
+    }
+
+    private async audit(
+        action: string,
+        entityId: string,
+        performedBy: string | undefined,
+        description: string,
+        changes?: Record<string, unknown>
+    ) {
+        await prisma.auditLog.create({
+            data: {
+                entity_type: 'REGIONAL_LICENSEE',
+                entity_id: entityId,
+                action,
+                performed_by: performedBy || 'system',
+                description,
+                changes: (changes || null) as any,
+            },
+        });
+    }
+
+    private async getLicenseeOrThrow(id: string) {
+        const licensee = await this.regionalLicenseeRepository.findById(id);
+        if (!licensee) throw new HttpException(404, 'Licensee not found');
+        return licensee;
     }
 
     private mapToPersistence(data: any) {
@@ -53,9 +99,9 @@ export class RegionalLicenseeService extends BaseService {
         return mapped;
     }
 
-    async getAll(params: { status?: LicenseeStatus; limit?: number; offset?: number }) {
-        const { status, limit = 50, offset = 0 } = params;
-        const where: any = {};
+    async getAll(params: { status?: LicenseeStatus; limit?: number; offset?: number; role?: string; licenseeId?: string }) {
+        const { status, limit = 50, offset = 0, role, licenseeId } = params;
+        const where: any = this.getScopedWhere({ role, licenseeId });
         if (status) where.status = status;
 
         const [licensees, total] = await Promise.all([
@@ -71,9 +117,9 @@ export class RegionalLicenseeService extends BaseService {
         return { licensees: licensees.map(l => this.mapToDTO(l)), total };
     }
 
-    async getById(id: string) {
-        const licensee = await this.regionalLicenseeRepository.findById(id);
-        if (!licensee) throw new HttpException(404, 'Licensee not found');
+    async getById(id: string, scope?: LicenseeScope) {
+        this.assertScopedAccess(id, scope);
+        const licensee = await this.getLicenseeOrThrow(id);
         return { licensee: this.mapToDTO(licensee) };
     }
 
@@ -99,16 +145,37 @@ export class RegionalLicenseeService extends BaseService {
             },
         });
 
+        await this.audit('CREATE_LICENSEE', licensee.id, performedBy, 'Regional licensee created', {
+            name: licensee.name,
+            email: licensee.email,
+            status: licensee.status,
+            revenue_share_percent: licensee.revenue_share_percent,
+        });
+
         return { licensee: this.mapToDTO(licensee) };
     }
 
-    async update(id: string, data: any) {
+    async update(id: string, data: any, performedBy?: string) {
+        const statusUpdate = (data.status ?? data.licenseeStatus) as LicenseeStatus | undefined;
+        if (statusUpdate) {
+            return this.updateStatus(id, statusUpdate, performedBy);
+        }
+
+        const existing = await this.getLicenseeOrThrow(id);
+        if (existing.status === 'TERMINATED') {
+            throw new HttpException(400, 'Cannot update a terminated licensee');
+        }
+
         const persistenceData = this.mapToPersistence(data);
+        delete persistenceData.status;
         const licensee = await this.regionalLicenseeRepository.update(id, persistenceData);
+        await this.audit('UPDATE_LICENSEE', id, performedBy, 'Regional licensee updated', {
+            updated_fields: Object.keys(persistenceData),
+        });
         return { licensee: this.mapToDTO(licensee) };
     }
 
-    async delete(id: string) {
+    async delete(id: string, performedBy?: string) {
         // Check if licensee has settlement history
         const settlementCount = await prisma.settlement.count({
             where: { licensee_id: id },
@@ -127,65 +194,243 @@ export class RegionalLicenseeService extends BaseService {
             throw new HttpException(400, 'Cannot delete licensee with assigned regions. Unassign regions first.');
         }
 
-        return this.regionalLicenseeRepository.delete(id);
+        const deleted = await this.regionalLicenseeRepository.delete(id);
+        await this.audit('DELETE_LICENSEE', id, performedBy, 'Regional licensee deleted');
+        return deleted;
     }
 
-    async updateStatus(id: string, status: LicenseeStatus) {
-        let result;
-        if (status === 'SUSPENDED') {
-            result = await this.suspend(id);
-        } else if (status === 'TERMINATED') {
-            result = await this.terminate(id);
-        } else {
-            result = await this.regionalLicenseeRepository.update(id, { status });
+    async updateStatus(id: string, status: LicenseeStatus, performedBy?: string, notes?: string) {
+        if (!Object.values(LicenseeStatus).includes(status)) {
+            throw new HttpException(400, 'Invalid licensee status');
         }
-        return { licensee: this.mapToDTO(result) };
+
+        const current = await this.getLicenseeOrThrow(id);
+        if (current.status === 'TERMINATED' && status !== 'TERMINATED') {
+            throw new HttpException(400, 'Cannot change status of a terminated licensee');
+        }
+
+        if (status === 'SUSPENDED') {
+            return this.suspend(id, performedBy, notes);
+        }
+        if (status === 'TERMINATED') {
+            return this.terminate(id, performedBy, notes);
+        }
+        if (status === 'ACTIVE') {
+            if (current.status === 'ACTIVE') {
+                return { licensee: this.mapToDTO(current) };
+            }
+            if (current.status !== 'SUSPENDED') {
+                throw new HttpException(400, 'Only suspended licensees can be reactivated');
+            }
+            return this.reactivate(id, performedBy, notes);
+        }
+
+        const updated = await this.regionalLicenseeRepository.update(id, { status });
+        await this.audit('UPDATE_LICENSEE_STATUS', id, performedBy, `Licensee status updated to ${status}`, {
+            previous_status: current.status,
+            new_status: status,
+            notes: notes || null,
+        });
+        return { licensee: this.mapToDTO(updated) };
     }
 
-    async suspend(id: string) {
+    async suspend(id: string, performedBy?: string, notes?: string) {
+        const current = await this.getLicenseeOrThrow(id);
+        if (current.status === 'TERMINATED') {
+            throw new HttpException(400, 'Cannot suspend a terminated licensee');
+        }
+        if (current.status === 'SUSPENDED') {
+            const regionsAffected = await prisma.region.count({ where: { licensee_id: id } });
+            return {
+                licensee: this.mapToDTO(current),
+                jobsPaused: 0,
+                regionsAffected,
+            };
+        }
+
         const regions = await prisma.region.findMany({
             where: { licensee_id: id },
             select: { id: true },
         });
         const regionIds = regions.map(r => r.id);
 
-        // Pause jobs in these regions
-        await prisma.job.updateMany({
-            where: { region_id: { in: regionIds }, status: 'OPEN' },
-            data: { status: 'ON_HOLD' },
+        const jobsPaused = regionIds.length === 0
+            ? 0
+            : await prisma.job.count({ where: { region_id: { in: regionIds }, status: JobStatus.OPEN } });
+
+        const updated = await prisma.$transaction(async (tx) => {
+            if (regionIds.length > 0) {
+                await tx.job.updateMany({
+                    where: { region_id: { in: regionIds }, status: JobStatus.OPEN },
+                    data: { status: JobStatus.ON_HOLD },
+                });
+            }
+            await tx.hRM8User.updateMany({
+                where: { licensee_id: id, role: HRM8UserRole.REGIONAL_LICENSEE, status: HRM8UserStatus.ACTIVE },
+                data: { status: HRM8UserStatus.SUSPENDED },
+            });
+            return tx.regionalLicensee.update({
+                where: { id },
+                data: { status: LicenseeStatus.SUSPENDED },
+            });
         });
 
-        return this.regionalLicenseeRepository.update(id, { status: 'SUSPENDED' });
+        await this.audit('SUSPEND_LICENSEE', id, performedBy, 'Licensee suspended', {
+            previous_status: current.status,
+            new_status: LicenseeStatus.SUSPENDED,
+            regions_affected: regionIds.length,
+            jobs_paused: jobsPaused,
+            notes: notes || null,
+        });
+
+        return {
+            licensee: this.mapToDTO(updated),
+            jobsPaused,
+            regionsAffected: regionIds.length,
+        };
     }
 
-    async terminate(id: string) {
+    async reactivate(id: string, performedBy?: string, notes?: string) {
+        const current = await this.getLicenseeOrThrow(id);
+        if (current.status === 'TERMINATED') {
+            throw new HttpException(400, 'Cannot reactivate a terminated licensee');
+        }
+        if (current.status === 'ACTIVE') {
+            return { licensee: this.mapToDTO(current), jobsResumed: 0 };
+        }
+        if (current.status !== 'SUSPENDED') {
+            throw new HttpException(400, 'Only suspended licensees can be reactivated');
+        }
+
+        const regions = await prisma.region.findMany({
+            where: { licensee_id: id },
+            select: { id: true },
+        });
+        const regionIds = regions.map(r => r.id);
+        const jobsResumed = regionIds.length === 0
+            ? 0
+            : await prisma.job.count({ where: { region_id: { in: regionIds }, status: JobStatus.ON_HOLD } });
+
+        const updated = await prisma.$transaction(async (tx) => {
+            if (regionIds.length > 0) {
+                await tx.job.updateMany({
+                    where: { region_id: { in: regionIds }, status: JobStatus.ON_HOLD },
+                    data: { status: JobStatus.OPEN },
+                });
+            }
+            await tx.hRM8User.updateMany({
+                where: { licensee_id: id, role: HRM8UserRole.REGIONAL_LICENSEE, status: HRM8UserStatus.SUSPENDED },
+                data: { status: HRM8UserStatus.ACTIVE },
+            });
+            return tx.regionalLicensee.update({
+                where: { id },
+                data: { status: LicenseeStatus.ACTIVE },
+            });
+        });
+
+        await this.audit('REACTIVATE_LICENSEE', id, performedBy, 'Licensee reactivated', {
+            previous_status: current.status,
+            new_status: LicenseeStatus.ACTIVE,
+            jobs_resumed: jobsResumed,
+            notes: notes || null,
+        });
+
+        return {
+            licensee: this.mapToDTO(updated),
+            jobsResumed,
+        };
+    }
+
+    async terminate(id: string, performedBy?: string, notes?: string) {
+        const current = await this.getLicenseeOrThrow(id);
+        if (current.status === 'TERMINATED') {
+            return {
+                licensee: this.mapToDTO(current),
+                regionsUnassigned: 0,
+                jobsResumed: 0,
+                companiesReassigned: 0,
+            };
+        }
+
         const regions = await prisma.region.findMany({
             where: { licensee_id: id },
             select: { id: true },
         });
         const regionIds = regions.map(r => r.id);
 
-        // Unassign regions
-        await prisma.region.updateMany({
-            where: { licensee_id: id },
-            data: { licensee_id: null, owner_type: 'HRM8' },
+        const [jobsResumed, companiesReassigned, impactPreview] = await Promise.all([
+            regionIds.length === 0
+                ? Promise.resolve(0)
+                : prisma.job.count({ where: { region_id: { in: regionIds }, status: JobStatus.ON_HOLD } }),
+            regionIds.length === 0
+                ? Promise.resolve(0)
+                : prisma.company.count({ where: { region_id: { in: regionIds } } }),
+            this.getImpactPreview(id),
+        ]);
+
+        const updated = await prisma.$transaction(async (tx) => {
+            if (regionIds.length > 0) {
+                await tx.region.updateMany({
+                    where: { licensee_id: id },
+                    data: { licensee_id: null, owner_type: 'HRM8' as any },
+                });
+
+                await tx.company.updateMany({
+                    where: { region_id: { in: regionIds } },
+                    data: { licensee_id: null, region_owner_type: 'HRM8' as any },
+                });
+
+                await tx.job.updateMany({
+                    where: { region_id: { in: regionIds }, status: JobStatus.ON_HOLD },
+                    data: { status: JobStatus.OPEN },
+                });
+            }
+
+            await tx.hRM8User.updateMany({
+                where: { licensee_id: id, role: HRM8UserRole.REGIONAL_LICENSEE },
+                data: { status: HRM8UserStatus.TERMINATED },
+            });
+
+            return tx.regionalLicensee.update({
+                where: { id },
+                data: { status: LicenseeStatus.TERMINATED },
+            });
         });
 
-        // Resume jobs (now under HRM8)
-        await prisma.job.updateMany({
-            where: { region_id: { in: regionIds }, status: 'ON_HOLD' },
-            data: { status: 'OPEN' },
+        await this.audit('TERMINATE_LICENSEE', id, performedBy, 'Licensee terminated', {
+            previous_status: current.status,
+            new_status: LicenseeStatus.TERMINATED,
+            regions_unassigned: regionIds.length,
+            jobs_resumed: jobsResumed,
+            companies_reassigned: companiesReassigned,
+            pending_revenue: impactPreview.pendingRevenue,
+            notes: notes || null,
         });
 
-        return this.regionalLicenseeRepository.update(id, { status: 'TERMINATED' });
+        return {
+            licensee: this.mapToDTO(updated),
+            regionsUnassigned: regionIds.length,
+            jobsResumed,
+            companiesReassigned,
+            finalSettlement: impactPreview.pendingRevenue > 0 ? { amount: impactPreview.pendingRevenue } : undefined,
+        };
     }
 
-    async getStats() {
-        return this.regionalLicenseeRepository.getStats();
+    async getStats(scope?: LicenseeScope) {
+        const where = this.getScopedWhere(scope);
+        const [total, active, suspended] = await Promise.all([
+            prisma.regionalLicensee.count({ where }),
+            prisma.regionalLicensee.count({ where: { ...where, status: LicenseeStatus.ACTIVE } }),
+            prisma.regionalLicensee.count({ where: { ...where, status: LicenseeStatus.SUSPENDED } }),
+        ]);
+
+        return { total, active, suspended };
     }
 
-    async getOverview() {
+    async getOverview(scope?: LicenseeScope) {
+        const where = this.getScopedWhere(scope);
         const licensees = await this.regionalLicenseeRepository.findMany({
+            where,
             orderBy: { created_at: 'desc' },
         });
 
@@ -322,23 +567,44 @@ export class RegionalLicenseeService extends BaseService {
         };
     }
 
-    async getImpactPreview(id: string) {
+    async getImpactPreview(id: string, scope?: LicenseeScope) {
+        this.assertScopedAccess(id, scope);
+        await this.getLicenseeOrThrow(id);
+
         const regions = await prisma.region.findMany({
             where: { licensee_id: id },
             select: { id: true },
         });
         const regionIds = regions.map(r => r.id);
 
-        const [activeJobs, consultants] = await Promise.all([
-            prisma.job.count({ where: { region_id: { in: regionIds }, status: 'OPEN' } }),
-            prisma.consultant.count({ where: { region_id: { in: regionIds }, status: 'ACTIVE' } }),
+        const [activeJobs, consultants, pendingBills, pendingSettlements] = await Promise.all([
+            prisma.job.count({ where: { region_id: { in: regionIds }, status: JobStatus.OPEN } }),
+            prisma.consultant.count({ where: { region_id: { in: regionIds }, status: 'ACTIVE' as any } }),
+            regionIds.length === 0
+                ? Promise.resolve({ _sum: { total_amount: 0 } })
+                : prisma.bill.aggregate({
+                    where: {
+                        region_id: { in: regionIds },
+                        status: { in: [BillStatus.PENDING, BillStatus.OVERDUE] },
+                    },
+                    _sum: { total_amount: true },
+                }),
+            prisma.settlement.aggregate({
+                where: {
+                    licensee_id: id,
+                    status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] },
+                },
+                _sum: { licensee_share: true },
+            }),
         ]);
+
+        const pendingRevenue = Number(pendingBills._sum.total_amount || 0) + Number(pendingSettlements._sum.licensee_share || 0);
 
         return {
             regions: regionIds.length,
             activeJobs,
             consultants,
-            pendingRevenue: 0, // Placeholder
+            pendingRevenue,
         };
     }
 }
