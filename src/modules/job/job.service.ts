@@ -99,7 +99,7 @@ export class JobService extends BaseService {
       { name: 'Recruiter', isDefault: true },
       { name: 'Interviewer', isDefault: true },
     ]);
-    
+
     // Process payment if publishing immediately
     if (publishImmediately && data.salaryMax && jobPaymentService) {
       try {
@@ -112,7 +112,7 @@ export class JobService extends BaseService {
           price: bandInfo.price,
           currency: bandInfo.currency
         });
-        
+
         // Process payment from wallet
         const paymentResult = await jobPaymentService.payForJobFromWallet(
           companyId,
@@ -121,13 +121,13 @@ export class JobService extends BaseService {
           servicePackage,
           createdBy
         );
-        
+
         if (paymentResult.success) {
           console.log('[JobService] ✅ Payment processed successfully for job:', job.id);
         } else {
           console.warn('[JobService] ⚠️  Payment failed, job created as DRAFT:', paymentResult.error);
           // Update job back to DRAFT if payment fails
-          await this.jobRepository.update(job.id, { 
+          await this.jobRepository.update(job.id, {
             status: 'DRAFT',
             posting_date: null
           });
@@ -135,7 +135,7 @@ export class JobService extends BaseService {
       } catch (error) {
         console.error('[JobService] Payment processing error:', error);
         // Update job back to DRAFT if payment fails
-        await this.jobRepository.update(job.id, { 
+        await this.jobRepository.update(job.id, {
           status: 'DRAFT',
           posting_date: null
         });
@@ -166,20 +166,20 @@ export class JobService extends BaseService {
 
     // Map fields for update
     const updateData: any = {
-      ...data,
-      // Manual mapping for updates
+      title: data.title,
+      description: data.description,
+      job_summary: data.jobSummary,
+      location: data.location,
+      department: data.department,
       hiring_mode: data.hiringMode,
       service_package: data.servicePackage ?? (data.hiringMode ? data.hiringMode.toLowerCase().replace(/_/g, '-') : undefined),
       work_arrangement: data.workArrangement ? (data.workArrangement.toUpperCase().replace('-', '_')) : undefined,
       employment_type: data.employmentType ? (data.employmentType.toUpperCase().replace('-', '_')) : undefined,
-      // experience_level: data.experienceLevel,
       number_of_vacancies: data.numberOfVacancies,
       salary_min: data.salaryMin,
       salary_max: data.salaryMax,
       salary_currency: data.salaryCurrency,
-      // salary_period: data.salaryPeriod,
       salary_description: data.salaryDescription,
-      // hide_salary: data.hideSalary,
       requirements: data.requirements,
       responsibilities: data.responsibilities,
       promotional_tags: data.tags || data.promotionalTags,
@@ -188,12 +188,13 @@ export class JobService extends BaseService {
       video_interviewing_enabled: data.videoInterviewingEnabled,
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
       management_type: data.managementType ?? undefined,
+      draft_step: data.draftStep,
+      status: data.status,
     };
 
-    // Remove undefined and camelCase keys we mapped to snake_case (Prisma expects schema field names)
+    // Remove undefined keys
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === undefined) delete updateData[key];
-      if (key === 'setupType' || key === 'managementType') delete updateData[key];
     });
 
     const updatedJob = await this.jobRepository.update(id, updateData);
@@ -251,6 +252,13 @@ export class JobService extends BaseService {
     return mappedJobs;
   }
 
+  private _draftStepFromJob(job: any): number {
+    const raw = job?.draft_step ?? (job as any)?.draftStep;
+    if (raw == null) return 1;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 1 ? n : 1;
+  }
+
   private mapToResponse(job: any): any {
     if (!job) return null;
 
@@ -301,6 +309,7 @@ export class JobService extends BaseService {
       applicantsCount: job._count?.applications || 0,
       setupType: job.setup_type ? job.setup_type.toLowerCase() : 'advanced',
       managementType: job.management_type ?? undefined,
+      draftStep: this._draftStepFromJob(job),
     };
   }
 
@@ -501,25 +510,41 @@ export class JobService extends BaseService {
   async saveDraft(id: string, companyId: string, data: any): Promise<Job> {
     await this.getJob(id, companyId); // Verify ownership
 
-    const updatedJob = await this.jobRepository.update(id, {
-      ...data,
+    const stepRaw = data.draftStep ?? data.draft_step;
+    const stepNum = stepRaw != null ? Number(stepRaw) : NaN;
+    const draftStepValue = Number.isInteger(stepNum) && stepNum >= 1 ? stepNum : 1;
+    const updatePayload: any = {
       status: 'DRAFT',
+      draft_step: draftStepValue,
+      title: data.title,
+      description: data.description,
+      department: data.department,
+      location: data.location,
+      number_of_vacancies: data.numberOfVacancies ?? data.number_of_vacancies,
+      salary_min: data.salaryMin ?? data.salary_min,
+      salary_max: data.salaryMax ?? data.salary_max,
+      salary_currency: data.salaryCurrency ?? data.salary_currency,
+      salary_period: data.salaryPeriod ?? data.salary_period,
+      salary_description: data.salaryDescription ?? data.salary_description,
+      requirements: data.requirements ?? [],
+      responsibilities: data.responsibilities ?? [],
+      promotional_tags: data.tags ?? data.promotionalTags ?? data.promotional_tags ?? [],
+      application_form: data.applicationForm ?? data.application_form,
+      close_date: data.closeDate ?? data.close_date,
+      visibility: data.visibility ?? 'public',
+      work_arrangement: data.workArrangement ? String(data.workArrangement).toUpperCase().replace('-', '_') : undefined,
+      employment_type: data.employmentType ? String(data.employmentType).toUpperCase().replace('-', '_') : undefined,
+      experience_level: data.experienceLevel ?? data.experience_level,
+      hide_salary: data.hideSalary ?? data.hide_salary,
+    };
+    Object.keys(updatePayload).forEach(key => {
+      if (updatePayload[key] === undefined) delete updatePayload[key];
     });
 
+    const updatedJob = await this.jobRepository.update(id, updatePayload);
     return this.mapToResponse(updatedJob);
   }
 
-  async saveTemplate(id: string, companyId: string, data: any): Promise<Job> {
-    await this.getJob(id, companyId); // Verify ownership
-
-    // For now, just mark the job as a template
-    const updatedJob = await this.jobRepository.update(id, {
-      ...data,
-      saved_as_template: true,
-    });
-
-    return this.mapToResponse(updatedJob);
-  }
 
   async submitAndActivate(id: string, companyId: string, userId: string, paymentId?: string): Promise<Job> {
     const job = await this.getJob(id, companyId);
