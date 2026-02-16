@@ -145,18 +145,19 @@ export class WalletService {
       throw new HttpException(400, 'Amount must be positive');
     }
 
+    // Lock currency before transaction to avoid holding tx during external call
+    const accountForLock = await prisma.virtualAccount.findUnique({ where: { id: params.accountId } });
+    if (accountForLock?.owner_type === 'COMPANY' && params.billingCurrency) {
+      try {
+        await CurrencyAssignmentService.lockCurrency(accountForLock.owner_id);
+      } catch (error) {
+        // Already locked or error - continue
+      }
+    }
+
     return prisma.$transaction(async (tx) => {
       const account = await tx.virtualAccount.findUnique({ where: { id: params.accountId } });
       if (!account) throw new HttpException(404, 'Account not found');
-      
-      // Lock currency on first transaction for companies
-      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
-        try {
-          await CurrencyAssignmentService.lockCurrency(account.owner_id);
-        } catch (error) {
-          // Already locked or error - continue
-        }
-      }
 
       const newBalance = account.balance + params.amount;
 
@@ -188,7 +189,7 @@ export class WalletService {
       });
 
       return transaction;
-    });
+    }, { maxWait: 10000, timeout: 15000 });
   }
 
   /**
@@ -211,29 +212,30 @@ export class WalletService {
       throw new HttpException(400, 'Amount must be positive');
     }
 
-    return prisma.$transaction(async (tx) => {
-      const account = await tx.virtualAccount.findUnique({ where: { id: params.accountId } });
-      if (!account) throw new HttpException(404, 'Account not found');
-      
-      // Validate currency lock for companies
-      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
+    // Validate and lock currency before transaction to avoid holding tx during external calls
+    const accountForLock = await prisma.virtualAccount.findUnique({ where: { id: params.accountId } });
+    if (accountForLock) {
+      if (accountForLock.owner_type === 'COMPANY' && params.billingCurrency) {
         await CurrencyAssignmentService.validateCurrencyLock(
-          account.owner_id,
+          accountForLock.owner_id,
           params.billingCurrency
         );
-      }
-
-      if (account.balance < params.amount) {
-        throw new HttpException(400, 'Insufficient balance');
-      }
-      
-      // Lock currency on first transaction for companies
-      if (account.owner_type === 'COMPANY' && params.billingCurrency) {
         try {
-          await CurrencyAssignmentService.lockCurrency(account.owner_id);
+          await CurrencyAssignmentService.lockCurrency(accountForLock.owner_id);
         } catch (error) {
           // Already locked - continue
         }
+      }
+      if (accountForLock.balance < params.amount) {
+        throw new HttpException(400, 'Insufficient balance');
+      }
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const account = await tx.virtualAccount.findUnique({ where: { id: params.accountId } });
+      if (!account) throw new HttpException(404, 'Account not found');
+      if (account.balance < params.amount) {
+        throw new HttpException(400, 'Insufficient balance');
       }
 
       const newBalance = account.balance - params.amount;
@@ -266,7 +268,7 @@ export class WalletService {
       });
 
       return transaction;
-    });
+    }, { maxWait: 10000, timeout: 15000 });
   }
 
   /**

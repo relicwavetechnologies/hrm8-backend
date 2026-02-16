@@ -441,7 +441,18 @@ export class JobService extends BaseService {
       );
 
       if (!paymentResult.success) {
-        throw new HttpException(402, paymentResult.error || 'Payment required to publish this job');
+        const details = paymentResult.required != null ? {
+          required: paymentResult.required,
+          balance: paymentResult.balance ?? 0,
+          shortfall: paymentResult.shortfall ?? 0,
+          currency: paymentResult.currency ?? 'USD',
+        } : undefined;
+        throw new HttpException(
+          402,
+          paymentResult.error || 'Payment required to publish this job',
+          undefined,
+          details
+        );
       }
     }
 
