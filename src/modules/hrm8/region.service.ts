@@ -426,11 +426,35 @@ export class RegionService extends BaseService {
         await this.assertLicenseeExists(licenseeId);
         const region = await this.regionRepository.findById(regionId);
         if (!region) throw new HttpException(404, 'Region not found');
+        if (!region.is_active) throw new HttpException(400, 'Cannot assign a licensee to an inactive region');
+        if (region.licensee_id === licenseeId && region.owner_type === 'LICENSEE') {
+            return this.mapToDTO(region);
+        }
 
-        const updated = await this.regionRepository.assignLicensee(regionId, licenseeId);
+        const updated = await prisma.$transaction(async (tx) => {
+            await tx.company.updateMany({
+                where: { region_id: regionId },
+                data: {
+                    licensee_id: licenseeId,
+                    region_owner_type: RegionOwnerType.LICENSEE,
+                },
+            });
+
+            return tx.region.update({
+                where: { id: regionId },
+                data: {
+                    licensee_id: licenseeId,
+                    owner_type: RegionOwnerType.LICENSEE,
+                },
+                include: { licensee: true },
+            });
+        });
+
+        const affectedCompanies = await prisma.company.count({ where: { region_id: regionId, licensee_id: licenseeId } });
         await this.audit('ASSIGN_LICENSEE', regionId, performedBy, 'Licensee assigned to region', {
             from_licensee_id: region.licensee_id,
             to_licensee_id: licenseeId,
+            companies_updated: affectedCompanies,
         });
         return this.mapToDTO(updated);
     }
@@ -438,10 +462,33 @@ export class RegionService extends BaseService {
     async unassignLicensee(regionId: string, performedBy?: string) {
         const region = await this.regionRepository.findById(regionId);
         if (!region) throw new HttpException(404, 'Region not found');
+        if (!region.licensee_id && region.owner_type === 'HRM8') {
+            return this.mapToDTO(region);
+        }
 
-        const updated = await this.regionRepository.unassignLicensee(regionId);
+        const updated = await prisma.$transaction(async (tx) => {
+            await tx.company.updateMany({
+                where: { region_id: regionId },
+                data: {
+                    licensee_id: null,
+                    region_owner_type: RegionOwnerType.HRM8,
+                },
+            });
+
+            return tx.region.update({
+                where: { id: regionId },
+                data: {
+                    licensee_id: null,
+                    owner_type: RegionOwnerType.HRM8,
+                },
+                include: { licensee: true },
+            });
+        });
+
+        const affectedCompanies = await prisma.company.count({ where: { region_id: regionId, licensee_id: null } });
         await this.audit('UNASSIGN_LICENSEE', regionId, performedBy, 'Licensee unassigned from region', {
             from_licensee_id: region.licensee_id,
+            companies_updated: affectedCompanies,
         });
         return this.mapToDTO(updated);
     }
@@ -492,7 +539,10 @@ export class RegionService extends BaseService {
 
             await tx.company.updateMany({
                 where: { region_id: regionId },
-                data: { licensee_id: targetLicenseeId }
+                data: {
+                    licensee_id: targetLicenseeId,
+                    region_owner_type: RegionOwnerType.LICENSEE,
+                }
             });
 
             await tx.auditLog.create({

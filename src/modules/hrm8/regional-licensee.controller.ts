@@ -20,6 +20,8 @@ export class RegionalLicenseeController extends BaseController {
                 status: status as LicenseeStatus,
                 limit: limit ? Number(limit) : undefined,
                 offset: offset ? Number(offset) : undefined,
+                role: req.hrm8User?.role,
+                licenseeId: req.hrm8User?.licenseeId,
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -30,7 +32,10 @@ export class RegionalLicenseeController extends BaseController {
     getById = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionalLicenseeService.getById(id as string);
+            const result = await this.regionalLicenseeService.getById(id as string, {
+                role: req.hrm8User?.role,
+                licenseeId: req.hrm8User?.licenseeId,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -49,7 +54,7 @@ export class RegionalLicenseeController extends BaseController {
     update = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionalLicenseeService.update(id as string, req.body);
+            const result = await this.regionalLicenseeService.update(id as string, req.body, req.hrm8User?.id);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -59,25 +64,31 @@ export class RegionalLicenseeController extends BaseController {
     delete = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            await this.regionalLicenseeService.delete(id as string);
+            await this.regionalLicenseeService.delete(id as string, req.hrm8User?.id);
             return this.sendSuccess(res, { message: 'Licensee deleted successfully' });
         } catch (error) {
             return this.sendError(res, error);
         }
     };
 
-    getStats = async (_req: Hrm8AuthenticatedRequest, res: Response) => {
+    getStats = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.regionalLicenseeService.getStats();
+            const result = await this.regionalLicenseeService.getStats({
+                role: req.hrm8User?.role,
+                licenseeId: req.hrm8User?.licenseeId,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
         }
     };
 
-    getOverview = async (_req: Hrm8AuthenticatedRequest, res: Response) => {
+    getOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.regionalLicenseeService.getOverview();
+            const result = await this.regionalLicenseeService.getOverview({
+                role: req.hrm8User?.role,
+                licenseeId: req.hrm8User?.licenseeId,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -87,8 +98,35 @@ export class RegionalLicenseeController extends BaseController {
     updateStatus = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const { status } = req.body;
-            const result = await this.regionalLicenseeService.updateStatus(id as string, status as LicenseeStatus);
+            const { status, notes } = req.body;
+            const result = await this.regionalLicenseeService.updateStatus(
+                id as string,
+                status as LicenseeStatus,
+                req.hrm8User?.id,
+                notes as string | undefined
+            );
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    suspend = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const { notes } = req.body;
+            const result = await this.regionalLicenseeService.suspend(id as string, req.hrm8User?.id, notes as string | undefined);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    reactivate = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const { notes } = req.body;
+            const result = await this.regionalLicenseeService.reactivate(id as string, req.hrm8User?.id, notes as string | undefined);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -98,7 +136,8 @@ export class RegionalLicenseeController extends BaseController {
     terminate = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionalLicenseeService.terminate(id as string);
+            const { notes } = req.body;
+            const result = await this.regionalLicenseeService.terminate(id as string, req.hrm8User?.id, notes as string | undefined);
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -108,7 +147,10 @@ export class RegionalLicenseeController extends BaseController {
     getImpactPreview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.regionalLicenseeService.getImpactPreview(id as string);
+            const result = await this.regionalLicenseeService.getImpactPreview(id as string, {
+                role: req.hrm8User?.role,
+                licenseeId: req.hrm8User?.licenseeId,
+            });
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

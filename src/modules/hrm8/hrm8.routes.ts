@@ -100,30 +100,31 @@ router.post('/jobs/:jobId/auto-assign', authenticateHrm8, jobAllocationControlle
 router.get('/consultants/for-assignment', authenticateHrm8, jobAllocationController.getConsultantsForAssignment);
 
 // Regional Licensee Routes
-router.get('/regional-licensee', authenticateHrm8, regionalLicenseeController.getAll);
-router.get('/regional-licensee/stats', authenticateHrm8, regionalLicenseeController.getStats);
-router.get('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.getById);
-router.post('/regional-licensee', authenticateHrm8, regionalLicenseeController.create);
-router.put('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.update);
-router.delete('/regional-licensee/:id', authenticateHrm8, regionalLicenseeController.delete);
-router.put('/regional-licensee/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
-router.get('/regional-licensee/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+router.get('/regional-licensee', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getAll);
+router.get('/regional-licensee/stats', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getStats);
+router.get('/regional-licensee/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getById);
+router.post('/regional-licensee', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.create);
+router.put('/regional-licensee/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.update);
+router.delete('/regional-licensee/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.delete);
+router.put('/regional-licensee/:id/status', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.updateStatus);
+router.post('/regional-licensee/:id/suspend', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.suspend);
+router.post('/regional-licensee/:id/reactivate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.reactivate);
+router.post('/regional-licensee/:id/terminate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.terminate);
+router.get('/regional-licensee/:id/impact-preview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.getImpactPreview);
 
 // Legacy Alias for Frontend Compatibility
-router.get('/licensees', authenticateHrm8, regionalLicenseeController.getAll);
-router.get('/licensees/overview', authenticateHrm8, regionalLicenseeController.getOverview);
-router.get('/licensees/stats', authenticateHrm8, regionalLicenseeController.getStats);
-router.get('/licensees/:id', authenticateHrm8, regionalLicenseeController.getById);
-router.post('/licensees', authenticateHrm8, regionalLicenseeController.create);
-router.put('/licensees/:id', authenticateHrm8, regionalLicenseeController.update);
-router.delete('/licensees/:id', authenticateHrm8, regionalLicenseeController.delete);
-router.put('/licensees/:id/status', authenticateHrm8, regionalLicenseeController.updateStatus);
-router.post('/licensees/:id/terminate', authenticateHrm8, regionalLicenseeController.terminate);
-router.post('/licensees/:id/suspend', authenticateHrm8, (req, res, next) => {
-    req.body.status = 'SUSPENDED';
-    return regionalLicenseeController.updateStatus(req, res);
-});
-router.get('/licensees/:id/impact-preview', authenticateHrm8, regionalLicenseeController.getImpactPreview);
+router.get('/licensees', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getAll);
+router.get('/licensees/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getOverview);
+router.get('/licensees/stats', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getStats);
+router.get('/licensees/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalLicenseeController.getById);
+router.post('/licensees', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.create);
+router.put('/licensees/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.update);
+router.delete('/licensees/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.delete);
+router.put('/licensees/:id/status', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.updateStatus);
+router.post('/licensees/:id/suspend', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.suspend);
+router.post('/licensees/:id/reactivate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.reactivate);
+router.post('/licensees/:id/terminate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.terminate);
+router.get('/licensees/:id/impact-preview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.getImpactPreview);
 
 // Company Routes
 router.get('/companies/:id', authenticateHrm8, regionalCompanyController.getById);
