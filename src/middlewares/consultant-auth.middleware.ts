@@ -1,9 +1,9 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { ConsultantAuthenticatedRequest } from '../types';
 import { prisma } from '../utils/prisma';
 
 export async function authenticateConsultant(
-  req: ConsultantAuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
@@ -35,7 +35,7 @@ export async function authenticateConsultant(
         });
 
         if (realConsultant) {
-          req.consultant = {
+          (req as any).consultant = {
             id: realConsultant.id,
             email: realConsultant.email,
             firstName: realConsultant.first_name,
@@ -45,7 +45,7 @@ export async function authenticateConsultant(
         } else {
           // Fallback if no consultant exists
           const [firstName, ...lastNameParts] = (adminSession.user.name || 'Admin User').split(' ');
-          req.consultant = {
+          (req as any).consultant = {
             id: adminSession.user.id, // Using Admin ID
             email: adminSession.user.email,
             firstName: firstName || 'Admin',
@@ -81,7 +81,7 @@ export async function authenticateConsultant(
         res.status(401).json({ success: false, error: 'Consultant not active' });
         return;
       }
-      req.consultant = {
+      (req as any).consultant = {
         id: consultant.id,
         email: consultant.email,
         firstName: consultant.first_name,
@@ -110,7 +110,7 @@ export async function authenticateConsultant(
         });
 
         if (realConsultant) {
-          req.consultant = {
+          (req as any).consultant = {
             id: realConsultant.id,
             email: realConsultant.email,
             firstName: realConsultant.first_name,
@@ -118,9 +118,10 @@ export async function authenticateConsultant(
             role: realConsultant.role
           };
         } else {
+          // Fallback if no consultant exists
           const [firstName, ...lastNameParts] = (adminSession.user.name || 'Admin User').split(' ');
-          req.consultant = {
-            id: adminSession.user.id,
+          (req as any).consultant = {
+            id: adminSession.user.id, // Using Admin ID
             email: adminSession.user.email,
             firstName: firstName || 'Admin',
             lastName: lastNameParts.join(' ') || 'User',

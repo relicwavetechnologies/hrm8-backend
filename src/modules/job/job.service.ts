@@ -5,15 +5,13 @@ import { ApplicationRepository } from '../application/application.repository';
 import { Job, JobStatus, AssignmentMode, JobAssignmentMode, NotificationRecipientType, UniversalNotificationType, InvitationStatus } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { NotificationService } from '../notification/notification.service';
-import { EmailService } from '../email/email.service';
-import { emailService } from '../email/email.service';
+import { EmailService, emailService } from '../email/email.service';
 import { SalaryBandService } from '../pricing/salary-band.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
-import { jobPaymentService } from './job-payment.service';
+import { jobPaymentService, JobPaymentService, ServicePackage } from './job-payment.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
 import { env } from '../../config/env';
-import { jobPaymentService, JobPaymentService } from './job-payment.service';
 import { jobAllocationService } from './job-allocation.service';
 
 export class JobService extends BaseService {
@@ -97,7 +95,7 @@ export class JobService extends BaseService {
       { name: 'Recruiter', isDefault: true },
       { name: 'Interviewer', isDefault: true },
     ]);
-    
+
     // Process payment if publishing immediately
     if (publishImmediately && data.salaryMax && jobPaymentService) {
       try {
@@ -110,7 +108,7 @@ export class JobService extends BaseService {
           price: bandInfo.price,
           currency: bandInfo.currency
         });
-        
+
         // Process payment from wallet
         const paymentResult = await jobPaymentService.payForJobFromWallet(
           companyId,
@@ -119,13 +117,13 @@ export class JobService extends BaseService {
           servicePackage,
           createdBy
         );
-        
+
         if (paymentResult.success) {
           console.log('[JobService] ✅ Payment processed successfully for job:', job.id);
         } else {
           console.warn('[JobService] ⚠️  Payment failed, job created as DRAFT:', paymentResult.error);
           // Update job back to DRAFT if payment fails
-          await this.jobRepository.update(job.id, { 
+          await this.jobRepository.update(job.id, {
             status: 'DRAFT',
             posting_date: null
           });
@@ -133,7 +131,7 @@ export class JobService extends BaseService {
       } catch (error) {
         console.error('[JobService] Payment processing error:', error);
         // Update job back to DRAFT if payment fails
-        await this.jobRepository.update(job.id, { 
+        await this.jobRepository.update(job.id, {
           status: 'DRAFT',
           posting_date: null
         });
@@ -415,7 +413,8 @@ export class JobService extends BaseService {
       const paymentResult = await jobPaymentService.payForJobFromWallet(
         companyId,
         id,
-        servicePackage,
+        job.salary_max || 0,
+        servicePackage as ServicePackage,
         userId || job.created_by
       );
 

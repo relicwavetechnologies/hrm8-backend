@@ -105,10 +105,10 @@ export class PublicService extends BaseService {
     return {
       jobId: job.id,
       jobTitle: job.title,
-      questions: job.application_form_questions || [],
-      requireResume: job.require_resume !== false,
-      requireCoverLetter: job.require_cover_letter === true,
-      requirePortfolio: job.require_portfolio === true
+      questions: (job as any).application_form_questions || [],
+      requireResume: (job as any).require_resume !== false,
+      requireCoverLetter: (job as any).require_cover_letter === true,
+      requirePortfolio: (job as any).require_portfolio === true
     };
   }
 
@@ -120,12 +120,12 @@ export class PublicService extends BaseService {
     const candidateRepository = new CandidateRepository();
     const applicationRepository = new ApplicationRepository();
 
-    const { 
-      jobId, 
-      email, 
+    const {
+      jobId,
+      email,
       password,
-      firstName, 
-      lastName, 
+      firstName,
+      lastName,
       phone,
       resumeUrl,
       coverLetterUrl,
@@ -144,17 +144,17 @@ export class PublicService extends BaseService {
 
     // Check if candidate exists
     let candidate = await candidateRepository.findByEmail(email.toLowerCase());
-    
+
     if (candidate) {
       throw new Error('An account with this email already exists. Please login to apply.');
     }
 
     // Create new candidate account
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     candidate = await candidateRepository.create({
       email: email.toLowerCase(),
-      password: hashedPassword,
+      password_hash: hashedPassword,
       first_name: firstName,
       last_name: lastName,
       phone: phone || null,
@@ -167,13 +167,13 @@ export class PublicService extends BaseService {
       candidate_id: candidate.id,
       job_id: jobId,
       company_id: job.company_id,
-      status: 'SUBMITTED',
-      stage: 'SCREENING',
+      status: 'SUBMITTED' as any,
+      stage: 'SCREENING' as any,
       resume_url: resumeUrl || null,
       cover_letter_url: coverLetterUrl || null,
       portfolio_url: portfolioUrl || null,
       answers: answers || {}
-    });
+    } as any);
 
     return {
       application,

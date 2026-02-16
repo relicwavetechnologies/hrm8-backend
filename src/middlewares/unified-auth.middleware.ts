@@ -1,4 +1,4 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { AuthenticatedRequest, Hrm8AuthenticatedRequest } from '../types';
 import { authenticate } from './auth.middleware';
 import { authenticateConsultant } from './consultant-auth.middleware';
@@ -11,7 +11,7 @@ import { authenticateCandidate } from './candidate-auth.middleware';
  * Helpful for shared resources like Notifications.
  */
 export async function authenticateUnified(
-    req: AuthenticatedRequest & Hrm8AuthenticatedRequest,
+    req: Request,
     res: Response,
     next: NextFunction
 ): Promise<void> {

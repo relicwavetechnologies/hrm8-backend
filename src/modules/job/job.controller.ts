@@ -20,15 +20,15 @@ export class JobController extends BaseController {
 
   constructor() {
     super();
+    this.jobRoundService = new JobRoundService(
+      new JobRoundRepository(),
+      new JobRepository()
+    );
     this.jobService = new JobService(
       new JobRepository(),
       new ApplicationRepository(),
       new NotificationService(new NotificationRepository()),
       this.jobRoundService
-    );
-    this.jobRoundService = new JobRoundService(
-      new JobRoundRepository(),
-      new JobRepository()
     );
     this.assessmentService = new AssessmentService(
       new AssessmentRepository()

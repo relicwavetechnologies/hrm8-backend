@@ -9,15 +9,15 @@ const resumeController = new ResumeController();
 router.use(authenticate);
 
 // GET /api/resumes/:resumeId - Get resume by ID
-router.get('/:resumeId', resumeController.getResume);
+router.get('/:resumeId', resumeController.getResume as any);
 
 // GET /api/resumes/:resumeId/annotations - Get annotations for a resume
-router.get('/:resumeId/annotations', resumeController.getAnnotations);
+router.get('/:resumeId/annotations', resumeController.getAnnotations as any);
 
 // POST /api/resumes/:resumeId/annotations - Create annotation
-router.post('/:resumeId/annotations', resumeController.createAnnotation);
+router.post('/:resumeId/annotations', resumeController.createAnnotation as any);
 
 // DELETE /api/resumes/:resumeId/annotations/:id - Delete annotation
-router.delete('/:resumeId/annotations/:id', resumeController.deleteAnnotation);
+router.delete('/:resumeId/annotations/:id', resumeController.deleteAnnotation as any);
 
 export default router;

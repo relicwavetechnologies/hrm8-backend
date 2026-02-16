@@ -1,10 +1,10 @@
-import { Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { CandidateAuthenticatedRequest } from '../types';
 import { CandidateRepository } from '../modules/candidate/candidate.repository';
 import { getSessionCookieOptions } from '../utils/session';
 
 export async function authenticateCandidate(
-  req: CandidateAuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
@@ -32,7 +32,7 @@ export async function authenticateCandidate(
       return;
     }
 
-    req.candidate = {
+    (req as any).candidate = {
       id: session.candidate.id,
       email: session.candidate.email,
       firstName: session.candidate.first_name,

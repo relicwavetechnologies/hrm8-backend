@@ -6,23 +6,23 @@ const router = Router();
 const assessmentController = new AssessmentController();
 
 // Manual invite (MUST be before /:token routes)
-router.post('/invite', authenticate, assessmentController.inviteCandidate);
+router.post('/invite', authenticate, assessmentController.inviteCandidate as any);
 
 // Public routes (Candidate portal)
-router.get('/:token', assessmentController.getAssessmentByToken);
-router.post('/:token/start', assessmentController.startAssessment);
-router.post('/:token/save', assessmentController.saveResponse);
-router.post('/:token/submit', assessmentController.submitAssessment);
+router.get('/:token', assessmentController.getAssessmentByToken as any);
+router.post('/:token/start', assessmentController.startAssessment as any);
+router.post('/:token/save', assessmentController.saveResponse as any);
+router.post('/:token/submit', assessmentController.submitAssessment as any);
 
 // Recruiter routes
-router.get('/:id/grading', authenticate, assessmentController.getGrading);
-router.post('/:id/grade', authenticate, assessmentController.saveGrade);
-router.post('/:id/vote', authenticate, assessmentController.saveVote);
-router.post('/:id/comment', authenticate, assessmentController.saveComment);
-router.post('/:id/finalize', authenticate, assessmentController.finalizeAssessment);
+router.get('/:id/grading', authenticate, assessmentController.getGrading as any);
+router.post('/:id/grade', authenticate, assessmentController.saveGrade as any);
+router.post('/:id/vote', authenticate, assessmentController.saveVote as any);
+router.post('/:id/comment', authenticate, assessmentController.saveComment as any);
+router.post('/:id/finalize', authenticate, assessmentController.finalizeAssessment as any);
 
 // Resend
-router.post('/:id/resend', authenticate, assessmentController.resendInvitation);
+router.post('/:id/resend', authenticate, assessmentController.resendInvitation as any);
 
 export default router;
 

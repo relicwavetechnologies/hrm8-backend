@@ -9,9 +9,9 @@ import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 const router = Router();
 const notificationController = new NotificationController();
 
-router.get('/', authenticateUnified, notificationController.list);
-router.get('/:id', authenticateUnified, notificationController.getOne);
-router.patch('/:id/read', authenticateUnified, notificationController.markRead);
-router.patch('/read-all', authenticateUnified, notificationController.markAllRead);
+router.get('/', authenticateUnified, notificationController.list as any);
+router.get('/:id', authenticateUnified, notificationController.getOne as any);
+router.patch('/:id/read', authenticateUnified, notificationController.markRead as any);
+router.patch('/read-all', authenticateUnified, notificationController.markAllRead as any);
 
 export default router;

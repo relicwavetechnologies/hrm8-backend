@@ -18,9 +18,9 @@ export class PricingController {
           message: 'Company ID required'
         });
       }
-      
+
       const tiers = await PriceBookSelectionService.getSubscriptionTiers(companyId);
-      
+
       res.json({
         success: true,
         data: { tiers }
@@ -33,7 +33,7 @@ export class PricingController {
       });
     }
   }
-  
+
   /**
    * GET /api/pricing/recruitment-services
    * Get all recruitment service prices for current company
@@ -47,9 +47,9 @@ export class PricingController {
           message: 'Company ID required'
         });
       }
-      
+
       const services = await PriceBookSelectionService.getRecruitmentServicePrices(companyId);
-      
+
       res.json({
         success: true,
         data: { services }
@@ -62,7 +62,7 @@ export class PricingController {
       });
     }
   }
-  
+
   /**
    * GET /api/pricing/executive-search-bands
    * Get all executive search salary bands for current company
@@ -76,9 +76,9 @@ export class PricingController {
           message: 'Company ID required'
         });
       }
-      
+
       const bands = await SalaryBandService.getAllExecutiveSearchBands(companyId);
-      
+
       res.json({
         success: true,
         data: { bands }
@@ -91,7 +91,7 @@ export class PricingController {
       });
     }
   }
-  
+
   /**
    * POST /api/pricing/calculate-job-price
    * Calculate price for a job based on salary range
@@ -105,21 +105,21 @@ export class PricingController {
           message: 'Company ID required'
         });
       }
-      
+
       const { salaryMax, serviceType } = req.body;
-      
+
       if (!salaryMax || typeof salaryMax !== 'number') {
         return res.status(400).json({
           success: false,
           message: 'Valid salaryMax is required'
         });
       }
-      
+
       // Determine if executive search
       const bandInfo = await SalaryBandService.determineJobBand(companyId, salaryMax);
-      
+
       let price, currency, productCode;
-      
+
       if (bandInfo.isExecutiveSearch) {
         price = bandInfo.price;
         currency = bandInfo.currency;
@@ -135,7 +135,7 @@ export class PricingController {
         currency = result.currency;
         productCode = result.tier.product.code;
       }
-      
+
       res.json({
         success: true,
         data: {
@@ -155,7 +155,7 @@ export class PricingController {
       });
     }
   }
-  
+
   /**
    * GET /api/pricing/company-currency
    * Get company's pricing peg and billing currency
@@ -169,9 +169,9 @@ export class PricingController {
           message: 'Company ID required'
         });
       }
-      
+
       const currencies = await CurrencyAssignmentService.getCompanyCurrencies(companyId);
-      
+
       res.json({
         success: true,
         data: currencies
@@ -184,7 +184,7 @@ export class PricingController {
       });
     }
   }
-  
+
   /**
    * GET /api/pricing/audit/:companyId
    * Get pricing audit trail for a company (admin only)
@@ -192,12 +192,14 @@ export class PricingController {
   static async getPricingAudit(req: Request, res: Response) {
     try {
       const { companyId } = req.params;
-      
+
+      const companyStr = String(companyId);
+
       // TODO: Add admin permission check
-      
-      const audit = await PricingAuditService.getCompanyPricingAudit(companyId);
-      const consistency = await PricingAuditService.validatePricingConsistency(companyId);
-      
+
+      const audit = await PricingAuditService.getCompanyPricingAudit(companyStr);
+      const consistency = await PricingAuditService.validatePricingConsistency(companyStr);
+
       res.json({
         success: true,
         data: {

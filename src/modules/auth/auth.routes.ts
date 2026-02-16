@@ -5,9 +5,9 @@ import { authenticate } from '../../middlewares/auth.middleware';
 const router = Router();
 const authController = new AuthController();
 
-router.post('/login', authController.login);
-router.post('/logout', authController.logout);
-router.get('/me', authenticate, authController.getCurrentUser);
-router.post('/lead-conversion/accept', authController.acceptLeadConversionInvite);
+router.post('/login', authController.login as any);
+router.post('/logout', authController.logout as any);
+router.get('/me', authenticate, authController.getCurrentUser as any);
+router.post('/lead-conversion/accept', authController.acceptLeadConversionInvite as any);
 
 export default router;

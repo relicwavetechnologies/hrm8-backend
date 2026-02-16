@@ -19,7 +19,7 @@ const stripeController = new StripeController();
 router.post(
   '/create-checkout-session',
   authenticate,
-  stripeController.createCheckoutSession
+  stripeController.createCheckoutSession as any
 );
 
 /**
@@ -28,7 +28,7 @@ router.post(
  */
 router.post(
   '/mock-payment-success',
-  stripeController.mockPaymentSuccess
+  stripeController.mockPaymentSuccess as any
 );
 
 /**
@@ -37,7 +37,7 @@ router.post(
  */
 router.post(
   '/mock-payment-success',
-  stripeController.mockPaymentSuccess
+  stripeController.mockPaymentSuccess as any
 );
 
 /**
@@ -47,7 +47,7 @@ router.post(
 router.post(
   '/approve-mock-account',
   authenticateConsultant,
-  stripeController.approveMockAccount
+  stripeController.approveMockAccount as any
 );
 
 /**
@@ -56,7 +56,7 @@ router.post(
  */
 router.post(
   '/webhook',
-  stripeController.handleWebhook
+  stripeController.handleWebhook as any
 );
 
 /**
@@ -65,7 +65,7 @@ router.post(
 router.get(
   '/status',
   authenticate,
-  stripeController.getStatus
+  stripeController.getStatus as any
 );
 
 export default router;

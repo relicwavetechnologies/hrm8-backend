@@ -6,6 +6,6 @@ const router = Router();
 const communicationController = new CommunicationController();
 
 // Internal/Admin routes
-router.post('/send-test', authenticate, communicationController.sendTestEmail);
+router.post('/send-test', authenticate, communicationController.sendTestEmail as any);
 
 export default router;

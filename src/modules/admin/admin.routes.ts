@@ -13,37 +13,37 @@ router.use(authenticateHrm8);
 router.get(
     '/categories',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.getAllCategories
+    adminController.getAllCategories as any as any
 );
 
 router.get(
     '/categories/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.getCategoryById
+    adminController.getCategoryById as any as any
 );
 
 router.post(
     '/categories',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.createCategory
+    adminController.createCategory as any as any
 );
 
 router.put(
     '/categories/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.updateCategory
+    adminController.updateCategory as any as any
 );
 
 router.delete(
     '/categories/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.deleteCategory
+    adminController.deleteCategory as any as any
 );
 
 router.patch(
     '/categories/reorder',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.reorderCategories
+    adminController.reorderCategories as any as any
 );
 
 // ==================== TAG ROUTES (GLOBAL_ADMIN only) ====================
@@ -51,31 +51,31 @@ router.patch(
 router.get(
     '/tags',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.getAllTags
+    adminController.getAllTags as any as any
 );
 
 router.get(
     '/tags/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.getTagById
+    adminController.getTagById as any as any
 );
 
 router.post(
     '/tags',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.createTag
+    adminController.createTag as any as any
 );
 
 router.put(
     '/tags/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.updateTag
+    adminController.updateTag as any as any
 );
 
 router.delete(
     '/tags/:id',
     requireHrm8Role(['GLOBAL_ADMIN']),
-    adminController.deleteTag
+    adminController.deleteTag as any as any
 );
 
 export default router;

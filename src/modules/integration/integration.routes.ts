@@ -5,8 +5,8 @@ import { authenticate } from '../../middlewares/auth.middleware';
 const router = Router();
 const integrationController = new IntegrationController();
 
-router.post('/', authenticate, integrationController.configure);
-router.get('/', authenticate, integrationController.list);
-router.delete('/:id', authenticate, integrationController.remove);
+router.post('/', authenticate, integrationController.configure as any);
+router.get('/', authenticate, integrationController.list as any);
+router.delete('/:id', authenticate, integrationController.remove as any);
 
 export default router;

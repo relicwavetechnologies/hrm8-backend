@@ -15,7 +15,7 @@ interface DecodedToken {
 }
 
 export async function authenticate(
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> {
