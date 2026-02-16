@@ -113,7 +113,7 @@ export class JobPaymentService extends BaseService {
       salaryMax: number,
       servicePackage: ServicePackage | string,
       userId: string
-    ): Promise<{ success: boolean; error?: string; pricing?: any }> {
+    ): Promise<{ success: boolean; error?: string; pricing?: any; required?: number; balance?: number; shortfall?: number; currency?: string }> {
         // Self-managed is free
         if (servicePackage === 'self-managed') {
             return { success: true };
@@ -137,16 +137,27 @@ export class JobPaymentService extends BaseService {
               pricing.currency
             );
             
-            return await prisma.$transaction(async (tx) => {
-                // 1. Get account
-                const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
+            // Pre-check balance (before transaction) for structured 402 response
+            const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
+            if (account.balance < pricing.price) {
+                return {
+                    success: false,
+                    error: `Insufficient wallet balance. Required: ${pricing.currency} ${pricing.price.toFixed(2)}, Available: ${pricing.currency} ${account.balance.toFixed(2)}`,
+                    required: pricing.price,
+                    balance: account.balance,
+                    shortfall: Math.max(0, pricing.price - account.balance),
+                    currency: pricing.currency,
+                };
+            }
 
-                // 2. Check balance
-                if (account.balance < pricing.price) {
+            return await prisma.$transaction(async (tx) => {
+                // 1. Re-fetch account inside transaction (for consistency)
+                const accountInTx = await WalletService.getOrCreateAccount('COMPANY', companyId);
+                if (accountInTx.balance < pricing.price) {
                     throw new Error(
                       `Insufficient wallet balance. ` +
                       `Required: ${pricing.currency} ${pricing.price.toFixed(2)}, ` +
-                      `Available: ${pricing.currency} ${account.balance.toFixed(2)}`
+                      `Available: ${pricing.currency} ${accountInTx.balance.toFixed(2)}`
                     );
                 }
 
@@ -172,7 +183,7 @@ export class JobPaymentService extends BaseService {
                   // Already locked - continue
                 }
 
-                // 4. Update job payment status
+                // 4. Update job payment status (inside same transaction)
                 await tx.job.update({
                     where: { id: jobId },
                     data: {
