@@ -145,7 +145,11 @@ export class JobController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
 
-      const job = await this.jobService.saveTemplate(id, req.user.companyId, req.body);
+      const { templateName, templateDescription } = req.body;
+      if (!templateName) {
+        return this.sendError(res, new Error('Template name is required'), 400);
+      }
+      const job = await this.jobService.saveAsTemplate(id, req.user.companyId, templateName, templateDescription);
       return this.sendSuccess(res, { job });
     } catch (error) {
       return this.sendError(res, error);
