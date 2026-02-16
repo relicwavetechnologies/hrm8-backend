@@ -1687,7 +1687,6 @@ model JobHiringTeamMember {
   user_id      String?                   @map("user_id")
   email        String
   name         String?
-  role         HiringTeamRole
   status       HiringTeamMemberStatus    @default(PENDING)
   invited_at   DateTime                  @default(now()) @map("invited_at")
   joined_at    DateTime?                 @map("joined_at")
@@ -2581,12 +2580,6 @@ model screening_templates {
   @@index([company_id])
 }
 
-enum HiringTeamRole {
-  ADMIN
-  SHORTLISTING
-  MEMBER
-}
-
 enum HiringTeamMemberStatus {
   ACTIVE
   PENDING
@@ -2882,8 +2875,9 @@ enum VideoInterviewType {
 }
 
 enum JobRoundType {
-  ASSESSMENT
-  INTERVIEW
+  CUSTOM // Simple mode: manual-only rounds (no automation)
+  ASSESSMENT // Advanced mode: automated rounds (full automation support)
+  INTERVIEW // Both modes: role-managed interview rounds
 }
 
 enum NotificationType {
