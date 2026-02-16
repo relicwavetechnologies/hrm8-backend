@@ -88,7 +88,7 @@ export class StripeService {
 
   /**
    * Process completed checkout session webhook
-   * Credits wallet or creates subscription based on payment type
+   * Credits wallet with payment amount
    */
   static async processCheckoutCompleted(session: StripeCheckoutSession): Promise<void> {
     // Validate payment was successful
@@ -96,6 +96,7 @@ export class StripeService {
       return;
     }
 
+    // Extract metadata
     const metadata = session.metadata || {};
     const paymentType = metadata.type || 'unknown';
     const companyId = metadata.companyId;
@@ -105,43 +106,17 @@ export class StripeService {
       throw new Error('Missing companyId in session metadata');
     }
 
+    // Credit wallet based on payment type
     if (paymentType === 'wallet_recharge') {
       const timer = this.logger.startTimer();
       await this.creditWalletFromPayment(session, companyId, userId);
-      timer.end('Wallet credited', { companyId, amount: session.amount_total / 100 });
-    } else if (paymentType === 'subscription_purchase') {
-      const timer = this.logger.startTimer();
-      await this.createSubscriptionFromPayment(session, companyId);
-      timer.end('Subscription created', { companyId, planType: metadata.planType });
+      timer.end('Wallet credited', {
+        companyId,
+        amount: session.amount_total / 100,
+      });
     } else {
       this.logger.warn('Unknown payment type', { paymentType, sessionId: session.id });
     }
-  }
-
-  /**
-   * Create subscription from successful Stripe payment
-   */
-  private static async createSubscriptionFromPayment(
-    session: StripeCheckoutSession,
-    companyId: string
-  ): Promise<void> {
-    const metadata = session.metadata || {};
-    const planType = metadata.planType || 'PAYG';
-    const name = metadata.planName || metadata.name || planType;
-    const basePrice = session.amount_total / 100;
-    const billingCycle = (metadata.billingCycle || 'MONTHLY') as 'MONTHLY' | 'ANNUAL';
-    const jobQuota = metadata.jobQuota ? parseInt(metadata.jobQuota, 10) : undefined;
-
-    const { SubscriptionService } = await import('../subscription/subscription.service');
-    await SubscriptionService.createSubscription({
-      companyId,
-      planType: planType as any,
-      name,
-      basePrice,
-      billingCycle,
-      jobQuota: jobQuota || null,
-      autoRenew: true,
-    });
   }
 
   /**

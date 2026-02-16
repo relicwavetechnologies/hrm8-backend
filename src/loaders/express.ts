@@ -5,6 +5,8 @@ import authRoutes from '../modules/auth/auth.routes';
 import companyRoutes from '../modules/company/company.routes';
 import userRoutes from '../modules/user/user.routes';
 import jobRoutes from '../modules/job/job.routes';
+import jobTemplateRoutes from '../modules/job/job-template.routes';
+import screeningTemplateRoutes from '../modules/job/screening-template.routes';
 import candidateRoutes from '../modules/candidate/candidate.routes';
 import consultantRoutes from '../modules/consultant/consultant.routes';
 import salesRoutes from '../modules/sales/sales.routes';
@@ -59,6 +61,8 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/users', userRoutes);
   app.use('/api/employees', userRoutes); // Alias for frontend compatibility
   app.use('/api/jobs', jobRoutes);
+  app.use('/api/job-templates', jobTemplateRoutes);
+  app.use('/api/screening-templates', screeningTemplateRoutes);
   app.use('/api/applications', applicationRoutes);
   app.use('/api/assessment', assessmentRoutes);
   app.use('/api/assessments', assessmentRoutes); // Plural alias for consistency

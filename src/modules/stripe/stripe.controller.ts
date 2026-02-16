@@ -23,68 +23,40 @@ export class StripeController extends BaseController {
   }
 
   /**
-   * Create a checkout session for wallet recharge or subscription purchase
+   * Create a checkout session for wallet recharge
    * POST /api/integrations/stripe/create-checkout-session
-   *
-   * Body for wallet recharge: { amount, description?, metadata? }
-   * Body for subscription: { type: 'subscription', amount, planType, planName?, billingCycle?, jobQuota?, description? }
    */
   createCheckoutSession = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { amount, description, metadata: bodyMetadata, type: paymentType, planType, planName, billingCycle, jobQuota } = req.body;
+      const { amount, description, metadata } = req.body;
       const user = req.user;
 
       if (!user) {
         return this.sendError(res, new Error('Unauthorized'), 401);
       }
 
-      if (!amount || (typeof amount !== 'number' && typeof amount !== 'string') || Number(amount) <= 0) {
+      if (!amount || typeof amount !== 'number' || amount <= 0) {
         return this.sendError(res, new Error('Invalid amount'), 400);
       }
 
-      const amountNum = typeof amount === 'number' ? amount : parseFloat(amount);
-      const amountInCents = Math.round(amountNum * 100);
-
-      const isSubscription = paymentType === 'subscription' || paymentType === 'subscription_purchase';
-      const meta = {
-        ...bodyMetadata,
-        companyId: user.companyId,
-        userId: user.id,
-        type: isSubscription ? 'subscription_purchase' : 'wallet_recharge',
-        ...(isSubscription && {
-          planType: planType || 'PAYG',
-          planName: planName || planType || 'Subscription',
-          name: planName || planType || 'Subscription',
-          billingCycle: billingCycle || 'MONTHLY',
-          jobQuota: jobQuota != null ? String(jobQuota) : undefined,
-        }),
-      };
-
-      const desc = description || (isSubscription
-        ? `${meta.planName || meta.planType} - $${amountNum.toFixed(2)}`
-        : `Wallet recharge - $${amountNum.toFixed(2)}`);
-
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-      const successUrl = isSubscription
-        ? `${frontendUrl}/subscriptions?subscription_success=true`
-        : undefined;
-      const cancelUrl = isSubscription
-        ? `${frontendUrl}/subscriptions?subscription_cancelled=true`
-        : undefined;
+      // Convert dollars to cents for Stripe
+      const amountInCents = Math.round(amount * 100);
 
       const session = await StripeService.createCheckoutSession({
         amount: amountInCents,
-        description: desc,
-        metadata: meta,
+        description: description || `Wallet recharge - $${amount.toFixed(2)}`,
+        metadata: {
+          type: 'wallet_recharge',
+          ...metadata,
+          companyId: user.companyId,
+          userId: user.id,
+        },
         customerEmail: user.email,
-        successUrl,
-        cancelUrl,
       });
 
       this.logger.info('Checkout session created', {
         sessionId: session.sessionId,
         amount: amountInCents / 100,
-        type: meta.type,
       });
 
       return this.sendSuccess(res, {

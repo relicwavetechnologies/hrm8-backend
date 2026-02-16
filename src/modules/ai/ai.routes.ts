@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { EmailTemplateAIController } from './email-template-ai.controller';
 import { AssessmentQuestionAIController } from './assessment-question-ai.controller';
+import { ScreeningQuestionsAIController } from './screening-questions-ai.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 
 const router = Router();
@@ -12,5 +13,8 @@ router.post('/templates/rewrite', authenticate, EmailTemplateAIController.rewrit
 
 // Assessment Question AI Routes
 router.post('/assessment-questions/generate', authenticate, AssessmentQuestionAIController.generateQuestions);
+
+// Screening Questions AI (Smart Job Wizard)
+router.post('/screening-questions/generate', authenticate, ScreeningQuestionsAIController.generate);
 
 export default router;

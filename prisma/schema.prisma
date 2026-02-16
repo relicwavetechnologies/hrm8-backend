@@ -309,6 +309,11 @@ model Job {
   category_id                         String?                     @map("category_id")
   setup_type                          JobSetupType                @default(ADVANCED) @map("setup_type")
   management_type                     String?                     @map("management_type")
+  draft_step                          Int                         @default(1)
+  experience_level                    String?
+  hide_salary                         Boolean                     @default(false)
+  salary_period                       String?
+  setup_complete                      Boolean                     @default(false)
   applications                        Application[]
   commissions                         Commission[]
   consultant_assignments              ConsultantJobAssignment[]
@@ -781,6 +786,7 @@ model JobTemplate {
   last_used_at  DateTime?
   created_at    DateTime         @default(now())
   updated_at    DateTime         @default(now()) @updatedAt
+  tags          String[]         @default([])
   company       Company          @relation(fields: [company_id], references: [id], onDelete: Cascade)
   user          User             @relation(fields: [created_by], references: [id], onDelete: Cascade)
   job           Job?             @relation(fields: [source_job_id], references: [id])

@@ -120,8 +120,9 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
+      const { saveAsTemplate, templateName } = req.body;
 
-      const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id);
+      const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id, { saveAsTemplate, templateName });
       return this.sendSuccess(res, { job });
     } catch (error) {
       return this.sendError(res, error);
@@ -144,9 +145,10 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
+      const { templateName, templateDescription } = req.body;
 
-      const job = await this.jobService.saveTemplate(id, req.user.companyId, req.body);
-      return this.sendSuccess(res, { job });
+      const result = await this.jobService.saveAsTemplate(id, req.user.companyId, templateName || 'New Template', templateDescription);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }

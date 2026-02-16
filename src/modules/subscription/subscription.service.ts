@@ -82,17 +82,12 @@ export class SubscriptionService {
       }
       const renewalDate = new Date(endDate);
 
-      // Ensure planType is a valid SubscriptionPlanType (PAYG, SMALL, MEDIUM, LARGE, ENTERPRISE, RPO, etc.)
-      const planTypeStr = String(planType).toUpperCase().replace(/-/g, '_');
-      const validPlanTypes = ['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM', 'PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'RPO'] as const;
-      const planTypeEnum = validPlanTypes.includes(planTypeStr as any) ? planTypeStr : 'BASIC';
-
       // Create subscription with dynamic pricing
       const subscription = await tx.subscription.create({
         data: {
           company_id: companyId,
           name,
-          plan_type: planTypeEnum,
+          plan_type: planType,
           status: SubscriptionStatus.ACTIVE,
           base_price: basePrice,
           currency,  // Dynamic currency
@@ -130,9 +125,6 @@ export class SubscriptionService {
       console.log(`✅ Subscription created with regional pricing: ${billingCurrency} ${basePrice} (peg: ${pricingPeg})`);
 
       return subscription;
-    }, {
-      maxWait: 10000,
-      timeout: 20000,
     });
   }
 
