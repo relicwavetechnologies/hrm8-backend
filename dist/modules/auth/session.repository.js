@@ -19,17 +19,21 @@ class SessionRepository extends repository_1.BaseRepository {
         return this.mapPrismaToSession(session);
     }
     async findBySessionId(sessionId) {
+        // console.log(`[SessionRepository.findBySessionId] Looking up session: ${sessionId}`);
         const session = await this.prisma.session.findUnique({
             where: { session_id: sessionId },
             include: { user: { select: { name: true } } },
         });
         if (!session) {
+            // console.log(`[SessionRepository.findBySessionId] Session not found for: ${sessionId}`);
             return null;
         }
         if (new Date() > session.expires_at) {
+            // console.log(`[SessionRepository.findBySessionId] Session expired for: ${sessionId}`);
             await this.deleteBySessionId(sessionId);
             return null;
         }
+        // console.log(`[SessionRepository.findBySessionId] Session found for user: ${session.user_id}`);
         return this.mapPrismaToSession(session);
     }
     async deleteBySessionId(sessionId) {

@@ -3,7 +3,7 @@
  * Core Type Definitions for HRM8 Authentication System
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ConsultantRole = exports.CommissionStatus = exports.RegionOwnerType = exports.PaymentStatus = exports.PipelineStage = exports.AssignmentSource = exports.AssignmentMode = exports.JobAssignmentMode = exports.HRM8UserStatus = exports.HRM8UserRole = exports.JobInvitationStatus = exports.EmploymentType = exports.WorkArrangement = exports.HiringMode = exports.JobStatus = exports.SignupRequestStatus = exports.InvitationStatus = exports.VerificationMethod = exports.CompanyProfileSection = exports.CompanyProfileStatus = exports.CompanyVerificationStatus = exports.UserStatus = exports.UserRole = void 0;
+exports.TemplateCategory = exports.OfferStatus = exports.VideoInterviewType = exports.InterviewStatus = exports.ConsultantRole = exports.CommissionStatus = exports.RegionOwnerType = exports.PaymentStatus = exports.PipelineStage = exports.AssignmentSource = exports.AssignmentMode = exports.JobAssignmentMode = exports.HRM8UserStatus = exports.HRM8UserRole = exports.JobInvitationStatus = exports.EmploymentType = exports.WorkArrangement = exports.HiringMode = exports.JobStatus = exports.SignupRequestStatus = exports.InvitationStatus = exports.VerificationMethod = exports.CompanyProfileSection = exports.CompanyProfileStatus = exports.CompanyVerificationStatus = exports.UserStatus = exports.UserRole = void 0;
 // Import and re-export Prisma enums for convenience
 const client_1 = require("@prisma/client");
 Object.defineProperty(exports, "UserRole", { enumerable: true, get: function () { return client_1.UserRole; } });
@@ -29,3 +29,7 @@ Object.defineProperty(exports, "PaymentStatus", { enumerable: true, get: functio
 Object.defineProperty(exports, "RegionOwnerType", { enumerable: true, get: function () { return client_1.RegionOwnerType; } });
 Object.defineProperty(exports, "CommissionStatus", { enumerable: true, get: function () { return client_1.CommissionStatus; } });
 Object.defineProperty(exports, "ConsultantRole", { enumerable: true, get: function () { return client_1.ConsultantRole; } });
+Object.defineProperty(exports, "InterviewStatus", { enumerable: true, get: function () { return client_1.InterviewStatus; } });
+Object.defineProperty(exports, "VideoInterviewType", { enumerable: true, get: function () { return client_1.VideoInterviewType; } });
+Object.defineProperty(exports, "OfferStatus", { enumerable: true, get: function () { return client_1.OfferStatus; } });
+Object.defineProperty(exports, "TemplateCategory", { enumerable: true, get: function () { return client_1.TemplateCategory; } });

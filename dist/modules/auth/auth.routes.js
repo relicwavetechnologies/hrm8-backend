@@ -2,15 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_controller_1 = require("./auth.controller");
-// import { SignupRequestController } from '../controllers/signupRequest/SignupRequestController'; // TODO: Migrate
-// import { authenticate } from '../middleware/auth'; // TODO: Migrate
-// import validators...
+const auth_middleware_1 = require("../../middlewares/auth.middleware");
 const router = (0, express_1.Router)();
-// Company registration
-router.post('/register/company', auth_controller_1.authController.registerCompany);
-// Login
-router.post('/login', auth_controller_1.authController.login);
-// Accept invitation
-router.post('/accept-invitation', auth_controller_1.authController.acceptInvitation);
-// ... others ...
+const authController = new auth_controller_1.AuthController();
+router.post('/login', authController.login);
+router.post('/logout', authController.logout);
+router.get('/me', auth_middleware_1.authenticate, authController.getCurrentUser);
+router.post('/lead-conversion/accept', authController.acceptLeadConversionInvite);
 exports.default = router;

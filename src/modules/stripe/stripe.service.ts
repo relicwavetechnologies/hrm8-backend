@@ -6,6 +6,7 @@
 import { StripeFactory } from './stripe.factory';
 import { CreateCheckoutSessionParams, StripeCheckoutSession } from './stripe.types';
 import { WalletService } from '../wallet/wallet.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 import { prisma } from '../../utils/prisma';
 import { Logger } from '../../utils/logger';
 
@@ -38,7 +39,7 @@ export class StripeService {
 
     // Convert to cents if needed (Stripe expects cents)
     const amountInCents = amount;
-    
+
     // Currency symbol mapping
     const currencySymbols: Record<string, string> = {
       'usd': '$',
@@ -114,9 +115,45 @@ export class StripeService {
         companyId,
         amount: session.amount_total / 100,
       });
+    } else if (paymentType === 'subscription') {
+      const timer = this.logger.startTimer();
+      await this.activateSubscriptionFromPayment(session, companyId, userId, metadata);
+      timer.end('Subscription activated', {
+        companyId,
+        amount: session.amount_total / 100,
+        planType: metadata.planType,
+      });
     } else {
       this.logger.warn('Unknown payment type', { paymentType, sessionId: session.id });
     }
+  }
+
+  /**
+   * Activate subscription from successful payment
+   */
+  private static async activateSubscriptionFromPayment(
+    session: StripeCheckoutSession,
+    companyId: string,
+    userId: string | undefined,
+    metadata: Record<string, string>
+  ): Promise<void> {
+    const amountInDollars = session.amount_total / 100;
+    const { planType, name, billingCycle, jobQuota } = metadata;
+
+    if (!planType || !name || !billingCycle) {
+      throw new Error('Missing subscription details in metadata');
+    }
+
+    await SubscriptionService.createSubscription({
+      companyId,
+      planType: planType as any,
+      name,
+      basePrice: amountInDollars,
+      billingCycle: billingCycle as 'MONTHLY' | 'ANNUAL',
+      jobQuota: jobQuota ? parseInt(jobQuota, 10) : undefined,
+      salesAgentId: userId, // Assuming user buying is the agent or self-serve
+      autoRenew: true,
+    });
   }
 
   /**

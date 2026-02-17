@@ -6,11 +6,25 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const config_1 = __importDefault(require("./config"));
 const loaders_1 = __importDefault(require("./loaders"));
 const logger_1 = require("./utils/logger");
+const server_1 = require("./websocket/server");
+const url_1 = require("url");
 const startServer = async () => {
     try {
         const app = await (0, loaders_1.default)();
-        app.listen(config_1.default.PORT, () => {
-            logger_1.logger.info(`🚀 Server running on port ${config_1.default.PORT}`);
+        const server = app.listen(config_1.default.PORT, () => {
+            // Server started
+        });
+        // Handle WebSocket upgrades
+        server.on('upgrade', (request, socket, head) => {
+            const { pathname } = (0, url_1.parse)(request.url || '', true);
+            if (pathname === '/ws' || pathname === '/') {
+                server_1.wss.handleUpgrade(request, socket, head, (ws) => {
+                    server_1.wss.emit('connection', ws, request);
+                });
+            }
+            else {
+                socket.destroy();
+            }
         });
     }
     catch (error) {

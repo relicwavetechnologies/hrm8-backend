@@ -1,0 +1,13 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const messaging_controller_1 = require("./messaging.controller");
+const auth_middleware_1 = require("../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+const messagingController = new messaging_controller_1.MessagingController();
+router.post('/conversations', auth_middleware_1.authenticate, (req, res) => messagingController.createConversation(req, res));
+router.get('/conversations', auth_middleware_1.authenticate, (req, res) => messagingController.getUserConversations(req, res));
+router.get('/conversations/:conversationId/messages', auth_middleware_1.authenticate, (req, res) => messagingController.getConversationMessages(req, res));
+router.post('/messages', auth_middleware_1.authenticate, (req, res) => messagingController.sendMessage(req, res));
+router.post('/conversations/:conversationId/read', auth_middleware_1.authenticate, (req, res) => messagingController.markAsRead(req, res));
+exports.default = router;

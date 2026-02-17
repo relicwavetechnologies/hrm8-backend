@@ -12,6 +12,8 @@ import { PriceBookSelectionService } from '../pricing/price-book-selection.servi
 import { jobPaymentService, JobPaymentService } from './job-payment.service';
 import { JobAlertService } from '../candidate/job-alert.service';
 import { prisma } from '../../utils/prisma';
+import { UsageEngine } from './job-usage.engine';
+import { SubscriptionService } from '../subscription/subscription.service';
 import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
 import { CommissionService } from '../hrm8/commission.service';
@@ -37,8 +39,9 @@ export class JobService extends BaseService {
 
     console.log('[JobService] createJob received data:', JSON.stringify(data, null, 2));
 
-    // Determine if this should be published immediately
-    const publishImmediately = data.publishImmediately !== false; // Default to true unless explicitly set to false
+    // Always create as DRAFT.
+    // Publishing must go through publishJob() so quota/wallet/assignment rules are enforced centrally.
+    const publishImmediately = false;
     const servicePackage = data.servicePackage || data.hiringMode || 'full-service';
 
     const jobPayload = {
@@ -46,7 +49,7 @@ export class JobService extends BaseService {
       company: { connect: { id: companyId } },
       creator: { connect: { id: createdBy } },
       job_code: jobCode,
-      status: publishImmediately ? 'OPEN' : 'DRAFT' as JobStatus, // ✅ Publish immediately
+      status: publishImmediately ? 'OPEN' : 'DRAFT' as JobStatus,
       assignment_mode: assignmentMode as AssignmentMode,
 
       title: data.title,
@@ -82,7 +85,7 @@ export class JobService extends BaseService {
       // Logistic
       close_date: data.closeDate,
       visibility: data.visibility || 'public',
-      posting_date: publishImmediately ? new Date() : null, // ✅ Set posting date
+      posting_date: publishImmediately ? new Date() : null,
 
       // Post-job setup flow (Simple vs Advanced)
       ...(data.setupType && { setup_type: data.setupType.toUpperCase() === 'SIMPLE' ? 'SIMPLE' : 'ADVANCED' }),
@@ -409,11 +412,13 @@ export class JobService extends BaseService {
   }
 
   async publishJob(id: string, companyId: string, userId?: string, options?: { saveAsTemplate?: boolean, templateName?: string }): Promise<Job> {
-    const job = await this.getJob(id, companyId);
+    const job = await this.jobRepository.findById(id);
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
     // Idempotency: if already published, return success
     if (job.status === 'OPEN') {
-      return job;
+      return this.mapToResponse(job);
     }
 
     if (job.status !== 'DRAFT') {
@@ -428,72 +433,108 @@ export class JobService extends BaseService {
         console.log(`[JobService] Created template "${templateName}" during publish for job ${id}`);
       } catch (templateError) {
         console.error('[JobService] Failed to save as template during publish:', templateError);
-        // We continue publishing even if template saving fails
       }
     }
 
-    // Derive servicePackage from service_package or hiring_mode (service_package often not persisted)
-    const hiringModeToServicePackage: Record<string, string> = {
-      SELF_MANAGED: 'self-managed',
-      SHORTLISTING: 'shortlisting',
-      FULL_SERVICE: 'full-service',
-      EXECUTIVE_SEARCH: 'executive-search',
-    };
-    const servicePackage = job.service_package
-      || hiringModeToServicePackage[job.hiring_mode || ''] || 'self-managed';
+    // ─── UsageEngine: Central decision point ───
+    const hiringMode = job.hiring_mode || 'SELF_MANAGED';
+    const decision = await UsageEngine.resolveJobPublish(companyId, hiringMode);
+    console.log(`[JobService] UsageEngine decision for job ${id}: ${decision}`);
 
-    // 1. Process payment if required
-    if (JobPaymentService.requiresPayment(servicePackage) && job.payment_status !== 'PAID') {
-      const paymentResult = await jobPaymentService.payForJobFromWallet(
-        companyId,
-        id,
-        (job.salary_max ?? job.salary_min ?? 0) || 0,
-        servicePackage,
-        userId || job.created_by
-      );
+    let updatedJob: any;
 
-      if (!paymentResult.success) {
-        throw new HttpException(402, paymentResult.error || 'Payment required to publish this job');
+    switch (decision) {
+      case 'REQUIRE_SUBSCRIPTION': {
+        throw new HttpException(402, 'Active subscription required to publish jobs');
       }
-    }
 
-    // 2. Build update data
-    const updateData: any = {
-      status: 'OPEN',
-      posting_date: new Date(),
-    };
+      case 'QUOTA_EXHAUSTED': {
+        throw new HttpException(402, 'Job posting quota exhausted. Please upgrade your subscription.');
+      }
 
-    // 3. Update job status
-    const updatedJob = await this.jobRepository.update(id, updateData);
+      case 'USE_QUOTA': {
+        // Self-managed publish: quota only. No wallet, no commission.
+        await SubscriptionService.useQuotaOnly(companyId);
+        console.log(`[JobService] Quota consumed for self-managed job ${id}`);
 
-    // 4. Auto-allocate to consultant if applicable
-    let assignedConsultantId: string | undefined;
-    if (updatedJob.assignment_mode === 'AUTO' || updatedJob.hiring_mode !== 'SELF_MANAGED') {
-      const assignResult = await jobAllocationService.autoAssignJob(id).catch(err => {
-        console.error(`[JobService] Auto-allocation failed for job ${id}:`, err);
-        return null;
-      });
-      assignedConsultantId = assignResult?.consultantId;
-    }
-
-    // 5. Auto-create PENDING commission when job was paid and consultant assigned
-    if (updatedJob.payment_status === 'PAID' && assignedConsultantId) {
-      try {
-        const commissionService = new CommissionService(new CommissionRepository());
-        await commissionService.requestCommission({
-          consultantId: assignedConsultantId,
-          type: 'RECRUITMENT_SERVICE',
-          jobId: id,
-          calculateFromJob: true,
-          description: `Commission for job: ${updatedJob.title}`,
+        updatedJob = await this.jobRepository.update(id, {
+          status: 'OPEN',
+          posting_date: new Date(),
         });
-        console.log(`[JobService] Created PENDING commission for consultant ${assignedConsultantId} on job ${id}`);
-      } catch (err) {
-        console.error(`[JobService] Failed to create commission for job ${id}:`, err);
+        break;
+      }
+
+      case 'HRM8_MANAGED': {
+        // HRM8-managed publish:
+        // 1) requires subscription/quota (checked by UsageEngine)
+        // 2) auto-assign consultant
+        // 3) wallet debit for selected managed service
+        // 4) consume quota
+        // 5) create commission
+        // 6) activate job
+        const servicePackage = job.service_package
+          || ({ SHORTLISTING: 'shortlisting', FULL_SERVICE: 'full-service', EXECUTIVE_SEARCH: 'executive-search' } as Record<string, string>)[hiringMode] || 'shortlisting';
+
+        // Step 1: Auto-assign consultant
+        let consultantId = job.assigned_consultant_id || null;
+        if (!consultantId) {
+          const assignResult = await jobAllocationService.autoAssignJob(id);
+          if (!assignResult.success || !assignResult.consultantId) {
+            throw new HttpException(503, assignResult.error || 'No consultant available for assignment. Please try again later.');
+          }
+          consultantId = assignResult.consultantId;
+          console.log(`[JobService] Consultant ${consultantId} auto-assigned to job ${id}`);
+        } else {
+          console.log(`[JobService] Reusing existing consultant assignment ${consultantId} for job ${id}`);
+        }
+
+        // Step 2: Wallet debit
+        if (job.payment_status !== 'PAID') {
+          const paymentResult = await jobPaymentService.payForJobFromWallet(
+            companyId,
+            id,
+            (job.salary_max ?? job.salary_min ?? 0) || 0,
+            servicePackage,
+            userId || job.created_by
+          );
+
+          if (!paymentResult.success) {
+            throw new HttpException(402, paymentResult.error || 'Insufficient wallet balance for this service');
+          }
+        }
+
+        // Step 3: Consume subscription quota (same publish rule as self-managed jobs).
+        await SubscriptionService.useQuotaOnly(companyId);
+        console.log(`[JobService] Quota consumed for HRM8-managed job ${id}`);
+
+        // Step 4: Create commission (only after successful wallet debit)
+        try {
+          const commissionService = new CommissionService(new CommissionRepository());
+          await commissionService.requestCommission({
+            consultantId: consultantId!,
+            type: 'RECRUITMENT_SERVICE',
+            jobId: id,
+            calculateFromJob: true,
+            description: `Commission for job: ${job.title}`,
+          });
+          console.log(`[JobService] Commission created for consultant ${consultantId} on job ${id}`);
+        } catch (err) {
+          console.error(`[JobService] Commission creation failed for job ${id}:`, err);
+          // Non-fatal: job still goes live even if commission creation fails
+        }
+
+        // Step 5: Activate job
+        updatedJob = await this.jobRepository.update(id, {
+          status: 'OPEN',
+          posting_date: new Date(),
+        });
+        break;
       }
     }
 
-    // Trigger notification
+    // ─── Post-publish actions (shared) ───
+
+    // Notification
     if (this.notificationService && userId) {
       await this.notificationService.createNotification({
         recipientType: NotificationRecipientType.USER,
@@ -506,11 +547,10 @@ export class JobService extends BaseService {
       });
     }
 
-    // Process job alerts asynchronously (fire and forget)
-    // This notifies candidates who have matching job alerts
+    // Job alerts (fire and forget)
     if (this.notificationService) {
-      const emailService = new EmailService();
-      const jobAlertService = new JobAlertService(this.notificationService, emailService);
+      const emailSvc = new EmailService();
+      const jobAlertService = new JobAlertService(this.notificationService, emailSvc);
       jobAlertService.processJobAlerts(updatedJob).catch((error: unknown) => {
         console.error('[JobService] Failed to process job alerts:', error);
       });
@@ -559,31 +599,19 @@ export class JobService extends BaseService {
 
 
   async submitAndActivate(id: string, companyId: string, userId: string, paymentId?: string): Promise<Job> {
-    const job = await this.getJob(id, companyId);
-    if (job.status !== 'DRAFT') {
-      return job;
-    }
+    // Legacy endpoint compatibility:
+    // force all submit/publish requests through the centralized publish flow.
+    if (paymentId) {
+      const job = await this.jobRepository.findById(id);
+      if (!job) throw new HttpException(404, 'Job not found');
+      if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
-    const updatedJob = await this.jobRepository.update(id, {
-      status: 'OPEN',
-      posting_date: new Date(),
-      payment_status: paymentId ? 'PAID' : job.payment_status,
-      stripe_payment_intent_id: paymentId || job.stripe_payment_intent_id,
-    });
-
-    if (this.notificationService && userId) {
-      await this.notificationService.createNotification({
-        recipientType: NotificationRecipientType.USER,
-        recipientId: userId,
-        type: UniversalNotificationType.JOB_PUBLISHED,
-        title: 'Job Published',
-        message: `Your job "${updatedJob.title}" has been successfully published.`,
-        data: { jobId: id, companyId },
-        actionUrl: `/ats/jobs/${id}`
+      await this.jobRepository.update(id, {
+        stripe_payment_intent_id: paymentId,
       });
     }
 
-    return this.mapToResponse(updatedJob);
+    return this.publishJob(id, companyId, userId);
   }
 
   async updateAlerts(id: string, companyId: string, alertsConfig: any): Promise<Job> {

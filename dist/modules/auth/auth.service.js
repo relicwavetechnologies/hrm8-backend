@@ -1,116 +1,87 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authService = exports.AuthService = void 0;
+exports.AuthService = void 0;
 const service_1 = require("../../core/service");
-const types_1 = require("../../types");
-const domain_1 = require("../../utils/domain");
-const email_1 = require("../../utils/email");
 const password_1 = require("../../utils/password");
+const email_1 = require("../../utils/email");
+const http_exception_1 = require("../../core/http-exception");
+const session_1 = require("../../utils/session");
 class AuthService extends service_1.BaseService {
-    constructor(userRepository = userRepository, companyService = companyService) {
+    constructor(authRepository) {
         super();
-        this.userRepository = userRepository;
-        this.companyService = companyService;
+        this.authRepository = authRepository;
+    }
+    async login(data) {
+        const user = await this.authRepository.findByEmail((0, email_1.normalizeEmail)(data.email));
+        if (!user) {
+            throw new http_exception_1.HttpException(401, 'Invalid credentials');
+        }
+        const isValid = await (0, password_1.comparePassword)(data.password, user.password_hash);
+        if (!isValid) {
+            throw new http_exception_1.HttpException(401, 'Invalid credentials');
+        }
+        if (user.status !== 'ACTIVE') {
+            throw new http_exception_1.HttpException(403, `Account status: ${user.status}`);
+        }
+        // Update last login
+        await this.authRepository.updateLastLogin(user.id);
+        // Create session
+        const sessionId = (0, session_1.generateSessionId)();
+        const expiresAt = (0, session_1.getSessionExpiration)();
+        await this.authRepository.createSession({
+            session_id: sessionId,
+            user: { connect: { id: user.id } },
+            email: user.email,
+            expires_at: expiresAt,
+            company_id: user.company_id,
+            user_role: user.role
+        });
+        return { user, sessionId };
+    }
+    async createSessionForUser(user) {
+        await this.authRepository.updateLastLogin(user.id);
+        const sessionId = (0, session_1.generateSessionId)();
+        const expiresAt = (0, session_1.getSessionExpiration)();
+        await this.authRepository.createSession({
+            session_id: sessionId,
+            user: { connect: { id: user.id } },
+            email: user.email,
+            expires_at: expiresAt,
+            company_id: user.company_id,
+            user_role: user.role
+        });
+        return { user, sessionId };
+    }
+    async logout(sessionId) {
+        await this.authRepository.deleteSession(sessionId);
     }
     async registerCompanyAdmin(companyId, email, name, password, activate = false) {
         const passwordHash = await (0, password_1.hashPassword)(password);
-        const user = await this.userRepository.create({
+        return this.authRepository.create({
             email: (0, email_1.normalizeEmail)(email),
             name: name.trim(),
-            passwordHash,
-            companyId,
-            role: types_1.UserRole.SUPER_ADMIN,
-            status: activate ? types_1.UserStatus.ACTIVE : types_1.UserStatus.PENDING_VERIFICATION,
+            password_hash: passwordHash,
+            company: { connect: { id: companyId } },
+            role: 'ADMIN', // Using string literal matching Prisma enum if needed, or import UserRole
+            status: activate ? 'ACTIVE' : 'PENDING_VERIFICATION',
         });
-        return user;
     }
-    async registerEmployeeFromInvitation(companyId, email, name, password) {
+    async registerEmployee(companyId, email, name, password) {
         const passwordHash = await (0, password_1.hashPassword)(password);
-        const user = await this.userRepository.create({
+        return this.authRepository.create({
             email: (0, email_1.normalizeEmail)(email),
             name: name.trim(),
-            passwordHash,
-            companyId,
-            role: types_1.UserRole.USER,
-            status: types_1.UserStatus.ACTIVE,
+            password_hash: passwordHash,
+            company: { connect: { id: companyId } },
+            role: 'USER',
+            status: 'ACTIVE',
         });
+    }
+    async getCurrentUser(userId) {
+        const user = await this.authRepository.findById(userId);
+        if (!user)
+            throw new http_exception_1.HttpException(404, 'User not found');
         return user;
-    }
-    async registerEmployeeAutoJoin(email, name, password) {
-        const emailDomain = (0, domain_1.extractEmailDomain)(email);
-        const company = await this.companyService.findByDomain(emailDomain);
-        if (!company) {
-            return null;
-        }
-        const passwordHash = await (0, password_1.hashPassword)(password);
-        const user = await this.userRepository.create({
-            email: (0, email_1.normalizeEmail)(email),
-            name: name.trim(),
-            passwordHash,
-            companyId: company.id,
-            role: types_1.UserRole.USER,
-            status: types_1.UserStatus.ACTIVE,
-        });
-        return user;
-    }
-    async login(loginData) {
-        const user = await this.userRepository.findByEmail((0, email_1.normalizeEmail)(loginData.email));
-        if (!user) {
-            return {
-                error: 'Invalid email or password',
-                status: 401,
-                details: { code: 'INVALID_CREDENTIALS' },
-            };
-        }
-        const isValidPassword = await (0, password_1.comparePassword)(loginData.password, user.passwordHash);
-        if (!isValidPassword) {
-            return {
-                error: 'Invalid email or password',
-                status: 401,
-                details: { code: 'INVALID_CREDENTIALS' },
-            };
-        }
-        if (user.status === types_1.UserStatus.PENDING_VERIFICATION) {
-            return {
-                error: 'Your account is pending verification. Please verify your email to activate your account.',
-                status: 403,
-                details: {
-                    code: 'PENDING_VERIFICATION',
-                    email: user.email,
-                    companyId: user.companyId,
-                },
-            };
-        }
-        if (user.status === types_1.UserStatus.INACTIVE) {
-            return {
-                error: 'Your account has been deactivated. Please contact your administrator.',
-                status: 403,
-                details: { code: 'ACCOUNT_INACTIVE' },
-            };
-        }
-        if (user.status === types_1.UserStatus.INVITED) {
-            return {
-                error: 'Please accept your invitation and set up your password first.',
-                status: 403,
-                details: { code: 'INVITATION_PENDING' },
-            };
-        }
-        if (user.status !== types_1.UserStatus.ACTIVE) {
-            return {
-                error: 'Your account is not active. Please contact your administrator.',
-                status: 403,
-                details: { code: 'ACCOUNT_NOT_ACTIVE' },
-            };
-        }
-        await this.userRepository.updateLastLogin(user.id);
-        return { user };
-    }
-    async findByEmail(email) {
-        return await this.userRepository.findByEmail((0, email_1.normalizeEmail)(email));
-    }
-    async findById(id) {
-        return await this.userRepository.findById(id);
     }
 }
 exports.AuthService = AuthService;
-exports.authService = new AuthService();

@@ -32,15 +32,6 @@ router.post(
 );
 
 /**
- * Mock payment success (dev only)
- * Simulates successful payment and triggers webhook
- */
-router.post(
-  '/mock-payment-success',
-  stripeController.mockPaymentSuccess
-);
-
-/**
  * Approve mock account (dev only)
  * Manually approve a mock Stripe Connect account for testing
  */

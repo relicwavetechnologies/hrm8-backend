@@ -301,6 +301,9 @@ model Job {
   payment_failed_at                   DateTime?
   stripe_payment_intent_id            String?
   stripe_session_id                   String?
+  price_book_id                       String?                     @map("price_book_id")
+  pricing_peg                         String?                     @map("pricing_peg")
+  price_book_version                  String?                     @map("price_book_version")
   clicks_count                        Int                         @default(0)
   views_count                         Int                         @default(0)
   auto_archive_on_expiry              Boolean                     @default(true) @map("auto_archive_on_expiry")
@@ -1687,7 +1690,6 @@ model JobHiringTeamMember {
   user_id      String?                   @map("user_id")
   email        String
   name         String?
-  role         HiringTeamRole
   status       HiringTeamMemberStatus    @default(PENDING)
   invited_at   DateTime                  @default(now()) @map("invited_at")
   joined_at    DateTime?                 @map("joined_at")
@@ -1952,6 +1954,9 @@ model Subscription {
   prepaid_balance        Float?               @default(0) @map("prepaid_balance")
   renewal_failed_at      DateTime?            @map("renewal_failed_at")
   renewal_failure_reason String?              @map("renewal_failure_reason")
+  price_book_id          String?              @map("price_book_id")
+  pricing_peg            String?              @map("pricing_peg")
+  price_book_version     String?              @map("price_book_version")
   bill                   Bill[]
   commissions            Commission[]         @relation("SubscriptionCommissions")
   company                Company              @relation(fields: [company_id], references: [id], onDelete: Cascade)
@@ -2581,12 +2586,6 @@ model screening_templates {
   @@index([company_id])
 }
 
-enum HiringTeamRole {
-  ADMIN
-  SHORTLISTING
-  MEMBER
-}
-
 enum HiringTeamMemberStatus {
   ACTIVE
   PENDING
@@ -2884,6 +2883,7 @@ enum VideoInterviewType {
 enum JobRoundType {
   ASSESSMENT
   INTERVIEW
+  CUSTOM
 }
 
 enum NotificationType {

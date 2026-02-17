@@ -28,7 +28,7 @@ export class StripeController extends BaseController {
    */
   createCheckoutSession = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { amount, description, metadata } = req.body;
+      const { amount, description, metadata, successUrl, cancelUrl } = req.body;
       const user = req.user;
 
       if (!user) {
@@ -42,16 +42,39 @@ export class StripeController extends BaseController {
       // Convert dollars to cents for Stripe
       const amountInCents = Math.round(amount * 100);
 
+      // Extract metadata from body or use provided metadata object
+      const { type, planType, planName, billingCycle, jobQuota } = req.body;
+      const resolvedType = type || metadata?.type || (planType ? 'subscription' : 'wallet_recharge');
+      const mergedMetadata = {
+        type: resolvedType,
+        planType: planType || metadata?.planType,
+        name: planName || metadata?.name || metadata?.planName,
+        billingCycle: billingCycle || metadata?.billingCycle,
+        jobQuota: jobQuota?.toString() || metadata?.jobQuota, // jobQuota must be string for Stripe metadata
+        ...metadata,
+        companyId: user.companyId,
+        userId: user.id,
+      };
+
+      if (!mergedMetadata.companyId) {
+        return this.sendError(res, new Error('Company context missing for checkout session'), 400);
+      }
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+      const defaultSuccessUrl = resolvedType === 'subscription'
+        ? `${frontendUrl}/subscriptions?subscription_success=true`
+        : `${frontendUrl}/wallet?recharge_success=true`;
+      const defaultCancelUrl = resolvedType === 'subscription'
+        ? `${frontendUrl}/subscriptions?canceled=true`
+        : `${frontendUrl}/wallet?recharge_cancelled=true`;
+
       const session = await StripeService.createCheckoutSession({
         amount: amountInCents,
         description: description || `Wallet recharge - $${amount.toFixed(2)}`,
-        metadata: {
-          type: 'wallet_recharge',
-          ...metadata,
-          companyId: user.companyId,
-          userId: user.id,
-        },
+        metadata: mergedMetadata,
         customerEmail: user.email,
+        successUrl: successUrl || defaultSuccessUrl,
+        cancelUrl: cancelUrl || defaultCancelUrl,
       });
 
       this.logger.info('Checkout session created', {

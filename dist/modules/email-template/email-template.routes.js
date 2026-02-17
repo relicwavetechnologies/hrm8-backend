@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const email_template_controller_1 = require("./email-template.controller");
+const hrm8_auth_middleware_1 = require("../../middlewares/hrm8-auth.middleware");
+const router = (0, express_1.Router)();
+const controller = new email_template_controller_1.EmailTemplateController();
+router.get('/', hrm8_auth_middleware_1.authenticateHrm8, controller.getAll);
+router.post('/', hrm8_auth_middleware_1.authenticateHrm8, controller.create);
+router.put('/:id', hrm8_auth_middleware_1.authenticateHrm8, controller.update);
+router.delete('/:id', hrm8_auth_middleware_1.authenticateHrm8, controller.delete);
+router.post('/:id/preview', hrm8_auth_middleware_1.authenticateHrm8, controller.preview);
+router.get('/variables', hrm8_auth_middleware_1.authenticateHrm8, controller.getVariables);
+exports.default = router;

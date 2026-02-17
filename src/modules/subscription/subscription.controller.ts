@@ -36,9 +36,9 @@ export class SubscriptionController extends BaseController {
         return this.sendSuccess(res, null);
       }
       
-      const PLAN_HIERARCHY = ['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM'];
+      const PLAN_HIERARCHY = ['PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE'];
       const currentPlanIndex = PLAN_HIERARCHY.indexOf(subscription.plan_type);
-      const canUpgrade = currentPlanIndex >= 0 && currentPlanIndex < PLAN_HIERARCHY.length - 2;
+      const canUpgrade = currentPlanIndex >= 0 && currentPlanIndex < PLAN_HIERARCHY.length - 1;
       const nextTier = canUpgrade ? PLAN_HIERARCHY[currentPlanIndex + 1] : null;
 
       const usagePercent = subscription.job_quota && subscription.job_quota > 0 
