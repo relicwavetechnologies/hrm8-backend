@@ -348,7 +348,7 @@ class CommunicationService extends service_1.BaseService {
         });
     }
     async getHiringTeamForSlack(jobId) {
-        // Get hiring team members with their user info
+        // Get hiring team members with their user info and team roles
         const hiringTeam = await prisma.jobHiringTeamMember.findMany({
             where: { job_id: jobId },
             include: {
@@ -358,6 +358,15 @@ class CommunicationService extends service_1.BaseService {
                         name: true,
                         email: true,
                         role: true
+                    }
+                },
+                member_roles: {
+                    include: {
+                        job_role: {
+                            select: {
+                                name: true
+                            }
+                        }
                     }
                 }
             }
@@ -369,7 +378,7 @@ class CommunicationService extends service_1.BaseService {
             name: member.user.name,
             email: member.user.email,
             role: member.user.role,
-            hiringRole: member.role,
+            hiringRole: member.member_roles?.[0]?.job_role?.name || 'Member',
         }));
     }
 }

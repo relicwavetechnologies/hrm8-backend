@@ -14,6 +14,13 @@ export function generateSessionId(): string {
 }
 
 /**
+ * Generate a secure random token
+ */
+export function generateToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+/**
  * Calculate session expiration time
  * @param hours - Number of hours until expiration (default: 24)
  * @returns Expiration date

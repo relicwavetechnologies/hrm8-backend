@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const cors_1 = __importDefault(require("cors"));
 const auth_routes_1 = __importDefault(require("../modules/auth/auth.routes"));
+const signup_request_routes_1 = __importDefault(require("../modules/auth/signup-request.routes"));
 const company_routes_1 = __importDefault(require("../modules/company/company.routes"));
 const user_routes_1 = __importDefault(require("../modules/user/user.routes"));
 const job_routes_1 = __importDefault(require("../modules/job/job.routes"));
@@ -21,6 +22,7 @@ const application_routes_1 = __importDefault(require("../modules/application/app
 const communication_routes_1 = __importDefault(require("../modules/communication/communication.routes"));
 const public_routes_1 = __importDefault(require("../modules/public/public.routes"));
 const integration_routes_1 = __importDefault(require("../modules/integration/integration.routes"));
+const google_oauth_routes_1 = __importDefault(require("../modules/integration/google-oauth.routes"));
 const stripe_routes_1 = __importDefault(require("../modules/stripe/stripe.routes"));
 const notification_routes_1 = __importDefault(require("../modules/notification/notification.routes"));
 const interview_routes_1 = __importDefault(require("../modules/interview/interview.routes"));
@@ -56,6 +58,8 @@ const expressLoader = async (app) => {
     app.use((0, cors_1.default)(corsOptions));
     // Register module routers
     app.use('/api/auth', auth_routes_1.default);
+    app.use('/api/signup-requests', signup_request_routes_1.default);
+    app.use('/api/auth/google', google_oauth_routes_1.default);
     app.use('/api/companies', company_routes_1.default);
     app.use('/api/users', user_routes_1.default);
     app.use('/api/employees', user_routes_1.default); // Alias for frontend compatibility

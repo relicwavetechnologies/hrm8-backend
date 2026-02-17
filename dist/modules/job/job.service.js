@@ -31,15 +31,16 @@ class JobService extends service_1.BaseService {
         // Assuming defaults for now or logic to be injected
         const assignmentMode = data.assignmentMode || 'AUTO';
         console.log('[JobService] createJob received data:', JSON.stringify(data, null, 2));
-        // Determine if this should be published immediately
-        const publishImmediately = data.publishImmediately !== false; // Default to true unless explicitly set to false
+        // Always create as DRAFT.
+        // Publishing must go through publishJob() so quota/wallet/assignment rules are enforced centrally.
+        const publishImmediately = false;
         const servicePackage = data.servicePackage || data.hiringMode || 'full-service';
         const jobPayload = {
             // Explicitly map all fields to ensure no data loss
             company: { connect: { id: companyId } },
             creator: { connect: { id: createdBy } },
             job_code: jobCode,
-            status: publishImmediately ? 'OPEN' : 'DRAFT', // ✅ Publish immediately
+            status: publishImmediately ? 'OPEN' : 'DRAFT',
             assignment_mode: assignmentMode,
             title: data.title,
             description: data.description,
@@ -68,7 +69,7 @@ class JobService extends service_1.BaseService {
             // Logistic
             close_date: data.closeDate,
             visibility: data.visibility || 'public',
-            posting_date: publishImmediately ? new Date() : null, // ✅ Set posting date
+            posting_date: publishImmediately ? new Date() : null,
             // Post-job setup flow (Simple vs Advanced)
             ...(data.setupType && { setup_type: data.setupType.toUpperCase() === 'SIMPLE' ? 'SIMPLE' : 'ADVANCED' }),
             ...(data.managementType && { management_type: data.managementType }),
@@ -357,10 +358,14 @@ class JobService extends service_1.BaseService {
         return result;
     }
     async publishJob(id, companyId, userId, options) {
-        const job = await this.getJob(id, companyId);
+        const job = await this.jobRepository.findById(id);
+        if (!job)
+            throw new http_exception_1.HttpException(404, 'Job not found');
+        if (job.company_id !== companyId)
+            throw new http_exception_1.HttpException(403, 'Unauthorized');
         // Idempotency: if already published, return success
         if (job.status === 'OPEN') {
-            return job;
+            return this.mapToResponse(job);
         }
         if (job.status !== 'DRAFT') {
             throw new http_exception_1.HttpException(400, 'Only draft jobs can be published');
@@ -377,7 +382,8 @@ class JobService extends service_1.BaseService {
             }
         }
         // ─── UsageEngine: Central decision point ───
-        const decision = await job_usage_engine_1.UsageEngine.resolveJobPublish(companyId, job.hiring_mode || 'SELF_MANAGED');
+        const hiringMode = job.hiring_mode || 'SELF_MANAGED';
+        const decision = await job_usage_engine_1.UsageEngine.resolveJobPublish(companyId, hiringMode);
         console.log(`[JobService] UsageEngine decision for job ${id}: ${decision}`);
         let updatedJob;
         switch (decision) {
@@ -388,7 +394,7 @@ class JobService extends service_1.BaseService {
                 throw new http_exception_1.HttpException(402, 'Job posting quota exhausted. Please upgrade your subscription.');
             }
             case 'USE_QUOTA': {
-                // SYSTEM A — Subscription only. No wallet, no commission.
+                // Self-managed publish: quota only. No wallet, no commission.
                 await subscription_service_1.SubscriptionService.useQuotaOnly(companyId);
                 console.log(`[JobService] Quota consumed for self-managed job ${id}`);
                 updatedJob = await this.jobRepository.update(id, {
@@ -398,15 +404,28 @@ class JobService extends service_1.BaseService {
                 break;
             }
             case 'HRM8_MANAGED': {
-                // SYSTEM B — Wallet + Consultant. Auto-assign only.
+                // HRM8-managed publish:
+                // 1) requires subscription/quota (checked by UsageEngine)
+                // 2) auto-assign consultant
+                // 3) wallet debit for selected managed service
+                // 4) consume quota
+                // 5) create commission
+                // 6) activate job
                 const servicePackage = job.service_package
-                    || { SHORTLISTING: 'shortlisting', FULL_SERVICE: 'full-service', EXECUTIVE_SEARCH: 'executive-search' }[job.hiring_mode || ''] || 'shortlisting';
+                    || { SHORTLISTING: 'shortlisting', FULL_SERVICE: 'full-service', EXECUTIVE_SEARCH: 'executive-search' }[hiringMode] || 'shortlisting';
                 // Step 1: Auto-assign consultant
-                const assignResult = await job_allocation_service_1.jobAllocationService.autoAssignJob(id);
-                if (!assignResult.success || !assignResult.consultantId) {
-                    throw new http_exception_1.HttpException(503, assignResult.error || 'No consultant available for assignment. Please try again later.');
+                let consultantId = job.assigned_consultant_id || null;
+                if (!consultantId) {
+                    const assignResult = await job_allocation_service_1.jobAllocationService.autoAssignJob(id);
+                    if (!assignResult.success || !assignResult.consultantId) {
+                        throw new http_exception_1.HttpException(503, assignResult.error || 'No consultant available for assignment. Please try again later.');
+                    }
+                    consultantId = assignResult.consultantId;
+                    console.log(`[JobService] Consultant ${consultantId} auto-assigned to job ${id}`);
                 }
-                console.log(`[JobService] Consultant ${assignResult.consultantId} auto-assigned to job ${id}`);
+                else {
+                    console.log(`[JobService] Reusing existing consultant assignment ${consultantId} for job ${id}`);
+                }
                 // Step 2: Wallet debit
                 if (job.payment_status !== 'PAID') {
                     const paymentResult = await job_payment_service_1.jobPaymentService.payForJobFromWallet(companyId, id, (job.salary_max ?? job.salary_min ?? 0) || 0, servicePackage, userId || job.created_by);
@@ -414,23 +433,26 @@ class JobService extends service_1.BaseService {
                         throw new http_exception_1.HttpException(402, paymentResult.error || 'Insufficient wallet balance for this service');
                     }
                 }
-                // Step 3: Create commission (only after successful wallet debit)
+                // Step 3: Consume subscription quota (same publish rule as self-managed jobs).
+                await subscription_service_1.SubscriptionService.useQuotaOnly(companyId);
+                console.log(`[JobService] Quota consumed for HRM8-managed job ${id}`);
+                // Step 4: Create commission (only after successful wallet debit)
                 try {
                     const commissionService = new commission_service_1.CommissionService(new commission_repository_1.CommissionRepository());
                     await commissionService.requestCommission({
-                        consultantId: assignResult.consultantId,
+                        consultantId: consultantId,
                         type: 'RECRUITMENT_SERVICE',
                         jobId: id,
                         calculateFromJob: true,
                         description: `Commission for job: ${job.title}`,
                     });
-                    console.log(`[JobService] Commission created for consultant ${assignResult.consultantId} on job ${id}`);
+                    console.log(`[JobService] Commission created for consultant ${consultantId} on job ${id}`);
                 }
                 catch (err) {
                     console.error(`[JobService] Commission creation failed for job ${id}:`, err);
                     // Non-fatal: job still goes live even if commission creation fails
                 }
-                // Step 4: Activate job
+                // Step 5: Activate job
                 updatedJob = await this.jobRepository.update(id, {
                     status: 'OPEN',
                     posting_date: new Date(),
@@ -498,28 +520,19 @@ class JobService extends service_1.BaseService {
         return this.mapToResponse(updatedJob);
     }
     async submitAndActivate(id, companyId, userId, paymentId) {
-        const job = await this.getJob(id, companyId);
-        if (job.status !== 'DRAFT') {
-            return job;
-        }
-        const updatedJob = await this.jobRepository.update(id, {
-            status: 'OPEN',
-            posting_date: new Date(),
-            payment_status: paymentId ? 'PAID' : job.payment_status,
-            stripe_payment_intent_id: paymentId || job.stripe_payment_intent_id,
-        });
-        if (this.notificationService && userId) {
-            await this.notificationService.createNotification({
-                recipientType: client_1.NotificationRecipientType.USER,
-                recipientId: userId,
-                type: client_1.UniversalNotificationType.JOB_PUBLISHED,
-                title: 'Job Published',
-                message: `Your job "${updatedJob.title}" has been successfully published.`,
-                data: { jobId: id, companyId },
-                actionUrl: `/ats/jobs/${id}`
+        // Legacy endpoint compatibility:
+        // force all submit/publish requests through the centralized publish flow.
+        if (paymentId) {
+            const job = await this.jobRepository.findById(id);
+            if (!job)
+                throw new http_exception_1.HttpException(404, 'Job not found');
+            if (job.company_id !== companyId)
+                throw new http_exception_1.HttpException(403, 'Unauthorized');
+            await this.jobRepository.update(id, {
+                stripe_payment_intent_id: paymentId,
             });
         }
-        return this.mapToResponse(updatedJob);
+        return this.publishJob(id, companyId, userId);
     }
     async updateAlerts(id, companyId, alertsConfig) {
         await this.getJob(id, companyId);
@@ -555,7 +568,7 @@ class JobService extends service_1.BaseService {
         return `JOB-${String(count + 1).padStart(3, '0')}`;
     }
     async inviteTeamMember(jobId, companyId, data) {
-        const { email, name, role, roles: roleIds, inviterId } = data;
+        const { email, name, role, roles: roleIds, inviterId, permissions } = data;
         await this.getJob(jobId, companyId); // Verify access
         // Check if already in team
         const existingMember = await this.jobRepository.findTeamMemberByEmail(jobId, email);
@@ -568,10 +581,11 @@ class JobService extends service_1.BaseService {
         await this.jobRepository.addTeamMember(jobId, {
             email,
             name: name || user?.name,
-            role: role || 'MEMBER',
+            role: (role || 'MEMBER').toUpperCase(),
             user_id: user?.id,
             status: 'ACTIVE',
             roleIds: ids,
+            permissions,
         });
         // Send hiring team invitation email (non-blocking)
         this.sendHiringTeamInvitationEmail(jobId, companyId, {
@@ -640,7 +654,8 @@ class JobService extends service_1.BaseService {
             userId: m.user_id,
             email: m.email,
             name: m.name,
-            role: m.role,
+            role: m.role?.toLowerCase(),
+            permissions: m.permissions,
             status: m.status,
             invitedAt: m.invited_at,
             joinedAt: m.joined_at,
@@ -655,7 +670,7 @@ class JobService extends service_1.BaseService {
     }
     async updateTeamMemberRole(jobId, memberId, companyId, role) {
         await this.getJob(jobId, companyId);
-        await this.jobRepository.updateTeamMember(memberId, { role });
+        await this.jobRepository.updateTeamMember(memberId, { role: role?.toUpperCase() });
     }
     async updateTeamMemberRoles(jobId, memberId, companyId, roleIds) {
         await this.getJob(jobId, companyId);

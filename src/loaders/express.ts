@@ -2,6 +2,7 @@ import express, { Application } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import authRoutes from '../modules/auth/auth.routes';
+import signupRequestRoutes from '../modules/auth/signup-request.routes';
 import companyRoutes from '../modules/company/company.routes';
 import userRoutes from '../modules/user/user.routes';
 import jobRoutes from '../modules/job/job.routes';
@@ -16,6 +17,7 @@ import applicationRoutes from '../modules/application/application.routes';
 import communicationRoutes from '../modules/communication/communication.routes';
 import publicRoutes from '../modules/public/public.routes';
 import integrationRoutes from '../modules/integration/integration.routes';
+import googleOAuthRoutes from '../modules/integration/google-oauth.routes';
 import stripeRoutes from '../modules/stripe/stripe.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
 import interviewRoutes from '../modules/interview/interview.routes';
@@ -57,6 +59,8 @@ const expressLoader = async (app: Application): Promise<void> => {
 
   // Register module routers
   app.use('/api/auth', authRoutes);
+  app.use('/api/signup-requests', signupRequestRoutes);
+  app.use('/api/auth/google', googleOAuthRoutes);
   app.use('/api/companies', companyRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/employees', userRoutes); // Alias for frontend compatibility

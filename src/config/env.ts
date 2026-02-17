@@ -29,6 +29,11 @@ export const CLOUDINARY_CLOUD_NAME = getEnv('CLOUDINARY_CLOUD_NAME', '');
 export const CLOUDINARY_API_KEY = getEnv('CLOUDINARY_API_KEY', '');
 export const CLOUDINARY_API_SECRET = getEnv('CLOUDINARY_API_SECRET', '');
 
+// Google OAuth
+export const GOOGLE_CLIENT_ID = getEnv('GOOGLE_CLIENT_ID', '');
+export const GOOGLE_CLIENT_SECRET = getEnv('GOOGLE_CLIENT_SECRET', '');
+export const GOOGLE_REDIRECT_URI = getEnv('GOOGLE_REDIRECT_URI', 'http://localhost:3000/api/auth/google/callback');
+
 // Default export object for convenient access
 export const env = {
   PORT,
@@ -46,5 +51,8 @@ export const env = {
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
   FRONTEND_URL: getEnv('FRONTEND_URL', 'http://localhost:5173'),
-  ATS_FRONTEND_URL: getEnv('ATS_FRONTEND_URL', 'http://localhost:8080')
+  ATS_FRONTEND_URL: getEnv('ATS_FRONTEND_URL', 'http://localhost:8080'),
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI,
 };

@@ -7,6 +7,7 @@ const application_repository_1 = require("./application.repository");
 const candidate_repository_1 = require("../candidate/candidate.repository");
 const notification_service_1 = require("../notification/notification.service");
 const notification_repository_1 = require("../notification/notification.repository");
+const prisma_1 = require("../../utils/prisma");
 class ApplicationController extends controller_1.BaseController {
     constructor() {
         super();
@@ -440,6 +441,120 @@ class ApplicationController extends controller_1.BaseController {
                 }
                 const note = await this.applicationService.addNote(id, req.user.id, content, mentions || []);
                 return this.sendSuccess(res, { note });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Schedule an interview for an application
+        this.scheduleInterview = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id } = req.params;
+                const { scheduledDate, duration, type, interviewerIds, notes } = req.body;
+                if (!scheduledDate || !duration || !type) {
+                    return this.sendError(res, new Error('scheduledDate, duration, and type are required'), 400);
+                }
+                const interview = await this.applicationService.scheduleInterview({
+                    applicationId: id,
+                    scheduledBy: req.user.id,
+                    scheduledDate: new Date(scheduledDate),
+                    duration: parseInt(duration),
+                    type,
+                    interviewerIds: interviewerIds || [],
+                    notes,
+                });
+                return this.sendSuccess(res, { interview });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Get interviews for an application
+        this.getInterviews = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id } = req.params;
+                const interviews = await this.applicationService.getInterviews(id);
+                return this.sendSuccess(res, { interviews });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Update an interview
+        this.updateInterview = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id, interviewId } = req.params;
+                const updates = req.body;
+                const interview = await this.applicationService.updateInterview(interviewId, updates);
+                return this.sendSuccess(res, { interview });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Cancel an interview
+        this.cancelInterview = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id, interviewId } = req.params;
+                const { cancellationReason } = req.body;
+                const interview = await this.applicationService.cancelInterview(interviewId, cancellationReason);
+                return this.sendSuccess(res, { interview });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Add a note to an interview
+        this.addInterviewNote = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { interviewId } = req.params;
+                const { content } = req.body;
+                if (!content || typeof content !== 'string') {
+                    return this.sendError(res, new Error('Content is required'), 400);
+                }
+                const userRecord = await prisma_1.prisma.user.findUnique({
+                    where: { id: req.user.id },
+                    select: { name: true, email: true }
+                });
+                const authorName = userRecord?.name || userRecord?.email || req.user.email;
+                const note = await this.applicationService.addInterviewNote(interviewId, req.user.id, authorName, content);
+                return this.sendSuccess(res, { note });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Get notes for an interview
+        this.getInterviewNotes = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { interviewId } = req.params;
+                const notes = await this.applicationService.getInterviewNotes(interviewId);
+                return this.sendSuccess(res, { notes });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Delete an interview note
+        this.deleteInterviewNote = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { noteId } = req.params;
+                await this.applicationService.deleteInterviewNote(noteId, req.user.id);
+                return this.sendSuccess(res, { message: 'Note deleted' });
             }
             catch (error) {
                 return this.sendError(res, error);

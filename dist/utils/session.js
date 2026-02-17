@@ -8,6 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateSessionId = generateSessionId;
+exports.generateToken = generateToken;
 exports.getSessionExpiration = getSessionExpiration;
 exports.isSessionExpired = isSessionExpired;
 exports.getSessionCookieOptions = getSessionCookieOptions;
@@ -17,6 +18,12 @@ const crypto_1 = __importDefault(require("crypto"));
  * @returns Random session ID string
  */
 function generateSessionId() {
+    return crypto_1.default.randomBytes(32).toString('hex');
+}
+/**
+ * Generate a secure random token
+ */
+function generateToken() {
     return crypto_1.default.randomBytes(32).toString('hex');
 }
 /**

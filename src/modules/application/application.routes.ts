@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { ApplicationController } from './application.controller';
 import { CommunicationController } from '../communication/communication.controller';
+import { ApplicationTaskController } from '../task/application-task.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
 const applicationController = new ApplicationController();
 const communicationController = new CommunicationController();
+const taskController = new ApplicationTaskController();
 
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', authenticate, applicationController.bulkScoreCandidates);
@@ -72,5 +74,22 @@ router.get('/:id/slack', authenticate, communicationController.getSlackLogs);
 router.get('/:id/notes', authenticate, applicationController.getNotes);
 router.post('/:id/notes', authenticate, applicationController.addNote);
 
+// Interview Routes
+router.post('/:id/interviews', authenticate, applicationController.scheduleInterview);
+router.get('/:id/interviews', authenticate, applicationController.getInterviews);
+router.put('/:id/interviews/:interviewId', authenticate, applicationController.updateInterview);
+router.post('/:id/interviews/:interviewId/cancel', authenticate, applicationController.cancelInterview);
+
+// Interview Note Routes
+router.post('/:id/interviews/:interviewId/notes', authenticate, applicationController.addInterviewNote);
+router.get('/:id/interviews/:interviewId/notes', authenticate, applicationController.getInterviewNotes);
+router.delete('/:id/interviews/:interviewId/notes/:noteId', authenticate, applicationController.deleteInterviewNote);
+
+// Task Routes
+router.post('/:id/tasks', authenticate, taskController.createTask);
+router.get('/:id/tasks/stats', authenticate, taskController.getTaskStats);
+router.get('/:id/tasks', authenticate, taskController.getTasks);
+router.put('/:id/tasks/:taskId', authenticate, taskController.updateTask);
+router.delete('/:id/tasks/:taskId', authenticate, taskController.deleteTask);
 
 export default router;

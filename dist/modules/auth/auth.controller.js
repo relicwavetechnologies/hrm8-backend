@@ -4,6 +4,7 @@ exports.AuthController = void 0;
 const controller_1 = require("../../core/controller");
 const auth_service_1 = require("./auth.service");
 const auth_repository_1 = require("./auth.repository");
+const company_repository_1 = require("../company/company.repository");
 const session_1 = require("../../utils/session");
 const password_reset_service_1 = require("./password-reset.service");
 class AuthController extends controller_1.BaseController {
@@ -80,7 +81,68 @@ class AuthController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
-        this.authService = new auth_service_1.AuthService(new auth_repository_1.AuthRepository());
+        this.signup = async (req, res) => {
+            try {
+                const result = await this.authService.signup(req.body);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.registerCompany = async (req, res) => {
+            try {
+                const result = await this.authService.registerCompany(req.body);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.verifyCompany = async (req, res) => {
+            try {
+                const { token, companyId } = req.body;
+                const result = await this.authService.verifyCompany(token, companyId);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.resendVerification = async (req, res) => {
+            try {
+                const { email } = req.body;
+                const result = await this.authService.resendVerification(email);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.forgotPassword = async (req, res) => {
+            try {
+                const { email } = req.body;
+                await password_reset_service_1.passwordResetService.requestPasswordReset(email, {
+                    ip: req.ip,
+                    userAgent: req.get('user-agent'),
+                });
+                return this.sendSuccess(res, { message: 'If an account exists with that email, a password reset link has been sent.' });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.resetPassword = async (req, res) => {
+            try {
+                const { token, password } = req.body;
+                await password_reset_service_1.passwordResetService.resetPassword(token, password);
+                return this.sendSuccess(res, { message: 'Password reset successfully' });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.authService = new auth_service_1.AuthService(new auth_repository_1.AuthRepository(), new company_repository_1.CompanyRepository());
     }
 }
 exports.AuthController = AuthController;

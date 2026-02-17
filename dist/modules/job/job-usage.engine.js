@@ -11,11 +11,7 @@ class UsageEngine {
      * @returns PublishDecision indicating next action
      */
     static async resolveJobPublish(companyId, hiringMode) {
-        // Non-self-managed jobs go through HRM8 Management (wallet system)
-        if (hiringMode !== 'SELF_MANAGED') {
-            return 'HRM8_MANAGED';
-        }
-        // Self-managed: check subscription quota
+        // All publish paths require an active subscription with available quota.
         const subscription = await subscription_service_1.SubscriptionService.getActiveSubscription(companyId);
         if (!subscription) {
             return 'REQUIRE_SUBSCRIPTION';
@@ -25,6 +21,10 @@ class UsageEngine {
             subscription.job_quota !== undefined &&
             subscription.jobs_used >= subscription.job_quota) {
             return 'QUOTA_EXHAUSTED';
+        }
+        // HRM8-managed jobs additionally run consultant assignment + wallet service payment.
+        if (hiringMode !== 'SELF_MANAGED') {
+            return 'HRM8_MANAGED';
         }
         return 'USE_QUOTA';
     }

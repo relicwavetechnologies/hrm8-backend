@@ -40,6 +40,7 @@ const candidate_scoring_service_1 = require("../ai/candidate-scoring.service");
 const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const email_service_1 = require("../email/email.service");
+const interview_service_1 = require("../interview/interview.service");
 class ApplicationService extends service_1.BaseService {
     constructor(applicationRepository, candidateRepository, notificationService) {
         super();
@@ -786,6 +787,128 @@ class ApplicationService extends service_1.BaseService {
         catch (error) {
             console.error('[sendMentionNotifications] Error sending notifications:', error);
         }
+    }
+    // Schedule an interview for an application
+    async scheduleInterview(params) {
+        const application = await this.applicationRepository.findById(params.applicationId);
+        if (!application) {
+            throw new http_exception_1.HttpException(404, 'Application not found');
+        }
+        const interview = await interview_service_1.InterviewService.createInterview({
+            applicationId: params.applicationId,
+            scheduledBy: params.scheduledBy,
+            scheduledDate: params.scheduledDate,
+            duration: params.duration,
+            type: params.type,
+            interviewerIds: params.interviewerIds,
+            notes: params.notes,
+        });
+        // Send email notifications to interviewers for IN_PERSON and PANEL types
+        if (['IN_PERSON', 'PANEL'].includes(params.type) && params.interviewerIds?.length) {
+            try {
+                const appData = await prisma_1.prisma.application.findUnique({
+                    where: { id: params.applicationId },
+                    include: { candidate: true, job: { include: { company: true } } }
+                });
+                if (appData) {
+                    const candidateName = appData.candidate
+                        ? `${appData.candidate.first_name} ${appData.candidate.last_name}`.trim()
+                        : 'Candidate';
+                    const jobTitle = appData.job?.title || 'Position';
+                    const companyName = appData.job?.company?.name || 'Company';
+                    for (const interviewerId of params.interviewerIds) {
+                        const interviewer = await prisma_1.prisma.user.findUnique({
+                            where: { id: interviewerId },
+                            select: { email: true, name: true }
+                        });
+                        if (interviewer?.email) {
+                            await email_service_1.emailService.sendNotificationEmail(interviewer.email, `Interview Scheduled: ${jobTitle}`, `<p>Hi ${interviewer.name},</p>
+                <p>You have been assigned as an interviewer for <strong>${candidateName}</strong> applying for the <strong>${jobTitle}</strong> position at <strong>${companyName}</strong>.</p>
+                <p><strong>Date:</strong> ${params.scheduledDate.toLocaleString()}</p>
+                <p><strong>Duration:</strong> ${params.duration} minutes</p>
+                <p><strong>Type:</strong> ${params.type.replace('_', ' ')}</p>`);
+                        }
+                    }
+                }
+            }
+            catch (err) {
+                console.error('[scheduleInterview] Failed to send interviewer emails:', err);
+            }
+        }
+        return interview;
+    }
+    // Get interviews for an application
+    async getInterviews(applicationId) {
+        const interviews = await prisma_1.prisma.videoInterview.findMany({
+            where: { application_id: applicationId },
+            orderBy: { scheduled_date: 'desc' },
+            include: {
+                job_round: {
+                    select: {
+                        id: true,
+                        name: true,
+                    },
+                },
+                interview_notes: {
+                    orderBy: { created_at: 'desc' },
+                },
+            },
+        });
+        return interviews;
+    }
+    // Update an interview
+    async updateInterview(interviewId, updates) {
+        const interview = await prisma_1.prisma.videoInterview.update({
+            where: { id: interviewId },
+            data: {
+                ...updates,
+                updated_at: new Date(),
+            },
+        });
+        return interview;
+    }
+    // Cancel an interview
+    async cancelInterview(interviewId, cancellationReason) {
+        const interview = await prisma_1.prisma.videoInterview.update({
+            where: { id: interviewId },
+            data: {
+                status: 'CANCELLED',
+                cancellation_reason: cancellationReason,
+                updated_at: new Date(),
+            },
+        });
+        return interview;
+    }
+    // Add a note to an interview
+    async addInterviewNote(interviewId, authorId, authorName, content) {
+        const interview = await prisma_1.prisma.videoInterview.findUnique({ where: { id: interviewId } });
+        if (!interview)
+            throw new http_exception_1.HttpException(404, 'Interview not found');
+        const note = await prisma_1.prisma.interviewNote.create({
+            data: {
+                interview_id: interviewId,
+                author_id: authorId,
+                author_name: authorName,
+                content,
+            },
+        });
+        return note;
+    }
+    // Get notes for an interview
+    async getInterviewNotes(interviewId) {
+        return prisma_1.prisma.interviewNote.findMany({
+            where: { interview_id: interviewId },
+            orderBy: { created_at: 'desc' },
+        });
+    }
+    // Delete an interview note (author only)
+    async deleteInterviewNote(noteId, authorId) {
+        const note = await prisma_1.prisma.interviewNote.findUnique({ where: { id: noteId } });
+        if (!note)
+            throw new http_exception_1.HttpException(404, 'Note not found');
+        if (note.author_id !== authorId)
+            throw new http_exception_1.HttpException(403, 'Forbidden: You can only delete your own notes');
+        await prisma_1.prisma.interviewNote.delete({ where: { id: noteId } });
     }
 }
 exports.ApplicationService = ApplicationService;

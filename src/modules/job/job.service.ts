@@ -652,7 +652,7 @@ export class JobService extends BaseService {
   }
 
   async inviteTeamMember(jobId: string, companyId: string, data: any): Promise<void> {
-    const { email, name, role, roles: roleIds, inviterId } = data;
+    const { email, name, role, roles: roleIds, inviterId, permissions } = data;
     await this.getJob(jobId, companyId); // Verify access
 
     // Check if already in team
@@ -668,10 +668,11 @@ export class JobService extends BaseService {
     await this.jobRepository.addTeamMember(jobId, {
       email,
       name: name || user?.name,
-      role: role || 'MEMBER',
+      role: (role || 'MEMBER').toUpperCase(),
       user_id: user?.id,
       status: 'ACTIVE',
       roleIds: ids,
+      permissions,
     });
 
     // Send hiring team invitation email (non-blocking)
@@ -747,7 +748,8 @@ export class JobService extends BaseService {
       userId: m.user_id,
       email: m.email,
       name: m.name,
-      role: m.role,
+      role: m.role?.toLowerCase(),
+      permissions: m.permissions,
       status: m.status,
       invitedAt: m.invited_at,
       joinedAt: m.joined_at,
@@ -764,7 +766,7 @@ export class JobService extends BaseService {
 
   async updateTeamMemberRole(jobId: string, memberId: string, companyId: string, role: any) {
     await this.getJob(jobId, companyId);
-    await this.jobRepository.updateTeamMember(memberId, { role });
+    await this.jobRepository.updateTeamMember(memberId, { role: role?.toUpperCase() });
   }
 
   async updateTeamMemberRoles(jobId: string, memberId: string, companyId: string, roleIds: string[]) {

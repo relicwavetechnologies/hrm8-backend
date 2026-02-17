@@ -147,7 +147,7 @@ export class JobController extends BaseController {
       const { id } = req.params as { id: string };
       const { templateName, templateDescription } = req.body;
 
-      const result = await this.jobService.saveAsTemplate(id, req.user.companyId, templateName || 'New Template', templateDescription);
+      const result = await this.jobService.saveAsTemplate(id, req.user.companyId, templateName || 'Job Template', templateDescription);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);

@@ -163,7 +163,7 @@ class WalletController extends controller_1.BaseController {
                 if (!planName || amount == null) {
                     throw new http_exception_1.HttpException(400, 'Missing required fields: planName/name and amount/basePrice');
                 }
-                // Company subscriptions: use SubscriptionService (credits wallet, dynamic regional pricing)
+                // Company subscriptions: use SubscriptionService (subscription snapshot + quota only)
                 if (ownerType === 'COMPANY') {
                     const planType = (body.planType || planName).toUpperCase().replace(/-/g, '_');
                     const subscription = await subscription_service_1.SubscriptionService.createSubscription({
@@ -177,7 +177,7 @@ class WalletController extends controller_1.BaseController {
                     });
                     return this.sendSuccess(res, {
                         subscription,
-                        message: 'Subscription activated. Wallet has been credited.',
+                        message: 'Subscription activated successfully.',
                     });
                 }
                 // Non-company (e.g. consultant): legacy path

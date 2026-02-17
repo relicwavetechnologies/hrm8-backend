@@ -65,5 +65,34 @@ class AuthRepository extends repository_1.BaseRepository {
             data: { used_at: new Date() },
         });
     }
+    // Signup Requests
+    async createSignupRequest(data) {
+        return this.prisma.signupRequest.create({
+            data,
+        });
+    }
+    // Verification Tokens
+    async createVerificationToken(data) {
+        return this.prisma.verificationToken.create({
+            data,
+        });
+    }
+    async findVerificationToken(token) {
+        return this.prisma.verificationToken.findUnique({
+            where: { token },
+            include: { company: true },
+        });
+    }
+    async markVerificationTokenUsed(id) {
+        return this.prisma.verificationToken.update({
+            where: { id },
+            data: { used_at: new Date() },
+        });
+    }
+    async findUsersByCompanyId(companyId) {
+        return this.prisma.user.findMany({
+            where: { company_id: companyId },
+        });
+    }
 }
 exports.AuthRepository = AuthRepository;

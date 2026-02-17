@@ -21,6 +21,7 @@ router.post('/bulk-archive', auth_middleware_1.authenticate, jobController.bulkA
 router.post('/bulk-unarchive', auth_middleware_1.authenticate, jobController.bulkUnarchiveJobs);
 router.get('/:id', auth_middleware_1.authenticate, jobController.getJob);
 router.post('/:id/publish', auth_middleware_1.authenticate, jobController.publishJob);
+router.post('/:id/submit', auth_middleware_1.authenticate, jobController.submitAndActivate); // Legacy wizard endpoint -> centralized publish flow
 // Round Email Config Routes
 router.get('/:jobId/rounds/:roundId/email-config', auth_middleware_1.authenticate, round_config_controller_1.RoundConfigController.getEmailConfig);
 router.put('/:jobId/rounds/:roundId/email-config', auth_middleware_1.authenticate, round_config_controller_1.RoundConfigController.updateEmailConfig);

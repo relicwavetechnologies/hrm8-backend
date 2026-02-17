@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.env = exports.CLOUDINARY_API_SECRET = exports.CLOUDINARY_API_KEY = exports.CLOUDINARY_CLOUD_NAME = exports.SMTP_FROM = exports.SMTP_SECURE = exports.SMTP_PASS = exports.SMTP_USER = exports.SMTP_PORT = exports.SMTP_HOST = exports.SESSION_SECRET = exports.JWT_SECRET = exports.DATABASE_URL = exports.NODE_ENV = exports.PORT = void 0;
+exports.env = exports.GOOGLE_REDIRECT_URI = exports.GOOGLE_CLIENT_SECRET = exports.GOOGLE_CLIENT_ID = exports.CLOUDINARY_API_SECRET = exports.CLOUDINARY_API_KEY = exports.CLOUDINARY_CLOUD_NAME = exports.SMTP_FROM = exports.SMTP_SECURE = exports.SMTP_PASS = exports.SMTP_USER = exports.SMTP_PORT = exports.SMTP_HOST = exports.SESSION_SECRET = exports.JWT_SECRET = exports.DATABASE_URL = exports.NODE_ENV = exports.PORT = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const getEnv = (key, defaultValue) => {
@@ -29,6 +29,10 @@ exports.SMTP_FROM = getEnv('SMTP_FROM', '');
 exports.CLOUDINARY_CLOUD_NAME = getEnv('CLOUDINARY_CLOUD_NAME', '');
 exports.CLOUDINARY_API_KEY = getEnv('CLOUDINARY_API_KEY', '');
 exports.CLOUDINARY_API_SECRET = getEnv('CLOUDINARY_API_SECRET', '');
+// Google OAuth
+exports.GOOGLE_CLIENT_ID = getEnv('GOOGLE_CLIENT_ID', '');
+exports.GOOGLE_CLIENT_SECRET = getEnv('GOOGLE_CLIENT_SECRET', '');
+exports.GOOGLE_REDIRECT_URI = getEnv('GOOGLE_REDIRECT_URI', 'http://localhost:3000/api/auth/google/callback');
 // Default export object for convenient access
 exports.env = {
     PORT: exports.PORT,
@@ -46,5 +50,8 @@ exports.env = {
     CLOUDINARY_API_KEY: exports.CLOUDINARY_API_KEY,
     CLOUDINARY_API_SECRET: exports.CLOUDINARY_API_SECRET,
     FRONTEND_URL: getEnv('FRONTEND_URL', 'http://localhost:5173'),
-    ATS_FRONTEND_URL: getEnv('ATS_FRONTEND_URL', 'http://localhost:8080')
+    ATS_FRONTEND_URL: getEnv('ATS_FRONTEND_URL', 'http://localhost:8080'),
+    GOOGLE_CLIENT_ID: exports.GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET: exports.GOOGLE_CLIENT_SECRET,
+    GOOGLE_REDIRECT_URI: exports.GOOGLE_REDIRECT_URI,
 };

@@ -3,11 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const application_controller_1 = require("./application.controller");
 const communication_controller_1 = require("../communication/communication.controller");
+const application_task_controller_1 = require("../task/application-task.controller");
 const auth_middleware_1 = require("../../middlewares/auth.middleware");
 const unified_auth_middleware_1 = require("../../middlewares/unified-auth.middleware");
 const router = (0, express_1.Router)();
 const applicationController = new application_controller_1.ApplicationController();
 const communicationController = new communication_controller_1.CommunicationController();
+const taskController = new application_task_controller_1.ApplicationTaskController();
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', auth_middleware_1.authenticate, applicationController.bulkScoreCandidates);
 router.post('/bulk-analyze', auth_middleware_1.authenticate, applicationController.bulkAiAnalysis);
@@ -58,4 +60,19 @@ router.get('/:id/slack', auth_middleware_1.authenticate, communicationController
 // Notes Routes
 router.get('/:id/notes', auth_middleware_1.authenticate, applicationController.getNotes);
 router.post('/:id/notes', auth_middleware_1.authenticate, applicationController.addNote);
+// Interview Routes
+router.post('/:id/interviews', auth_middleware_1.authenticate, applicationController.scheduleInterview);
+router.get('/:id/interviews', auth_middleware_1.authenticate, applicationController.getInterviews);
+router.put('/:id/interviews/:interviewId', auth_middleware_1.authenticate, applicationController.updateInterview);
+router.post('/:id/interviews/:interviewId/cancel', auth_middleware_1.authenticate, applicationController.cancelInterview);
+// Interview Note Routes
+router.post('/:id/interviews/:interviewId/notes', auth_middleware_1.authenticate, applicationController.addInterviewNote);
+router.get('/:id/interviews/:interviewId/notes', auth_middleware_1.authenticate, applicationController.getInterviewNotes);
+router.delete('/:id/interviews/:interviewId/notes/:noteId', auth_middleware_1.authenticate, applicationController.deleteInterviewNote);
+// Task Routes
+router.post('/:id/tasks', auth_middleware_1.authenticate, taskController.createTask);
+router.get('/:id/tasks/stats', auth_middleware_1.authenticate, taskController.getTaskStats);
+router.get('/:id/tasks', auth_middleware_1.authenticate, taskController.getTasks);
+router.put('/:id/tasks/:taskId', auth_middleware_1.authenticate, taskController.updateTask);
+router.delete('/:id/tasks/:taskId', auth_middleware_1.authenticate, taskController.deleteTask);
 exports.default = router;

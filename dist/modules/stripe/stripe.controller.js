@@ -51,7 +51,7 @@ class StripeController extends controller_1.BaseController {
          */
         this.createCheckoutSession = async (req, res) => {
             try {
-                const { amount, description, metadata } = req.body;
+                const { amount, description, metadata, successUrl, cancelUrl } = req.body;
                 const user = req.user;
                 if (!user) {
                     return this.sendError(res, new Error('Unauthorized'), 401);
@@ -63,8 +63,9 @@ class StripeController extends controller_1.BaseController {
                 const amountInCents = Math.round(amount * 100);
                 // Extract metadata from body or use provided metadata object
                 const { type, planType, planName, billingCycle, jobQuota } = req.body;
+                const resolvedType = type || metadata?.type || (planType ? 'subscription' : 'wallet_recharge');
                 const mergedMetadata = {
-                    type: type || metadata?.type || (planType ? 'subscription' : 'wallet_recharge'),
+                    type: resolvedType,
                     planType: planType || metadata?.planType,
                     name: planName || metadata?.name || metadata?.planName,
                     billingCycle: billingCycle || metadata?.billingCycle,
@@ -73,11 +74,23 @@ class StripeController extends controller_1.BaseController {
                     companyId: user.companyId,
                     userId: user.id,
                 };
+                if (!mergedMetadata.companyId) {
+                    return this.sendError(res, new Error('Company context missing for checkout session'), 400);
+                }
+                const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+                const defaultSuccessUrl = resolvedType === 'subscription'
+                    ? `${frontendUrl}/subscriptions?subscription_success=true`
+                    : `${frontendUrl}/wallet?recharge_success=true`;
+                const defaultCancelUrl = resolvedType === 'subscription'
+                    ? `${frontendUrl}/subscriptions?canceled=true`
+                    : `${frontendUrl}/wallet?recharge_cancelled=true`;
                 const session = await stripe_service_1.StripeService.createCheckoutSession({
                     amount: amountInCents,
                     description: description || `Wallet recharge - $${amount.toFixed(2)}`,
                     metadata: mergedMetadata,
                     customerEmail: user.email,
+                    successUrl: successUrl || defaultSuccessUrl,
+                    cancelUrl: cancelUrl || defaultCancelUrl,
                 });
                 this.logger.info('Checkout session created', {
                     sessionId: session.sessionId,

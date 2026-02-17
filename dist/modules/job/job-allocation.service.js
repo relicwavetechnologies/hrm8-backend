@@ -12,28 +12,53 @@ class JobAllocationService extends service_1.BaseService {
         try {
             const job = await prisma_1.prisma.job.findUnique({
                 where: { id: jobId },
-                select: { id: true, company_id: true, title: true, region_id: true }
+                select: {
+                    id: true,
+                    company_id: true,
+                    title: true,
+                    region_id: true,
+                    assigned_consultant_id: true,
+                    company: {
+                        select: { region_id: true }
+                    }
+                }
             });
             if (!job) {
                 return { success: false, error: 'Job not found' };
             }
-            // Logic: Find consultants in the job's region or company's region
-            // For now, simpler version: find first active consultant in the same region
-            const regionId = job.region_id;
-            if (!regionId) {
-                return { success: false, error: 'Job has no region assigned' };
-            }
-            const consultant = await prisma_1.prisma.consultant.findFirst({
-                where: {
-                    region_id: regionId,
-                    status: 'ACTIVE'
-                },
-                orderBy: {
-                    current_jobs: 'asc'
+            // Idempotency: if already assigned to an active consultant, reuse assignment.
+            if (job.assigned_consultant_id) {
+                const existingConsultant = await prisma_1.prisma.consultant.findUnique({
+                    where: { id: job.assigned_consultant_id },
+                    select: { id: true, status: true }
+                });
+                if (existingConsultant?.status === 'ACTIVE') {
+                    return { success: true, consultantId: existingConsultant.id };
                 }
-            });
+            }
+            // Resolve region from job first, then company fallback.
+            const resolvedRegionId = job.region_id || job.company?.region_id || null;
+            // Prefer same-region consultant.
+            let consultant = resolvedRegionId
+                ? await prisma_1.prisma.consultant.findFirst({
+                    where: {
+                        region_id: resolvedRegionId,
+                        status: 'ACTIVE'
+                    },
+                    orderBy: {
+                        current_jobs: 'asc'
+                    }
+                })
+                : null;
+            // Fallback: if region mapping is incomplete, pick least-loaded active consultant.
             if (!consultant) {
-                return { success: false, error: 'No active consultant found in region' };
+                consultant = await prisma_1.prisma.consultant.findFirst({
+                    where: { status: 'ACTIVE' },
+                    orderBy: { current_jobs: 'asc' }
+                });
+            }
+            if (!consultant) {
+                return { success: false, error: 'No active consultant found for auto-assignment' };
             }
             // Assign job
             await prisma_1.prisma.$transaction(async (tx) => {
@@ -42,25 +67,64 @@ class JobAllocationService extends service_1.BaseService {
                     data: {
                         assigned_consultant_id: consultant.id,
                         assignment_source: client_1.AssignmentSource.AUTO_RULES,
+                        ...(job.region_id ? {} : consultant.region_id ? { region_id: consultant.region_id } : {}),
                     }
                 });
-                await tx.consultant.update({
-                    where: { id: consultant.id },
-                    data: {
-                        current_jobs: { increment: 1 }
-                    }
-                });
-                // Create assignment record if the table exists
-                // In the new backend, check schema for ConsultantJobAssignment
-                await tx.consultantJobAssignment.create({
-                    data: {
+                // If reassigning from a stale/inactive consultant, mark old assignment inactive
+                // and decrement old consultant load defensively.
+                if (job.assigned_consultant_id && job.assigned_consultant_id !== consultant.id) {
+                    await tx.consultantJobAssignment.updateMany({
+                        where: {
+                            job_id: jobId,
+                            consultant_id: job.assigned_consultant_id,
+                            status: 'ACTIVE'
+                        },
+                        data: { status: 'INACTIVE' }
+                    });
+                    await tx.consultant.updateMany({
+                        where: {
+                            id: job.assigned_consultant_id,
+                            current_jobs: { gt: 0 }
+                        },
+                        data: {
+                            current_jobs: { decrement: 1 }
+                        }
+                    });
+                }
+                // Prevent duplicate load increments on retry.
+                const existingAssignment = await tx.consultantJobAssignment.findFirst({
+                    where: {
                         consultant_id: consultant.id,
-                        job_id: jobId,
-                        status: 'ACTIVE',
-                        assignment_source: client_1.AssignmentSource.AUTO_RULES,
-                        assigned_by: 'system'
+                        job_id: jobId
                     }
                 });
+                if (!existingAssignment) {
+                    await tx.consultant.update({
+                        where: { id: consultant.id },
+                        data: {
+                            current_jobs: { increment: 1 }
+                        }
+                    });
+                    await tx.consultantJobAssignment.create({
+                        data: {
+                            consultant_id: consultant.id,
+                            job_id: jobId,
+                            status: 'ACTIVE',
+                            assignment_source: client_1.AssignmentSource.AUTO_RULES,
+                            assigned_by: 'system'
+                        }
+                    });
+                }
+                else {
+                    await tx.consultantJobAssignment.update({
+                        where: { id: existingAssignment.id },
+                        data: {
+                            status: 'ACTIVE',
+                            assignment_source: client_1.AssignmentSource.AUTO_RULES,
+                            assigned_by: 'system'
+                        }
+                    });
+                }
             });
             return { success: true, consultantId: consultant.id };
         }

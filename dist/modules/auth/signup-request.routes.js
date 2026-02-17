@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const signup_request_controller_1 = require("./signup-request.controller");
+const auth_middleware_1 = require("../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+const controller = new signup_request_controller_1.SignupRequestController();
+router.get('/', auth_middleware_1.authenticate, controller.getAll);
+router.get('/pending', auth_middleware_1.authenticate, controller.getPending);
+router.post('/:id/approve', auth_middleware_1.authenticate, controller.approve);
+router.post('/:id/reject', auth_middleware_1.authenticate, controller.reject);
+exports.default = router;
