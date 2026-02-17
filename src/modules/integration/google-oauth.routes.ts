@@ -66,14 +66,30 @@ router.get('/status', authenticate, async (req: AuthenticatedRequest, res: Respo
 });
 
 /**
+ * GET /api/auth/google/company-timezone
+ * Returns company timezone and work hours from CompanySettings.
+ */
+router.get('/company-timezone', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const tzInfo = await googleOAuthService.getCompanyTimezone(req.user.companyId);
+    return res.json({ success: true, data: tzInfo });
+  } catch (err) {
+    console.error('[GoogleOAuth] Timezone error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to fetch timezone' });
+  }
+});
+
+/**
  * POST /api/auth/google/interviewers-availability
- * Body: { interviewerIds: string[], timeMin: string, timeMax: string }
+ * Body: { interviewerIds: string[], timeMin: string, timeMax: string, timezone?: string }
  * Returns free/busy data for each interviewer.
  */
 router.post('/interviewers-availability', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { interviewerIds, timeMin, timeMax } = req.body;
+  const { interviewerIds, timeMin, timeMax, timezone } = req.body;
 
   if (!Array.isArray(interviewerIds) || !timeMin || !timeMax) {
     return res.status(400).json({ success: false, error: 'interviewerIds, timeMin, and timeMax are required' });
@@ -84,7 +100,8 @@ router.post('/interviewers-availability', authenticate, async (req: Authenticate
       interviewerIds,
       req.user.companyId,
       new Date(timeMin),
-      new Date(timeMax)
+      new Date(timeMax),
+      timezone
     );
     return res.json({ success: true, data: result });
   } catch (err) {

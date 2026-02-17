@@ -7,6 +7,7 @@ const router = Router();
 const interviewController = new InterviewController();
 
 router.post('/', authenticate, interviewController.create);
+router.post('/suggest-time', authenticate, interviewController.suggestTime);
 // Generic list with query params
 router.get('/', authenticateUnified, interviewController.list);
 router.get('/job/:jobId', authenticateUnified, interviewController.listByJob);

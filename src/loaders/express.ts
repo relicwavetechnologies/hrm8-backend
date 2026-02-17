@@ -58,9 +58,10 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use(cors(corsOptions));
 
   // Register module routers
+  // Mount more-specific /api/auth/google BEFORE the generic /api/auth
+  app.use('/api/auth/google', googleOAuthRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/signup-requests', signupRequestRoutes);
-  app.use('/api/auth/google', googleOAuthRoutes);
   app.use('/api/companies', companyRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/employees', userRoutes); // Alias for frontend compatibility
