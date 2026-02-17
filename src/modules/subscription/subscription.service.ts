@@ -1,9 +1,9 @@
 import { prisma } from '../../utils/prisma';
 import { WalletService } from '../wallet/wallet.service';
-import { 
-  SubscriptionPlanType, 
-  SubscriptionStatus, 
-  VirtualTransactionType 
+import {
+  SubscriptionPlanType,
+  SubscriptionStatus,
+  VirtualTransactionType
 } from '@prisma/client';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
@@ -43,15 +43,15 @@ export class SubscriptionService {
 
     return await prisma.$transaction(async (tx) => {
       // 1. Get company currency information
-      const { pricingPeg, billingCurrency } = 
+      const { pricingPeg, billingCurrency } =
         await CurrencyAssignmentService.getCompanyCurrencies(companyId);
       const currency = billingCurrency ?? 'USD';
-      
+
       // 2. Get subscription price from price book (regional pricing)
       let basePrice = providedBasePrice;
       let priceBookId: string | undefined;
       let priceBookVersion: string | undefined;
-      
+
       const supportedPlanTypes = ['PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE', 'RPO'] as const;
       const canFetchPrice = supportedPlanTypes.includes(planType as typeof supportedPlanTypes[number]);
 
@@ -72,7 +72,7 @@ export class SubscriptionService {
         priceBookId = priceBook.id;
         priceBookVersion = priceBook.version ?? undefined;
       }
-      
+
       // Calculate end date
       const endDate = new Date(startDate);
       if (billingCycle === 'MONTHLY') {
@@ -92,7 +92,7 @@ export class SubscriptionService {
         data: {
           company_id: companyId,
           name,
-          plan_type: planTypeEnum,
+          plan_type: planTypeEnum as any,
           status: SubscriptionStatus.ACTIVE,
           base_price: basePrice,
           currency,  // Dynamic currency
@@ -148,8 +148,8 @@ export class SubscriptionService {
 
   static async listSubscriptions(companyId: string) {
     return prisma.subscription.findMany({
-        where: { company_id: companyId },
-        orderBy: { created_at: 'desc' }
+      where: { company_id: companyId },
+      orderBy: { created_at: 'desc' }
     });
   }
 
@@ -161,43 +161,43 @@ export class SubscriptionService {
 
     // 2. Check quota
     if (subscription.job_quota && subscription.jobs_used >= subscription.job_quota) {
-        throw new Error('Job quota exceeded');
+      throw new Error('Job quota exceeded');
     }
 
     // 3. Calculate cost
     let jobCost = 0;
     if (subscription.job_quota && subscription.job_quota > 0) {
-        jobCost = subscription.base_price / subscription.job_quota;
+      jobCost = subscription.base_price / subscription.job_quota;
     }
 
     // 4. Deduct from wallet with currency info
     if (jobCost > 0) {
-        const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
-        
-        // Get currency info for audit
-        const { pricingPeg, billingCurrency } = 
-          await CurrencyAssignmentService.getCompanyCurrencies(companyId);
-        
-        await WalletService.debitAccount({
-            accountId: account.id,
-            amount: jobCost,
-            type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
-            description: `Job posting from subscription quota: ${jobTitle}`,
-            referenceType: 'SUBSCRIPTION',
-            referenceId: subscription.id,
-            createdBy: userId,
-            pricingPeg,
-            billingCurrency: subscription.currency || billingCurrency,
-        });
+      const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
+
+      // Get currency info for audit
+      const { pricingPeg, billingCurrency } =
+        await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+
+      await WalletService.debitAccount({
+        accountId: account.id,
+        amount: jobCost,
+        type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
+        description: `Job posting from subscription quota: ${jobTitle}`,
+        referenceType: 'SUBSCRIPTION',
+        referenceId: subscription.id,
+        createdBy: userId,
+        pricingPeg,
+        billingCurrency: subscription.currency || billingCurrency,
+      });
     }
 
     // 5. Update subscription usage
     return prisma.subscription.update({
-        where: { id: subscription.id },
-        data: {
-            jobs_used: { increment: 1 },
-            prepaid_balance: { decrement: jobCost }
-        }
+      where: { id: subscription.id },
+      data: {
+        jobs_used: { increment: 1 },
+        prepaid_balance: { decrement: jobCost }
+      }
     });
   }
 }

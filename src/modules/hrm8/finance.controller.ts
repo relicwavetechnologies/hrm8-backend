@@ -102,7 +102,7 @@ export class FinanceController {
      */
     calculateSettlement = async (req: Hrm8AuthenticatedRequest, res: Response): Promise<void> => {
         try {
-            let { licenseeId, periodStart, periodEnd } = req.body;
+            let { licenseeId, periodStart, periodEnd, commit } = req.body;
 
             // If user is REGIONAL_LICENSEE, force their own licenseeId
             if (req.hrm8User?.role === 'REGIONAL_LICENSEE' && req.hrm8User.licenseeId) {
@@ -153,18 +153,37 @@ export class FinanceController {
             const licenseeShare = totalRevenue * commissionRate;
             const platformShare = totalRevenue - licenseeShare;
 
-            const settlement = {
-                licenseeId,
-                periodStart: start,
-                periodEnd: end,
-                totalRevenue,
-                commissionRate,
-                licenseeShare,
-                platformShare,
-                billCount: paidBills.length
+            const settlementData = {
+                licensee_id: licenseeId,
+                period_start: start,
+                period_end: end,
+                total_revenue: totalRevenue,
+                licensee_share: licenseeShare,
+                hrm8_share: platformShare,
+                billCount: paidBills.length,
+                status: 'PENDING'
             };
 
-            res.json({ success: true, data: { settlement } });
+            if (commit) {
+                const { SettlementService } = await import('./settlement.service');
+                const { SettlementRepository } = await import('./settlement.repository');
+                const settlementService = new SettlementService(new SettlementRepository());
+                const savedSettlement = await settlementService.createSettlement(settlementData);
+
+                res.json({ success: true, data: { settlement: savedSettlement, committed: true } });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: {
+                    settlement: {
+                        ...settlementData,
+                        commissionRate
+                    },
+                    committed: false
+                }
+            });
         } catch (error) {
             console.error('Calculate settlement error:', error);
             res.status(500).json({ success: false, error: 'Failed to calculate settlement' });

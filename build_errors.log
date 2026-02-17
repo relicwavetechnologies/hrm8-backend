@@ -1,0 +1,16 @@
+src/modules/application/application.service.ts(952,9): error TS2353: Object literal may only specify known properties, and 'interview_notes' does not exist in type 'VideoInterviewInclude<DefaultArgs>'.
+src/modules/application/application.service.ts(993,31): error TS2339: Property 'interviewNote' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/application/application.service.ts(1007,19): error TS2339: Property 'interviewNote' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/application/application.service.ts(1015,31): error TS2339: Property 'interviewNote' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/application/application.service.ts(1018,18): error TS2339: Property 'interviewNote' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'.
+src/modules/task/application-task.controller.ts(5,10): error TS2305: Module '"@prisma/client"' has no exported member 'TaskStatus'.
+src/modules/task/application-task.controller.ts(5,22): error TS2305: Module '"@prisma/client"' has no exported member 'TaskPriority'.
+src/modules/task/application-task.service.ts(3,10): error TS2305: Module '"@prisma/client"' has no exported member 'TaskStatus'.
+src/modules/task/application-task.service.ts(3,22): error TS2305: Module '"@prisma/client"' has no exported member 'TaskPriority'.
+src/modules/task/application-task.service.ts(26,31): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(61,32): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(99,31): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(117,38): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(152,31): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(160,18): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?
+src/modules/task/application-task.service.ts(169,32): error TS2551: Property 'applicationTask' does not exist on type 'PrismaClient<PrismaClientOptions, never, DefaultArgs>'. Did you mean 'application'?

@@ -6,6 +6,19 @@ export class SettlementService extends BaseService {
         super();
     }
 
+    async createSettlement(data: any) {
+        // Generate reference
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+        const reference = `SET-${dateStr}-${randomSuffix}`;
+
+        return this.settlementRepository.create({
+            ...data,
+            reference,
+            generated_at: new Date()
+        });
+    }
+
     private mapToDTO(settlement: any) {
         return {
             id: settlement.id,

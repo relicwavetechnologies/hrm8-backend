@@ -173,15 +173,15 @@ export class ApplicationTaskService {
 
     const stats = {
       total: tasks.length,
-      pending: tasks.filter((t) => t.status === TaskStatus.PENDING).length,
-      inProgress: tasks.filter((t) => t.status === TaskStatus.IN_PROGRESS).length,
-      completed: tasks.filter((t) => t.status === TaskStatus.COMPLETED).length,
-      cancelled: tasks.filter((t) => t.status === TaskStatus.CANCELLED).length,
+      pending: tasks.filter((t: any) => t.status === TaskStatus.PENDING).length,
+      inProgress: tasks.filter((t: any) => t.status === TaskStatus.IN_PROGRESS).length,
+      completed: tasks.filter((t: any) => t.status === TaskStatus.COMPLETED).length,
+      cancelled: tasks.filter((t: any) => t.status === TaskStatus.CANCELLED).length,
       byPriority: {
-        low: tasks.filter((t) => t.priority === TaskPriority.LOW).length,
-        medium: tasks.filter((t) => t.priority === TaskPriority.MEDIUM).length,
-        high: tasks.filter((t) => t.priority === TaskPriority.HIGH).length,
-        urgent: tasks.filter((t) => t.priority === TaskPriority.URGENT).length,
+        low: tasks.filter((t: any) => t.priority === TaskPriority.LOW).length,
+        medium: tasks.filter((t: any) => t.priority === TaskPriority.MEDIUM).length,
+        high: tasks.filter((t: any) => t.priority === TaskPriority.HIGH).length,
+        urgent: tasks.filter((t: any) => t.priority === TaskPriority.URGENT).length,
       },
     };
 

@@ -69,13 +69,16 @@ router.get('/audit-logs/stats', authenticateHrm8, auditLogController.getStats);
 router.get('/audit-logs/:entityType/:entityId', authenticateHrm8, auditLogController.getByEntity);
 
 // Commission Routes
-router.get('/commissions', authenticateHrm8, commissionController.getAll);
-router.post('/commissions', authenticateHrm8, commissionController.create);
-router.post('/commissions/pay', authenticateHrm8, commissionController.processPayments);
-router.get('/commissions/regional', authenticateHrm8, commissionController.getRegional);
-router.get('/commissions/:id', authenticateHrm8, commissionController.getById);
-router.put('/commissions/:id/confirm', authenticateHrm8, commissionController.confirm);
-router.put('/commissions/:id/pay', authenticateHrm8, commissionController.markAsPaid);
+router.get('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.getAll);
+router.post('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.create);
+router.post('/commissions/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.processPayments);
+router.get('/commissions/regional', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getRegional);
+router.get('/commissions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getById);
+router.put('/commissions/:id/confirm', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.confirm);
+router.put('/commissions/:id/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.markAsPaid);
+router.put('/commissions/:id/dispute', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.dispute);
+router.put('/commissions/:id/resolve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.resolveDispute);
+router.put('/commissions/:id/clawback', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.clawback);
 
 // Compliance Routes
 router.get('/compliance/alerts', authenticateHrm8, complianceController.getAlerts);
@@ -85,18 +88,18 @@ router.get('/compliance/audit/:entityType/:entityId', authenticateHrm8, complian
 
 // Job Allocation Routes
 router.get('/job-allocation/stats', authenticateHrm8, jobAllocationController.getStats);
-router.post('/job-allocation', authenticateHrm8, jobAllocationController.allocate);
+router.post('/job-allocation', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), jobAllocationController.allocate);
 router.get('/job-allocation/licensee/:id', authenticateHrm8, jobAllocationController.getByLicensee);
-router.delete('/job-allocation/:id', authenticateHrm8, jobAllocationController.deallocate);
+router.delete('/job-allocation/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), jobAllocationController.deallocate);
 
-router.post('/jobs/:jobId/assign-consultant', authenticateHrm8, jobAllocationController.assignConsultant);
-router.post('/jobs/:jobId/assign-region', authenticateHrm8, jobAllocationController.assignRegion);
-router.post('/jobs/:jobId/unassign', authenticateHrm8, jobAllocationController.unassign);
+router.post('/jobs/:jobId/assign-consultant', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), jobAllocationController.assignConsultant);
+router.post('/jobs/:jobId/assign-region', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), jobAllocationController.assignRegion);
+router.post('/jobs/:jobId/unassign', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), jobAllocationController.unassign);
 router.get('/jobs/:jobId/consultants', authenticateHrm8, jobAllocationController.getJobConsultants);
 router.get('/jobs/:jobId/assignment-info', authenticateHrm8, jobAllocationController.getAssignmentInfo);
 router.get('/jobs/allocation', authenticateHrm8, jobAllocationController.getJobsForAllocation);
 router.get('/jobs/detail/:jobId', authenticateHrm8, jobAllocationController.getJobDetail);
-router.post('/jobs/:jobId/auto-assign', authenticateHrm8, jobAllocationController.autoAssign);
+router.post('/jobs/:jobId/auto-assign', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), jobAllocationController.autoAssign);
 router.get('/consultants/for-assignment', authenticateHrm8, jobAllocationController.getConsultantsForAssignment);
 
 // Regional Licensee Routes
@@ -131,40 +134,40 @@ router.get('/companies/:id', authenticateHrm8, regionalCompanyController.getById
 router.get('/companies/:id/jobs', authenticateHrm8, regionalCompanyController.getCompanyJobs);
 
 // Lead Conversion Routes
-router.get('/conversion-requests', authenticateHrm8, leadConversionController.getAll);
-router.get('/conversion-requests/:id', authenticateHrm8, leadConversionController.getOne);
-router.put('/conversion-requests/:id/approve', authenticateHrm8, leadConversionController.approve);
-router.put('/conversion-requests/:id/decline', authenticateHrm8, leadConversionController.decline);
+router.get('/conversion-requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getAll);
+router.get('/conversion-requests/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getOne);
+router.put('/conversion-requests/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), leadConversionController.approve);
+router.put('/conversion-requests/:id/decline', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), leadConversionController.decline);
 
 // Careers Request Routes
-router.get('/careers/requests', authenticateHrm8, careersRequestController.getRequests);
-router.post('/careers/:id/approve', authenticateHrm8, careersRequestController.approve);
-router.post('/careers/:id/reject', authenticateHrm8, careersRequestController.reject);
+router.get('/careers/requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), careersRequestController.getRequests);
+router.post('/careers/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), careersRequestController.approve);
+router.post('/careers/:id/reject', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), careersRequestController.reject);
 
 // Refund Routes
-router.get('/refund-requests', authenticateHrm8, refundController.getAll);
-router.put('/refund-requests/:id/approve', authenticateHrm8, refundController.approve);
-router.put('/refund-requests/:id/reject', authenticateHrm8, refundController.reject);
-router.put('/refund-requests/:id/complete', authenticateHrm8, refundController.complete);
+router.get('/refund-requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), refundController.getAll);
+router.put('/refund-requests/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), refundController.approve);
+router.put('/refund-requests/:id/reject', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), refundController.reject);
+router.put('/refund-requests/:id/complete', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), refundController.complete);
 
 // Pricing Routes
 router.get('/pricing/products', authenticateHrm8, pricingController.getProducts);
-router.post('/pricing/products', authenticateHrm8, pricingController.upsertProduct);
-router.delete('/pricing/products/:id', authenticateHrm8, pricingController.deleteProduct);
+router.post('/pricing/products', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.upsertProduct);
+router.delete('/pricing/products/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.deleteProduct);
 
 router.get('/pricing/price-books', authenticateHrm8, pricingController.getPriceBooks);
-router.post('/pricing/price-books', authenticateHrm8, pricingController.createPriceBook);
-router.put('/pricing/price-books/:id', authenticateHrm8, pricingController.updatePriceBook);
-router.delete('/pricing/price-books/:id', authenticateHrm8, pricingController.deletePriceBook);
+router.post('/pricing/price-books', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.createPriceBook);
+router.put('/pricing/price-books/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.updatePriceBook);
+router.delete('/pricing/price-books/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.deletePriceBook);
 
-router.post('/pricing/tiers/:priceBookId', authenticateHrm8, pricingController.createTier);
-router.put('/pricing/tiers/:id', authenticateHrm8, pricingController.updateTier);
-router.delete('/pricing/tiers/:id', authenticateHrm8, pricingController.deleteTier);
+router.post('/pricing/tiers/:priceBookId', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.createTier);
+router.put('/pricing/tiers/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.updateTier);
+router.delete('/pricing/tiers/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.deleteTier);
 
-router.get('/pricing/promo-codes', authenticateHrm8, pricingController.getPromoCodes);
-router.post('/pricing/promo-codes', authenticateHrm8, pricingController.createPromoCode);
-router.put('/pricing/promo-codes/:id', authenticateHrm8, pricingController.updatePromoCode);
-router.delete('/pricing/promo-codes/:id', authenticateHrm8, pricingController.deletePromoCode);
+router.get('/pricing/promo-codes', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.getPromoCodes);
+router.post('/pricing/promo-codes', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.createPromoCode);
+router.put('/pricing/promo-codes/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.updatePromoCode);
+router.delete('/pricing/promo-codes/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.deletePromoCode);
 router.post('/pricing/promo-codes/validate', authenticateHrm8, pricingController.validatePromoCode);
 
 // Region Routes
@@ -182,76 +185,76 @@ router.post('/regions/:regionId/transfer', authenticateHrm8, requireHrm8Role(['G
 router.post('/regions/:regionId/transfer-ownership', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionController.transferOwnership);
 
 // Staff Management Routes
-router.get('/consultants/overview', authenticateHrm8, staffController.getOverview);
-router.get('/consultants', authenticateHrm8, staffController.getAll);
-router.get('/consultants/:id', authenticateHrm8, staffController.getById);
-router.post('/consultants', authenticateHrm8, staffController.create);
-router.put('/consultants/:id', authenticateHrm8, staffController.update);
-router.post('/consultants/:id/assign-region', authenticateHrm8, staffController.assignRegion);
-router.post('/consultants/:id/suspend', authenticateHrm8, staffController.suspend);
-router.post('/consultants/:id/reactivate', authenticateHrm8, staffController.reactivate);
-router.delete('/consultants/:id', authenticateHrm8, staffController.delete);
-router.post('/consultants/generate-email', authenticateHrm8, staffController.generateEmail);
-router.post('/consultants/:id/reassign-jobs', authenticateHrm8, staffController.reassignJobs);
-router.get('/consultants/:id/pending-tasks', authenticateHrm8, staffController.getPendingTasks);
-router.get('/consultants/:id/reassignment-options', authenticateHrm8, staffController.getReassignmentOptions);
-router.put('/consultants/:id/change-role', authenticateHrm8, staffController.changeRole);
-router.post('/consultants/:id/invite', authenticateHrm8, staffController.invite);
+router.get('/consultants/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.getOverview);
+router.get('/consultants', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.getAll);
+router.get('/consultants/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.getById);
+router.post('/consultants', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.create);
+router.put('/consultants/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.update);
+router.post('/consultants/:id/assign-region', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), staffController.assignRegion);
+router.post('/consultants/:id/suspend', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.suspend);
+router.post('/consultants/:id/reactivate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.reactivate);
+router.delete('/consultants/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), staffController.delete);
+router.post('/consultants/generate-email', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.generateEmail);
+router.post('/consultants/:id/reassign-jobs', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.reassignJobs);
+router.get('/consultants/:id/pending-tasks', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.getPendingTasks);
+router.get('/consultants/:id/reassignment-options', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.getReassignmentOptions);
+router.put('/consultants/:id/change-role', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), staffController.changeRole);
+router.post('/consultants/:id/invite', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), staffController.invite);
 
 // Analytics Routes
 router.get('/overview', authenticateHrm8, overviewController.getOverview);
-router.get('/analytics/overview', authenticateHrm8, analyticsController.getPlatformOverview);
-router.get('/analytics/trends', authenticateHrm8, analyticsController.getPlatformTrends);
+router.get('/analytics/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), analyticsController.getPlatformOverview);
+router.get('/analytics/trends', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), analyticsController.getPlatformTrends);
 router.get('/analytics/top-companies', authenticateHrm8, analyticsController.getTopCompanies);
-router.get('/analytics/regional/:regionId/operational', authenticateHrm8, analyticsController.getOperationalStats);
-router.get('/analytics/regional/:regionId/companies', authenticateHrm8, analyticsController.getRegionalCompanies);
+router.get('/analytics/regional/:regionId/operational', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), analyticsController.getOperationalStats);
+router.get('/analytics/regional/:regionId/companies', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), analyticsController.getRegionalCompanies);
 
 // Regional Sales Routes
-router.get('/sales/regional/opportunities', authenticateHrm8, regionalSalesController.getOpportunities);
-router.get('/sales/regional/stats', authenticateHrm8, regionalSalesController.getStats);
-router.get('/sales/regional/activities', authenticateHrm8, regionalSalesController.getActivities);
-router.get('/leads/regional', authenticateHrm8, regionalSalesController.getLeads);
-router.post('/leads/:leadId/reassign', authenticateHrm8, regionalSalesController.reassignLead);
+router.get('/sales/regional/opportunities', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalSalesController.getOpportunities);
+router.get('/sales/regional/stats', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalSalesController.getStats);
+router.get('/sales/regional/activities', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalSalesController.getActivities);
+router.get('/leads/regional', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalSalesController.getLeads);
+router.post('/leads/:leadId/reassign', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalSalesController.reassignLead);
 
 // Revenue Routes
-router.get('/revenue/regional', authenticateHrm8, revenueController.getAll);
-router.get('/revenue/regional/:id', authenticateHrm8, revenueController.getById);
-router.put('/revenue/regional/:id/confirm', authenticateHrm8, revenueController.confirm);
-router.put('/revenue/regional/:id/pay', authenticateHrm8, revenueController.markAsPaid);
-router.get('/revenue/analytics/company-breakdown', authenticateHrm8, revenueController.getCompanyBreakdown);
-router.get('/revenue/dashboard', authenticateHrm8, revenueController.getDashboard);
-router.get('/revenue/summary', authenticateHrm8, revenueController.getSummary);
+router.get('/revenue/regional', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getAll);
+router.get('/revenue/regional/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getById);
+router.put('/revenue/regional/:id/confirm', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), revenueController.confirm);
+router.put('/revenue/regional/:id/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), revenueController.markAsPaid);
+router.get('/revenue/analytics/company-breakdown', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getCompanyBreakdown);
+router.get('/revenue/dashboard', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getDashboard);
+router.get('/revenue/summary', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getSummary);
 
 // Withdrawal Routes
-router.get('/admin/billing/withdrawals', authenticateHrm8, withdrawalController.getPendingWithdrawals);
-router.post('/admin/billing/withdrawals/:id/approve', authenticateHrm8, withdrawalController.approve);
-router.post('/admin/billing/withdrawals/:id/reject', authenticateHrm8, withdrawalController.reject);
-router.post('/admin/billing/withdrawals/:id/process', authenticateHrm8, withdrawalController.processPayment);
+router.get('/admin/billing/withdrawals', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.getPendingWithdrawals);
+router.post('/admin/billing/withdrawals/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.approve);
+router.post('/admin/billing/withdrawals/:id/reject', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.reject);
+router.post('/admin/billing/withdrawals/:id/process', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.processPayment);
 
 // Settlement Routes
-router.get('/admin/billing/settlements', authenticateHrm8, settlementController.getAll);
-router.get('/admin/billing/settlements/stats', authenticateHrm8, settlementController.getStats);
-router.put('/finance/settlements/:id/pay', authenticateHrm8, settlementController.markAsPaid); // Matching frontend error route
+router.get('/admin/billing/settlements', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), settlementController.getAll);
+router.get('/admin/billing/settlements/stats', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), settlementController.getStats);
+router.put('/finance/settlements/:id/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), settlementController.markAsPaid); // Matching frontend error route
 
 // Settings Routes
-router.get('/settings/overview', authenticateHrm8, hrm8Controller.getSystemOverview);
-router.get('/settings', authenticateHrm8, settingsController.getSettings);
-router.put('/settings', authenticateHrm8, settingsController.updateSetting);
+router.get('/settings/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8Controller.getSystemOverview);
+router.get('/settings', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), settingsController.getSettings);
+router.put('/settings', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), settingsController.updateSetting);
 
 // Integrations Routes (HRM8 Settings Workspace)
 router.get('/integrations/catalog', authenticateHrm8, hrm8IntegrationsController.getCatalog);
-router.post('/integrations/global-config', authenticateHrm8, hrm8IntegrationsController.upsertGlobalConfig);
-router.get('/integrations/usage', authenticateHrm8, hrm8IntegrationsController.getUsage);
-router.get('/integrations/company/:companyId', authenticateHrm8, hrm8IntegrationsController.getCompanyIntegrations);
-router.post('/integrations/company/:companyId', authenticateHrm8, hrm8IntegrationsController.createCompanyIntegration);
-router.put('/integrations/company/:companyId/:id', authenticateHrm8, hrm8IntegrationsController.updateCompanyIntegration);
-router.delete('/integrations/company/:companyId/:id', authenticateHrm8, hrm8IntegrationsController.deleteCompanyIntegration);
+router.post('/integrations/global-config', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.upsertGlobalConfig);
+router.get('/integrations/usage', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.getUsage);
+router.get('/integrations/company/:companyId', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.getCompanyIntegrations);
+router.post('/integrations/company/:companyId', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.createCompanyIntegration);
+router.put('/integrations/company/:companyId/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.updateCompanyIntegration);
+router.delete('/integrations/company/:companyId/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), hrm8IntegrationsController.deleteCompanyIntegration);
 
 // Finance Routes
-router.get('/finance/overview', authenticateHrm8, financeController.getOverview);
-router.get('/finance/invoices', authenticateHrm8, financeController.getInvoices);
-router.get('/finance/dunning', authenticateHrm8, financeController.getDunning);
-router.post('/finance/settlements/calculate', authenticateHrm8, financeController.calculateSettlement);
+router.get('/finance/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), financeController.getOverview);
+router.get('/finance/invoices', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), financeController.getInvoices);
+router.get('/finance/dunning', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), financeController.getDunning);
+router.post('/finance/settlements/calculate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), financeController.calculateSettlement);
 
 // Capacity Routes
 router.get('/consultants/capacity-warnings', authenticateHrm8, capacityController.getCapacityWarnings);
