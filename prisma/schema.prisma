@@ -133,6 +133,9 @@ model User {
   hiring_teams             JobHiringTeamMember[]
   alert_rules              UserAlertRule[]              @relation("UserAlertRules")
   notification_preferences UserNotificationPreferences? @relation("UserNotificationPreferences")
+  created_tasks            ApplicationTask[]            @relation("TaskCreator")
+  assigned_tasks           ApplicationTask[]            @relation("TaskAssignee")
+  interview_notes          InterviewNote[]
 
   @@index([email])
   @@index([company_id])
@@ -733,6 +736,7 @@ model Application {
   slack_logs                 SlackLog[]
   sms_logs                   SmsLog[]
   video_interview            VideoInterview[]
+  application_tasks          ApplicationTask[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
@@ -743,6 +747,32 @@ model Application {
   @@index([score])
   @@index([shortlisted])
   @@index([screening_status])
+}
+
+model ApplicationTask {
+  id             String       @id @default(uuid())
+  application_id String       @map("application_id")
+  created_by     String       @map("created_by")
+  assigned_to    String?      @map("assigned_to")
+  title          String
+  description    String?
+  status         TaskStatus   @default(PENDING)
+  priority       TaskPriority @default(MEDIUM)
+  type           String?
+  due_date       DateTime?    @map("due_date")
+  completed_at   DateTime?    @map("completed_at")
+  created_at     DateTime     @default(now()) @map("created_at")
+  updated_at     DateTime     @default(now()) @updatedAt @map("updated_at")
+
+  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  creator     User        @relation("TaskCreator", fields: [created_by], references: [id])
+  assignee    User?       @relation("TaskAssignee", fields: [assigned_to], references: [id])
+
+  @@index([application_id])
+  @@index([assigned_to])
+  @@index([status])
+  @@index([priority])
+  @@index([due_date])
 }
 
 model JobInvitation {
@@ -1268,6 +1298,7 @@ model VideoInterview {
   rescheduled_by         String?
   rescheduled_from       String?
   interview_feedback     InterviewFeedback[]
+  interview_notes        InterviewNote[]
   application            Application              @relation(fields: [application_id], references: [id], onDelete: Cascade)
   job_round              JobRound?                @relation(fields: [job_round_id], references: [id])
 
@@ -1278,6 +1309,22 @@ model VideoInterview {
   @@index([status])
   @@index([is_auto_scheduled])
   @@index([job_round_id])
+}
+
+model InterviewNote {
+  id           String   @id @default(uuid())
+  interview_id String   @map("interview_id")
+  author_id    String   @map("author_id")
+  author_name  String   @map("author_name")
+  content      String
+  created_at   DateTime @default(now()) @map("created_at")
+  updated_at   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  interview VideoInterview @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+  author    User           @relation(fields: [author_id], references: [id])
+
+  @@index([interview_id])
+  @@index([author_id])
 }
 
 model CandidateCertification {
@@ -1687,6 +1734,8 @@ model JobHiringTeamMember {
   user_id      String?                   @map("user_id")
   email        String
   name         String?
+  role         HiringTeamRole            @default(MEMBER)
+  permissions  Json?
   status       HiringTeamMemberStatus    @default(PENDING)
   invited_at   DateTime                  @default(now()) @map("invited_at")
   joined_at    DateTime?                 @map("joined_at")
@@ -2585,6 +2634,17 @@ enum HiringTeamMemberStatus {
   PENDING
 }
 
+enum HiringTeamRole {
+  ADMIN
+  SHORTLISTING
+  MEMBER
+  HIRING_MANAGER
+  RECRUITER
+  INTERVIEWER
+  COORDINATOR
+  APPROVER
+}
+
 enum UserRole {
   SUPER_ADMIN
   ADMIN
@@ -3286,4 +3346,18 @@ enum SmsStatus {
   SENT
   DELIVERED
   FAILED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
 }

@@ -74,4 +74,38 @@ export class AuthRepository extends BaseRepository {
       data: { used_at: new Date() },
     });
   }
+
+  // Signup Requests
+  async createSignupRequest(data: Prisma.SignupRequestCreateInput) {
+    return this.prisma.signupRequest.create({
+      data,
+    });
+  }
+
+  // Verification Tokens
+  async createVerificationToken(data: Prisma.VerificationTokenCreateInput) {
+    return this.prisma.verificationToken.create({
+      data,
+    });
+  }
+
+  async findVerificationToken(token: string) {
+    return this.prisma.verificationToken.findUnique({
+      where: { token },
+      include: { company: true },
+    });
+  }
+
+  async markVerificationTokenUsed(id: string) {
+    return this.prisma.verificationToken.update({
+      where: { id },
+      data: { used_at: new Date() },
+    });
+  }
+
+  async findUsersByCompanyId(companyId: string): Promise<User[]> {
+    return this.prisma.user.findMany({
+      where: { company_id: companyId },
+    });
+  }
 }

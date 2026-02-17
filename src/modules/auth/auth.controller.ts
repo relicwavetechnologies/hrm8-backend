@@ -2,6 +2,7 @@ import { Response, Request } from 'express';
 import { BaseController } from '../../core/controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
+import { CompanyRepository } from '../company/company.repository';
 import { getSessionCookieOptions } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
 import { passwordResetService } from './password-reset.service';
@@ -11,7 +12,7 @@ export class AuthController extends BaseController {
 
   constructor() {
     super();
-    this.authService = new AuthService(new AuthRepository());
+    this.authService = new AuthService(new AuthRepository(), new CompanyRepository());
   }
 
   login = async (req: Request, res: Response) => {
@@ -58,11 +59,11 @@ export class AuthController extends BaseController {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
       const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, { 
-        user: { 
-          ...userData, 
-          companyId: user.company_id 
-        } 
+      return this.sendSuccess(res, {
+        user: {
+          ...userData,
+          companyId: user.company_id
+        }
       });
     } catch (error) {
       return this.sendError(res, error);
@@ -86,6 +87,67 @@ export class AuthController extends BaseController {
       return this.sendSuccess(res, {
         user: { ...userData, companyId: user.company_id }
       });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  signup = async (req: Request, res: Response) => {
+    try {
+      const result = await this.authService.signup(req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  registerCompany = async (req: Request, res: Response) => {
+    try {
+      const result = await this.authService.registerCompany(req.body);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  verifyCompany = async (req: Request, res: Response) => {
+    try {
+      const { token, companyId } = req.body;
+      const result = await this.authService.verifyCompany(token, companyId);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resendVerification = async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      const result = await this.authService.resendVerification(email);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  forgotPassword = async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      await passwordResetService.requestPasswordReset(email, {
+        ip: req.ip as string,
+        userAgent: req.get('user-agent'),
+      });
+      return this.sendSuccess(res, { message: 'If an account exists with that email, a password reset link has been sent.' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  resetPassword = async (req: Request, res: Response) => {
+    try {
+      const { token, password } = req.body;
+      await passwordResetService.resetPassword(token, password);
+      return this.sendSuccess(res, { message: 'Password reset successfully' });
     } catch (error) {
       return this.sendError(res, error);
     }
