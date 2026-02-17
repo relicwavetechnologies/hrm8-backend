@@ -2817,6 +2817,8 @@ enum CommissionStatus {
   CONFIRMED
   PAID
   CANCELLED
+  DISPUTED
+  CLAWBACK
 }
 
 enum CommissionType {
@@ -3293,6 +3295,8 @@ enum VirtualTransactionType {
   TRANSFER_OUT
   ASSESSMENT_CREDIT_DEDUCTION
   ASSESSMENT_CREDIT_REFUND
+  COMMISSION_CLAWBACK
+  COMMISSION_ADJUSTMENT
 }
 
 enum TransactionDirection {

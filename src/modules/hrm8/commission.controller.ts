@@ -85,4 +85,37 @@ export class CommissionController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    dispute = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const { reason } = req.body;
+            const result = await this.commissionService.dispute(id, reason);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    resolveDispute = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const { resolution, notes } = req.body;
+            const result = await this.commissionService.resolveDispute(id, resolution, notes);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    clawback = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const { reason } = req.body;
+            const result = await this.commissionService.clawback(id, reason);
+            return this.sendSuccess(res, result);
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }
