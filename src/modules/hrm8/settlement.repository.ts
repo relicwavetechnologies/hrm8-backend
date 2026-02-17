@@ -57,4 +57,10 @@ export class SettlementRepository {
             data
         });
     }
+
+    async create(data: any) {
+        return prisma.settlement.create({
+            data
+        });
+    }
 }

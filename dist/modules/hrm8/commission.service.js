@@ -303,5 +303,102 @@ class CommissionService extends service_1.BaseService {
             where: { region_id: regionId }
         });
     }
+    /**
+     * Dispute a commission
+     */
+    async dispute(id, reason) {
+        const commission = await this.commissionRepository.findById(id);
+        if (!commission)
+            throw new http_exception_1.HttpException(404, 'Commission not found');
+        return this.commissionRepository.update(id, {
+            status: client_1.CommissionStatus.DISPUTED,
+            notes: commission.notes ? `${commission.notes}\n[DISPUTE]: ${reason}` : `[DISPUTE]: ${reason}`
+        });
+    }
+    /**
+     * Resolve a commission dispute
+     */
+    async resolveDispute(id, resolution, notes) {
+        const commission = await this.commissionRepository.findById(id);
+        if (!commission)
+            throw new http_exception_1.HttpException(404, 'Commission not found');
+        if (commission.status !== client_1.CommissionStatus.DISPUTED) {
+            throw new http_exception_1.HttpException(400, 'Commission is not disputed');
+        }
+        const resolutionNote = `[RESOLUTION]: ${resolution} - ${notes || ''}`;
+        const updatedNotes = commission.notes ? `${commission.notes}\n${resolutionNote}` : resolutionNote;
+        if (resolution === 'VALID') {
+            // Restore to previous valid state (default to CONFIRMED if unclear, or check history? simplified: CONFIRMED)
+            // If it was PAID, we should probably mark as PAID.
+            // For now, let's restore to CONFIRMED as a safe default for active commissions.
+            // TODO: Store previous status in metadata if strictness required.
+            return this.commissionRepository.update(id, {
+                status: client_1.CommissionStatus.CONFIRMED,
+                notes: updatedNotes
+            });
+        }
+        else {
+            // Invalid commission -> Clawback
+            return this.clawback(id, `Dispute resolved as INVALID. ${notes || ''}`);
+        }
+    }
+    /**
+     * Clawback (Reverse) a commission
+     */
+    async clawback(id, reason) {
+        const commission = await this.commissionRepository.findById(id);
+        if (!commission)
+            throw new http_exception_1.HttpException(404, 'Commission not found');
+        if (commission.status === client_1.CommissionStatus.CLAWBACK || commission.status === client_1.CommissionStatus.CANCELLED) {
+            throw new http_exception_1.HttpException(400, 'Commission already reversed');
+        }
+        // If PENDING, just cancel
+        if (commission.status === client_1.CommissionStatus.PENDING) {
+            return this.commissionRepository.update(id, {
+                status: client_1.CommissionStatus.CANCELLED,
+                notes: commission.notes ? `${commission.notes}\n[CANCELLED]: ${reason}` : `[CANCELLED]: ${reason}`
+            });
+        }
+        // If CONFIRMED, PAID, or DISPUTED (post-confirm), we need to deduct wallet
+        return this.commissionRepository.transaction(async (tx) => {
+            const amount = Number(commission.amount);
+            const consultantId = commission.consultant_id;
+            const account = await tx.virtualAccount.findUnique({
+                where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+            });
+            if (account) {
+                const balanceAfter = Number(account.balance) - amount;
+                await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: client_1.VirtualTransactionType.COMMISSION_CLAWBACK,
+                        amount: amount,
+                        balance_after: balanceAfter,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: `Clawback: ${reason}`,
+                        reference_id: commission.id,
+                        reference_type: 'COMMISSION'
+                    }
+                });
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: {
+                        balance: { decrement: amount },
+                        // Do we decrement total_credits? Usually no, total_credits is historical. 
+                        // We might want a total_debits field or just leave balance.
+                        // Leaving total_credits as is (historical earnings).
+                    }
+                });
+            }
+            return tx.commission.update({
+                where: { id },
+                data: {
+                    status: client_1.CommissionStatus.CLAWBACK,
+                    notes: commission.notes ? `${commission.notes}\n[CLAWBACK]: ${reason}` : `[CLAWBACK]: ${reason}`
+                }
+            });
+        });
+    }
 }
 exports.CommissionService = CommissionService;

@@ -57,5 +57,10 @@ class SettlementRepository {
             data
         });
     }
+    async create(data) {
+        return prisma_1.prisma.settlement.create({
+            data
+        });
+    }
 }
 exports.SettlementRepository = SettlementRepository;

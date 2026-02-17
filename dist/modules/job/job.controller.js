@@ -112,6 +112,19 @@ class JobController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        this.upgradeToManagedService = async (req, res) => {
+            try {
+                if (!req.user)
+                    return this.sendError(res, new Error('Not authenticated'));
+                const { id } = req.params;
+                const { servicePackage } = req.body;
+                const job = await this.jobService.upgradeToManagedService(id, req.user.companyId, req.user.id, { servicePackage });
+                return this.sendSuccess(res, { job });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         this.saveDraft = async (req, res) => {
             try {
                 if (!req.user)
