@@ -7,7 +7,7 @@ export class InterviewController extends BaseController {
 
   create = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
+      const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes, useMeetLink } = req.body;
 
       const interview = await InterviewService.createInterview({
         applicationId,
@@ -17,7 +17,9 @@ export class InterviewController extends BaseController {
         meetingLink,
         interviewerIds,
         notes,
-        scheduledBy: req.user?.id || 'system'
+        scheduledBy: req.user?.id || 'system',
+        useMeetLink,
+        companyId: req.user?.companyId,
       });
 
       return this.sendSuccess(res, { interview });

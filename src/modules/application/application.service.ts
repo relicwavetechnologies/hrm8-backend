@@ -880,6 +880,8 @@ export class ApplicationService extends BaseService {
     type: string;
     interviewerIds?: string[];
     notes?: string;
+    useMeetLink?: boolean;
+    companyId?: string;
   }): Promise<any> {
     const application = await this.applicationRepository.findById(params.applicationId);
     if (!application) {
@@ -894,6 +896,8 @@ export class ApplicationService extends BaseService {
       type: params.type,
       interviewerIds: params.interviewerIds,
       notes: params.notes,
+      useMeetLink: params.useMeetLink,
+      companyId: params.companyId,
     });
 
     // Send email notifications to interviewers for IN_PERSON and PANEL types

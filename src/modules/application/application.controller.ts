@@ -491,12 +491,11 @@ export class ApplicationController extends BaseController {
     try {
       if (!req.user) throw new Error('Unauthorized');
       const { id } = req.params as { id: string };
-      const { scheduledDate, duration, type, interviewerIds, notes } = req.body;
+      const { scheduledDate, duration, type, interviewerIds, notes, useMeetLink } = req.body;
 
       if (!scheduledDate || !duration || !type) {
         return this.sendError(res, new Error('scheduledDate, duration, and type are required'), 400);
       }
-
       const interview = await this.applicationService.scheduleInterview({
         applicationId: id,
         scheduledBy: req.user.id,
@@ -505,6 +504,8 @@ export class ApplicationController extends BaseController {
         type,
         interviewerIds: interviewerIds || [],
         notes,
+        useMeetLink,
+        companyId: req.user.companyId,
       });
 
       return this.sendSuccess(res, { interview });

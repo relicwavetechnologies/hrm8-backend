@@ -135,12 +135,34 @@ export class InterviewService {
     meetingLink?: string;
     interviewerIds?: string[];
     notes?: string;
+    useMeetLink?: boolean;
+    companyId?: string;
   }) {
     const application = await prisma.application.findUnique({
       where: { id: params.applicationId },
       include: { candidate: true, job: true }
     });
     if (!application) throw new Error('Application not found');
+
+    let meetingLink = params.meetingLink;
+
+    // Generate Google Meet link if requested
+    if (params.useMeetLink && params.companyId) {
+      const { googleOAuthService } = await import('../integration/google-oauth.service');
+      const meetLink = await googleOAuthService.createMeetingEvent(
+        params.scheduledBy,
+        params.companyId,
+        {
+          summary: `Interview: ${application.job.title} with ${application.candidate?.first_name || ''} ${application.candidate?.last_name || ''}`,
+          start: params.scheduledDate,
+          end: new Date(params.scheduledDate.getTime() + params.duration * 60000),
+          attendees: application.candidate?.email ? [{ email: application.candidate.email }] : [],
+        }
+      );
+      if (meetLink) {
+        meetingLink = meetLink;
+      }
+    }
 
     // Create
     const interview = await prisma.videoInterview.create({
@@ -151,7 +173,7 @@ export class InterviewService {
         job_round_id: params.jobRoundId,
         scheduled_date: params.scheduledDate,
         duration: params.duration,
-        meeting_link: params.meetingLink,
+        meeting_link: meetingLink,
         status: 'SCHEDULED',
         type: params.type as any,
         interviewer_ids: params.interviewerIds || [],
