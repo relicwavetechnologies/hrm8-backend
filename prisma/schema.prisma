@@ -1213,6 +1213,7 @@ model RegionalRevenue {
   hrm8_share     Float             @map("hrm8_share")
   status         RevenueStatus     @default(PENDING)
   paid_at        DateTime?         @map("paid_at")
+  payment_reference String?        @map("payment_reference")
   created_at     DateTime          @default(now()) @map("created_at")
   updated_at     DateTime          @default(now()) @updatedAt @map("updated_at")
   licensee       RegionalLicensee? @relation(fields: [licensee_id], references: [id])
