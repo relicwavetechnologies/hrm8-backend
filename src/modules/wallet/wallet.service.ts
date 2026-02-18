@@ -11,6 +11,22 @@ import { CurrencyAssignmentService } from '../pricing/currency-assignment.servic
 import { PricingAuditService } from '../pricing/pricing-audit.service';
 
 export class WalletService {
+  private static async resolveDisplayCurrency(
+    ownerType: VirtualAccountOwner,
+    ownerId: string
+  ): Promise<string> {
+    if (ownerType !== 'COMPANY') {
+      return 'USD';
+    }
+
+    try {
+      const { billingCurrency } = await CurrencyAssignmentService.getCompanyCurrencies(ownerId);
+      return billingCurrency || 'USD';
+    } catch {
+      return 'USD';
+    }
+  }
+
   /**
    * Get or create a wallet account for an owner
    */
@@ -43,6 +59,7 @@ export class WalletService {
    */
   static async getAccount(ownerType: VirtualAccountOwner, ownerId: string) {
     const account = await this.getOrCreateAccount(ownerType, ownerId);
+    const currency = await this.resolveDisplayCurrency(ownerType, ownerId);
 
     return {
       id: account.id,
@@ -51,7 +68,7 @@ export class WalletService {
       balance: account.balance,
       totalCredits: account.total_credits || 0,
       totalDebits: account.total_debits || 0,
-      currency: 'USD',
+      currency,
       status: account.status,
       createdAt: account.created_at,
       updatedAt: account.updated_at
@@ -86,11 +103,12 @@ export class WalletService {
    */
   static async getBalance(ownerType: VirtualAccountOwner, ownerId: string) {
     const account = await this.getOrCreateAccount(ownerType, ownerId);
+    const currency = await this.resolveDisplayCurrency(ownerType, ownerId);
     return {
       balance: account.balance,
       totalCredits: account.total_credits || 0,
       totalDebits: account.total_debits || 0,
-      currency: 'USD',
+      currency,
       status: account.status
     };
   }

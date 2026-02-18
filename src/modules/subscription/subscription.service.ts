@@ -50,6 +50,53 @@ export class SubscriptionService {
     } = input;
 
     return await prisma.$transaction(async (tx) => {
+      const normalizedSalesAgentId =
+        typeof salesAgentId === 'string' && salesAgentId.trim().length > 0
+          ? salesAgentId.trim()
+          : undefined;
+
+      // Resolve company-level attribution once; used for subscription snapshot + commission fallback.
+      const companyAttribution = await tx.company.findUnique({
+        where: { id: companyId },
+        select: { sales_agent_id: true, referred_by: true }
+      });
+
+      // Never write invalid consultant IDs to sales_agent_id.
+      let validatedInputSalesAgentId: string | null = null;
+      if (normalizedSalesAgentId) {
+        const consultant = await tx.consultant.findUnique({
+          where: { id: normalizedSalesAgentId },
+          select: { id: true }
+        });
+        if (consultant?.id) {
+          validatedInputSalesAgentId = consultant.id;
+        } else {
+          console.warn(
+            `[SubscriptionService] Ignoring invalid salesAgentId "${normalizedSalesAgentId}" for company ${companyId}`
+          );
+        }
+      }
+
+      let validatedCompanySalesAgentId: string | null = null;
+      if (companyAttribution?.sales_agent_id) {
+        const consultant = await tx.consultant.findUnique({
+          where: { id: companyAttribution.sales_agent_id },
+          select: { id: true }
+        });
+        if (consultant?.id) {
+          validatedCompanySalesAgentId = consultant.id;
+        } else {
+          console.warn(
+            `[SubscriptionService] Ignoring invalid company.sales_agent_id "${companyAttribution.sales_agent_id}" for company ${companyId}`
+          );
+        }
+      }
+
+      const resolvedSalesAgentId =
+        validatedInputSalesAgentId ||
+        validatedCompanySalesAgentId ||
+        null;
+
       // 1. Get company currency information
       const { pricingPeg, billingCurrency } =
         await CurrencyAssignmentService.getCompanyCurrencies(companyId);
@@ -114,7 +161,7 @@ export class SubscriptionService {
           jobs_used: 0,
           prepaid_balance: resolvedBasePrice,
           auto_renew: autoRenew,
-          sales_agent_id: salesAgentId,
+          sales_agent_id: resolvedSalesAgentId,
           referred_by: referredBy,
           price_book_id: priceBookId,
           pricing_peg: pricingPeg,
@@ -123,12 +170,8 @@ export class SubscriptionService {
       });
 
       // Atomically create subscription-sale commission when a valid consultant attribution exists.
-      const companyAttribution = await tx.company.findUnique({
-        where: { id: companyId },
-        select: { sales_agent_id: true, referred_by: true }
-      });
       const commissionConsultantId =
-        salesAgentId ||
+        resolvedSalesAgentId ||
         companyAttribution?.sales_agent_id ||
         companyAttribution?.referred_by ||
         null;

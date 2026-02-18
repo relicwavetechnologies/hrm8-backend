@@ -134,11 +134,11 @@ export class StripeService {
   private static async activateSubscriptionFromPayment(
     session: StripeCheckoutSession,
     companyId: string,
-    userId: string | undefined,
+    _userId: string | undefined,
     metadata: Record<string, string>
   ): Promise<void> {
     const amountInDollars = session.amount_total / 100;
-    const { planType, name, billingCycle, jobQuota } = metadata;
+    const { planType, name, billingCycle, jobQuota, salesAgentId, consultantId } = metadata;
 
     if (!planType || !name || !billingCycle) {
       throw new Error('Missing subscription details in metadata');
@@ -151,7 +151,9 @@ export class StripeService {
       basePrice: amountInDollars,
       billingCycle: billingCycle as 'MONTHLY' | 'ANNUAL',
       jobQuota: jobQuota ? parseInt(jobQuota, 10) : undefined,
-      salesAgentId: userId, // Assuming user buying is the agent or self-serve
+      // Only pass consultant attribution when explicitly provided in metadata.
+      // Buyer user IDs are not consultant IDs and must not be written to sales_agent_id.
+      salesAgentId: salesAgentId || consultantId || undefined,
       autoRenew: true,
     });
   }

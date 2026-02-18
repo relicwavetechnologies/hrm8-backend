@@ -265,13 +265,13 @@ export class JobService extends BaseService {
   private normalizeServicePackage(
     servicePackage?: string | null,
     hiringMode?: string | null
-  ): 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search' {
+  ): 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search' | 'rpo' {
     const normalizedRaw = String(servicePackage || '')
       .trim()
       .toLowerCase()
       .replace(/_/g, '-');
 
-    const packageMap: Record<string, 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search'> = {
+    const packageMap: Record<string, 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search' | 'rpo'> = {
       'self-managed': 'self-managed',
       self: 'self-managed',
       shortlisting: 'shortlisting',
@@ -279,7 +279,7 @@ export class JobService extends BaseService {
       full: 'full-service',
       'executive-search': 'executive-search',
       executive: 'executive-search',
-      rpo: 'full-service',
+      rpo: 'rpo',
     };
 
     if (normalizedRaw && packageMap[normalizedRaw]) {
@@ -289,24 +289,27 @@ export class JobService extends BaseService {
     const mode = String(hiringMode || '')
       .trim()
       .toUpperCase();
-    const modeMap: Record<string, 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search'> = {
+    const modeMap: Record<string, 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search' | 'rpo'> = {
       SELF_MANAGED: 'self-managed',
       SHORTLISTING: 'shortlisting',
       FULL_SERVICE: 'full-service',
       EXECUTIVE_SEARCH: 'executive-search',
+      RPO: 'rpo',
     };
 
     return modeMap[mode] || 'self-managed';
   }
 
   private hiringModeForServicePackage(
-    servicePackage: 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search'
+    servicePackage: 'self-managed' | 'shortlisting' | 'full-service' | 'executive-search' | 'rpo'
   ): 'SELF_MANAGED' | 'SHORTLISTING' | 'FULL_SERVICE' | 'EXECUTIVE_SEARCH' {
     const map: Record<string, 'SELF_MANAGED' | 'SHORTLISTING' | 'FULL_SERVICE' | 'EXECUTIVE_SEARCH'> = {
       'self-managed': 'SELF_MANAGED',
       shortlisting: 'SHORTLISTING',
       'full-service': 'FULL_SERVICE',
       'executive-search': 'EXECUTIVE_SEARCH',
+      // RPO follows managed full-service operational flow while retaining distinct pricing product.
+      rpo: 'FULL_SERVICE',
     };
     return map[servicePackage];
   }
@@ -571,7 +574,14 @@ export class JobService extends BaseService {
           );
 
           if (!paymentResult.success) {
-            throw new HttpException(402, paymentResult.error || 'Insufficient wallet balance for this service');
+            const paymentError = paymentResult.error || 'Failed to process managed-service wallet payment';
+            if (/insufficient/i.test(paymentError)) {
+              throw new HttpException(402, paymentError);
+            }
+            if (/currency mismatch|currency is locked/i.test(paymentError)) {
+              throw new HttpException(400, paymentError);
+            }
+            throw new HttpException(500, paymentError);
           }
         }
 
@@ -580,7 +590,29 @@ export class JobService extends BaseService {
         if (!consultantId) {
           const assignResult = await jobAllocationService.autoAssignJob(id);
           if (!assignResult.success || !assignResult.consultantId) {
-            throw new HttpException(503, assignResult.error || 'No consultant available for assignment. Please try again later.');
+            const assignmentError =
+              assignResult.error || 'No consultant available for assignment. Please try again later.';
+            const refundResult = await jobPaymentService.refundManagedServicePaymentOnAssignmentFailure(
+              companyId,
+              id,
+              userId || job.created_by,
+              assignmentError
+            );
+
+            if (!refundResult.success) {
+              throw new HttpException(
+                503,
+                `${assignmentError} Payment reversal could not be completed automatically. Please contact support.`
+              );
+            }
+
+            const reversalMessage = refundResult.refunded
+              ? 'Wallet payment was reversed automatically.'
+              : 'Wallet charge was already reversed automatically.';
+            throw new HttpException(
+              503,
+              `${assignmentError} ${reversalMessage} Please retry later.`
+            );
           }
           consultantId = assignResult.consultantId;
           console.log(`[JobService] Consultant ${consultantId} auto-assigned to job ${id}`);
@@ -743,7 +775,14 @@ export class JobService extends BaseService {
           userId || job.created_by
         );
         if (!paymentResult.success) {
-          throw new HttpException(402, paymentResult.error || 'Insufficient wallet balance for this service');
+          const paymentError = paymentResult.error || 'Failed to process managed-service wallet payment';
+          if (/insufficient/i.test(paymentError)) {
+            throw new HttpException(402, paymentError);
+          }
+          if (/currency mismatch|currency is locked/i.test(paymentError)) {
+            throw new HttpException(400, paymentError);
+          }
+          throw new HttpException(500, paymentError);
         }
       }
 
@@ -751,7 +790,29 @@ export class JobService extends BaseService {
       if (!consultantId) {
         const assignResult = await jobAllocationService.autoAssignJob(id);
         if (!assignResult.success || !assignResult.consultantId) {
-          throw new HttpException(503, assignResult.error || 'No consultant available for assignment. Please try again later.');
+          const assignmentError =
+            assignResult.error || 'No consultant available for assignment. Please try again later.';
+          const refundResult = await jobPaymentService.refundManagedServicePaymentOnAssignmentFailure(
+            companyId,
+            id,
+            userId || job.created_by,
+            assignmentError
+          );
+
+          if (!refundResult.success) {
+            throw new HttpException(
+              503,
+              `${assignmentError} Payment reversal could not be completed automatically. Please contact support.`
+            );
+          }
+
+          const reversalMessage = refundResult.refunded
+            ? 'Wallet payment was reversed automatically.'
+            : 'Wallet charge was already reversed automatically.';
+          throw new HttpException(
+            503,
+            `${assignmentError} ${reversalMessage} Please retry later.`
+          );
         }
         consultantId = assignResult.consultantId;
       }
