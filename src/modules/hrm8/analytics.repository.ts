@@ -249,12 +249,19 @@ export class AnalyticsRepository {
         return appCounts;
     }
 
-    async getJobBoardStats(params: { regionId?: string; regionIds?: string[]; page: number; limit: number }) {
+    async getJobBoardStats(params: { regionId?: string; search?: string; regionIds?: string[]; page: number; limit: number }) {
         const where: any = {};
         if (params.regionId) {
             where.region_id = params.regionId;
         } else if (params.regionIds && params.regionIds.length > 0) {
             where.region_id = { in: params.regionIds };
+        }
+
+        if (params.search) {
+            where.OR = [
+                { name: { contains: params.search, mode: 'insensitive' } },
+                { domain: { contains: params.search, mode: 'insensitive' } },
+            ];
         }
 
         const [total, companies] = await Promise.all([
@@ -291,5 +298,19 @@ export class AnalyticsRepository {
         });
 
         return { companies, jobStats, total };
+    }
+
+    async getJobStatsForCompanies(companyIds: string[]) {
+        return prisma.job.groupBy({
+            by: ['company_id', 'status'],
+            where: { company_id: { in: companyIds } },
+            _count: {
+                id: true
+            },
+            _sum: {
+                views_count: true,
+                clicks_count: true
+            }
+        });
     }
 }

@@ -52,7 +52,7 @@ export class GoogleOAuthService {
     const redirectUri = env.GOOGLE_REDIRECT_URI;
     const state = Buffer.from(JSON.stringify({ userId, companyId })).toString('base64');
     const scope = encodeURIComponent(
-      'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly'
+      'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send'
     );
 
     return (
@@ -325,6 +325,16 @@ export class GoogleOAuthService {
     } catch {
       return undefined;
     }
+  }
+
+  async disconnect(userId: string, companyId: string): Promise<void> {
+    await prisma.integration.deleteMany({
+      where: {
+        company_id: companyId,
+        type: 'CALENDAR',
+        name: getUserIntegrationName(userId),
+      },
+    });
   }
 }
 

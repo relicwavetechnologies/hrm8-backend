@@ -62,6 +62,8 @@ router.get('/:id/email-threads', authenticate, communicationController.getGmailT
 router.post('/:id/emails', authenticate, communicationController.sendEmail);
 router.get('/:id/emails', authenticate, communicationController.getEmailLogs);
 router.post('/:id/emails/generate', authenticate, communicationController.generateEmailWithAI);
+router.post('/:id/email-reply', authenticate, communicationController.replyEmail);
+router.post('/:id/email-reply/rewrite', authenticate, communicationController.rewriteEmailReply);
 
 // Communication Routes - SMS
 router.post('/:id/sms', authenticate, communicationController.sendSms);

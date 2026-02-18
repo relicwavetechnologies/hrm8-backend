@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import * as fs from 'fs';
 import { BaseController } from '../../core/controller';
 import { ApplicationTaskService } from './application-task.service';
 import { AuthenticatedRequest } from '../../types';
@@ -7,15 +8,23 @@ import { TaskStatus, TaskPriority } from '@prisma/client';
 export class ApplicationTaskController extends BaseController {
   // Create a new task
   createTask = async (req: AuthenticatedRequest, res: Response) => {
+    const logFile = '/tmp/hrm8-debug.log';
+    const log = (msg: string) => fs.appendFileSync(logFile, `${new Date().toISOString()} - ${msg}\n`);
+
+    log(`ApplicationTaskController: createTask called. Params: ${JSON.stringify(req.params)}, Body: ${JSON.stringify(req.body)}, User: ${req.user?.id}`);
+
     try {
       if (!req.user) throw new Error('Unauthorized');
       const { id: applicationId } = req.params as { id: string };
       const { title, description, status, priority, type, assignedTo, dueDate } = req.body;
 
       if (!title || typeof title !== 'string') {
-        return this.sendError(res, new Error('Title is required'), 400);
+        const err = 'Title is required';
+        log(`ApplicationTaskController: Error: ${err}`);
+        return this.sendError(res, new Error(err), 400);
       }
 
+      log('ApplicationTaskController: Calling service...');
       const task = await ApplicationTaskService.createTask({
         applicationId,
         createdBy: req.user.id,
@@ -27,9 +36,11 @@ export class ApplicationTaskController extends BaseController {
         assignedTo,
         dueDate: dueDate ? new Date(dueDate) : undefined,
       });
+      log(`ApplicationTaskController: Task created: ${JSON.stringify(task)}`);
 
       return this.sendSuccess(res, { task });
     } catch (error) {
+      log(`ApplicationTaskController: Error: ${error}`);
       return this.sendError(res, error);
     }
   };

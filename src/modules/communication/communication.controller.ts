@@ -132,7 +132,7 @@ export class CommunicationController extends BaseController {
         return this.sendError(res, new Error('subject and body are required'), 400);
       }
 
-      const emailLog = await this.communicationService.sendCandidateEmail({
+      const result = await this.communicationService.sendCandidateEmail({
         applicationId,
         userId: req.user.id,
         subject,
@@ -140,7 +140,10 @@ export class CommunicationController extends BaseController {
         templateId,
       });
 
-      return this.sendSuccess(res, { emailLog });
+      return this.sendSuccess(res, {
+        emailLog: result.emailLog,
+        ...(result.needsReconnect && { needsReconnect: true })
+      });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -287,6 +290,62 @@ export class CommunicationController extends BaseController {
       const team = await this.communicationService.getHiringTeamForSlack(jobId);
 
       return this.sendSuccess(res, { team });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // ==================== EMAIL THREAD REPLIES ====================
+
+  replyEmail = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+
+      const { id: applicationId } = req.params;
+      const { threadId, messageId, subject, body, to } = req.body;
+
+      if (!threadId || !messageId || !subject || !body || !to) {
+        return this.sendError(
+          res,
+          new Error('threadId, messageId, subject, body, and to are required'),
+          400
+        );
+      }
+
+      const emailLog = await this.communicationService.replyToEmail({
+        applicationId,
+        userId: req.user.id,
+        threadId,
+        messageId,
+        subject,
+        body,
+        to,
+      });
+
+      return this.sendSuccess(res, { emailLog });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  rewriteEmailReply = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+
+      const { id: applicationId } = req.params;
+      const { originalMessage, tone } = req.body;
+
+      if (!originalMessage) {
+        return this.sendError(res, new Error('originalMessage is required'), 400);
+      }
+
+      const rewritten = await this.communicationService.rewriteEmailReply({
+        applicationId,
+        originalMessage,
+        tone,
+      });
+
+      return this.sendSuccess(res, rewritten);
     } catch (error) {
       return this.sendError(res, error);
     }

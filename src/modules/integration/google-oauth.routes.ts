@@ -136,4 +136,20 @@ router.post('/interviewers-status', authenticate, async (req: AuthenticatedReque
   }
 });
 
+/**
+ * POST /api/auth/google/disconnect
+ * Disconnects the current user's Google Calendar integration.
+ */
+router.post('/disconnect', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    await googleOAuthService.disconnect(req.user.id, req.user.companyId);
+    return res.json({ success: true, message: 'Google integration disconnected' });
+  } catch (err) {
+    console.error('[GoogleOAuth] Disconnect error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to disconnect' });
+  }
+});
+
 export default router;
