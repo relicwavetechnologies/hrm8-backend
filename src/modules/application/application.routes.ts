@@ -58,6 +58,7 @@ router.post('/:id/calls', authenticate, communicationController.logCall);
 router.get('/:id/calls', authenticate, communicationController.getCallLogs);
 
 // Communication Routes - Email
+router.get('/:id/email-threads', authenticate, communicationController.getGmailThreads);
 router.post('/:id/emails', authenticate, communicationController.sendEmail);
 router.get('/:id/emails', authenticate, communicationController.getEmailLogs);
 router.post('/:id/emails/generate', authenticate, communicationController.generateEmailWithAI);

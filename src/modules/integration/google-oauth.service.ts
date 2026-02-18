@@ -52,7 +52,7 @@ export class GoogleOAuthService {
     const redirectUri = env.GOOGLE_REDIRECT_URI;
     const state = Buffer.from(JSON.stringify({ userId, companyId })).toString('base64');
     const scope = encodeURIComponent(
-      'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email'
+      'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly'
     );
 
     return (
@@ -236,7 +236,7 @@ export class GoogleOAuthService {
     return result;
   }
 
-  private async ensureValidToken(tokens: OAuth2Tokens, userId: string, companyId: string): Promise<string> {
+  async ensureValidToken(tokens: OAuth2Tokens, userId: string, companyId: string): Promise<string> {
     const now = Date.now();
     const isExpired = tokens.token_expiry && tokens.token_expiry < now + 60000;
 

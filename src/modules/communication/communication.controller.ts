@@ -2,6 +2,10 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { CommunicationService } from './communication.service';
 import { AuthenticatedRequest } from '../../types';
+import { gmailService } from '../integration/gmail.service';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export class CommunicationController extends BaseController {
   private communicationService: CommunicationService;
@@ -21,6 +25,48 @@ export class CommunicationController extends BaseController {
       const { to } = req.body;
       // Use direct email sending for test
       return this.sendSuccess(res, { message: 'Test email endpoint - configure SMTP settings' });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // ==================== GMAIL THREADS ====================
+
+  getGmailThreads = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+
+      const { id: applicationId } = req.params;
+
+      // Get candidate email from application
+      const application = await prisma.application.findUnique({
+        where: { id: applicationId },
+        include: { candidate: { select: { email: true } } },
+      });
+
+      if (!application) {
+        return this.sendError(res, new Error('Application not found'), 404);
+      }
+
+      const candidateEmail = application.candidate?.email;
+      const emailLogs = await this.communicationService.getEmailLogs(applicationId);
+
+      if (!candidateEmail) {
+        return this.sendSuccess(res, { gmailThreads: [], emailLogs, gmailConnected: false });
+      }
+
+      try {
+        const gmailThreads = await gmailService.getThreadsForCandidate(
+          req.user.id,
+          req.user.companyId,
+          candidateEmail
+        );
+        return this.sendSuccess(res, { gmailThreads, emailLogs, gmailConnected: true });
+      } catch (gmailError: any) {
+        // Gmail not connected or API error — still return email logs
+        console.error('[CommunicationController] Gmail error:', gmailError.message);
+        return this.sendSuccess(res, { gmailThreads: [], emailLogs, gmailConnected: false });
+      }
     } catch (error) {
       return this.sendError(res, error);
     }
