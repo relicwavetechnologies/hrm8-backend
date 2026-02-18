@@ -174,19 +174,78 @@ export class SalesWithdrawalService {
 
         if (!withdrawal) throw new HttpException(404, 'Withdrawal not found');
         if (withdrawal.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
-        if (withdrawal.status !== 'APPROVED') throw new HttpException(400, 'Withdrawal must be approved before execution');
+        if (withdrawal.status !== 'APPROVED' && withdrawal.status !== 'PROCESSING') {
+            throw new HttpException(400, 'Withdrawal must be approved before execution');
+        }
 
-        const result = await prisma.commissionWithdrawal.update({
-            where: { id: withdrawalId },
-            data: {
-                status: 'PROCESSING',
-                processed_at: new Date()
+        return prisma.$transaction(async (tx) => {
+            const latest = await tx.commissionWithdrawal.findUnique({
+                where: { id: withdrawalId }
+            });
+
+            if (!latest) {
+                throw new HttpException(404, 'Withdrawal not found');
             }
+
+            let debitTransaction = await tx.virtualTransaction.findFirst({
+                where: {
+                    reference_type: 'COMMISSION_WITHDRAWAL',
+                    reference_id: withdrawalId,
+                    direction: 'DEBIT',
+                    status: 'COMPLETED'
+                },
+                orderBy: { created_at: 'asc' }
+            });
+
+            if (!latest.debited_from_wallet && !debitTransaction) {
+                const account = await tx.virtualAccount.findUnique({
+                    where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+                });
+                if (!account) {
+                    throw new HttpException(404, 'Consultant wallet account not found');
+                }
+                if (Number(account.balance) < latest.amount) {
+                    throw new HttpException(400, 'Insufficient wallet balance for withdrawal');
+                }
+
+                debitTransaction = await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: 'COMMISSION_WITHDRAWAL',
+                        amount: latest.amount,
+                        balance_after: Number(account.balance) - latest.amount,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: 'Withdrawal executed',
+                        reference_id: withdrawalId,
+                        reference_type: 'COMMISSION_WITHDRAWAL',
+                        withdrawal_request_id: withdrawalId
+                    }
+                });
+
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: { balance: { decrement: latest.amount }, total_debits: { increment: latest.amount } }
+                });
+            }
+
+            if (!debitTransaction && latest.virtual_transaction_id) {
+                debitTransaction = await tx.virtualTransaction.findUnique({
+                    where: { id: latest.virtual_transaction_id }
+                });
+            }
+
+            return tx.commissionWithdrawal.update({
+                where: { id: withdrawalId },
+                data: {
+                    status: 'PROCESSING',
+                    processed_at: latest.processed_at || new Date(),
+                    debited_from_wallet: true,
+                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
+                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+                }
+            });
         });
-
-        // TODO: Integrate with actual payment processor (Stripe, bank transfer, etc.)
-
-        return result;
     }
 
     async getStripeStatus(consultantId: string) {

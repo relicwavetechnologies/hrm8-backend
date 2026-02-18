@@ -1,7 +1,6 @@
 import { BaseService } from '../../core/service';
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
-import { WithdrawalStatus } from '@prisma/client';
 
 export class WithdrawalService extends BaseService {
     private async getScopedWithdrawal(id: string, allowedRegionIds?: string[]) {
@@ -120,34 +119,78 @@ export class WithdrawalService extends BaseService {
             throw new HttpException(400, 'Withdrawal must be approved first');
         }
 
-        // If APPROVED, debit wallet (admin processing manually). If PROCESSING, consultant already debited via executeWithdrawal.
-        const needsDebit = w.status === 'APPROVED';
-
         return prisma.$transaction(async (tx) => {
-            if (needsDebit) {
-                const account = await tx.virtualAccount.findFirst({
-                    where: { owner_type: 'CONSULTANT', owner_id: w.consultant_id }
-                });
-                if (account) {
-                    const balanceAfter = Number(account.balance) - w.amount;
-                    await tx.virtualTransaction.create({
-                        data: {
-                            virtual_account_id: account.id,
-                            type: 'COMMISSION_WITHDRAWAL',
-                            amount: w.amount,
-                            balance_after: balanceAfter,
-                            direction: 'DEBIT',
-                            status: 'COMPLETED',
-                            description: 'Withdrawal processed',
-                            reference_id: w.id,
-                            reference_type: 'COMMISSION_WITHDRAWAL'
+            const latest = await tx.commissionWithdrawal.findUnique({
+                where: { id: w.id }
+            });
+
+            if (!latest) {
+                throw new HttpException(404, 'Withdrawal not found');
+            }
+
+            if (latest.status !== 'APPROVED' && latest.status !== 'PROCESSING' && latest.status !== 'COMPLETED') {
+                throw new HttpException(400, 'Withdrawal is no longer payable');
+            }
+
+            if (latest.status === 'COMPLETED') {
+                return latest;
+            }
+
+            let debitTransaction = await tx.virtualTransaction.findFirst({
+                where: {
+                    reference_type: 'COMMISSION_WITHDRAWAL',
+                    reference_id: latest.id,
+                    direction: 'DEBIT',
+                    status: 'COMPLETED'
+                },
+                orderBy: { created_at: 'asc' }
+            });
+
+            if (!latest.debited_from_wallet && !debitTransaction) {
+                const account = await tx.virtualAccount.findUnique({
+                    where: {
+                        owner_type_owner_id: {
+                            owner_type: 'CONSULTANT',
+                            owner_id: latest.consultant_id
                         }
-                    });
-                    await tx.virtualAccount.update({
-                        where: { id: account.id },
-                        data: { balance: { decrement: w.amount }, total_debits: { increment: w.amount } }
-                    });
+                    }
+                });
+                if (!account) {
+                    throw new HttpException(404, 'Consultant wallet account not found');
                 }
+                if (Number(account.balance) < latest.amount) {
+                    throw new HttpException(400, 'Insufficient wallet balance for withdrawal debit');
+                }
+
+                debitTransaction = await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: 'COMMISSION_WITHDRAWAL',
+                        amount: latest.amount,
+                        balance_after: Number(account.balance) - latest.amount,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: 'Withdrawal processed',
+                        reference_id: latest.id,
+                        reference_type: 'COMMISSION_WITHDRAWAL',
+                        withdrawal_request_id: latest.id
+                    }
+                });
+
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: { balance: { decrement: latest.amount }, total_debits: { increment: latest.amount } }
+                });
+            }
+
+            if (!debitTransaction && latest.virtual_transaction_id) {
+                debitTransaction = await tx.virtualTransaction.findUnique({
+                    where: { id: latest.virtual_transaction_id }
+                });
+            }
+
+            if (!debitTransaction && !latest.debited_from_wallet) {
+                throw new HttpException(500, 'Withdrawal debit transaction was not created');
             }
 
             return tx.commissionWithdrawal.update({
@@ -156,7 +199,10 @@ export class WithdrawalService extends BaseService {
                     status: 'COMPLETED',
                     processed_at: new Date(),
                     processed_by: adminId || w.processed_by,
-                    notes: notes ? `${w.notes || ''}\n${notes}` : w.notes
+                    notes: notes ? `${latest.notes || ''}\n${notes}` : latest.notes,
+                    debited_from_wallet: true,
+                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
+                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
                 }
             });
         });

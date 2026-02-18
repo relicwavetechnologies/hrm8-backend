@@ -103,6 +103,9 @@ export class PricingController extends BaseController {
                 payload.region_id = requestedRegionId;
             }
 
+            payload.approvedBy = req.hrm8User?.id;
+            payload.approved_by = req.hrm8User?.id;
+
             const result = await this.pricingService.createPriceBook(payload);
             return this.sendSuccess(res, { priceBook: result });
         } catch (error) {
@@ -140,6 +143,9 @@ export class PricingController extends BaseController {
                 payload.regionId = requestedRegionId;
                 payload.region_id = requestedRegionId;
             }
+
+            payload.approvedBy = req.hrm8User?.id;
+            payload.approved_by = req.hrm8User?.id;
 
             const result = await this.pricingService.updatePriceBook(id as string, payload);
             return this.sendSuccess(res, { priceBook: result });
