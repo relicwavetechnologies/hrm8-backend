@@ -7,7 +7,7 @@ export class InterviewController extends BaseController {
 
   create = async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
+      const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes, useMeetLink } = req.body;
 
       const interview = await InterviewService.createInterview({
         applicationId,
@@ -17,7 +17,9 @@ export class InterviewController extends BaseController {
         meetingLink,
         interviewerIds,
         notes,
-        scheduledBy: req.user?.id || 'system'
+        scheduledBy: req.user?.id || 'system',
+        useMeetLink,
+        companyId: req.user?.companyId,
       });
 
       return this.sendSuccess(res, { interview });
@@ -114,6 +116,36 @@ export class InterviewController extends BaseController {
       return this.sendError(res, error);
     }
   };
+  suggestTime = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const {
+        interviewerIds, duration, preferredDays,
+        preferredTimeStart, preferredTimeEnd,
+        dateRangeStart, dateRangeEnd, timezone,
+      } = req.body;
+
+      if (!Array.isArray(interviewerIds) || interviewerIds.length === 0) {
+        return this.sendError(res, new Error('At least one interviewer is required'));
+      }
+
+      const result = await InterviewService.suggestTime({
+        interviewerIds,
+        duration: duration || 45,
+        preferredDays: preferredDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+        preferredTimeStart: preferredTimeStart || '09:00',
+        preferredTimeEnd: preferredTimeEnd || '17:00',
+        dateRangeStart: dateRangeStart || new Date().toISOString().split('T')[0],
+        dateRangeEnd: dateRangeEnd || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+        timezone: timezone || 'UTC',
+        companyId: req.user?.companyId || '',
+      });
+
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   getProgressionStatus = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const id = req.params.id as string;

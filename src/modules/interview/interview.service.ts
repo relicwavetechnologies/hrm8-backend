@@ -4,6 +4,7 @@ import { emailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationRepository } from '../notification/notification.repository';
 import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { googleOAuthService } from '../integration/google-oauth.service';
 
 const notificationService = new NotificationService(new NotificationRepository());
 
@@ -135,12 +136,45 @@ export class InterviewService {
     meetingLink?: string;
     interviewerIds?: string[];
     notes?: string;
+    useMeetLink?: boolean;
+    companyId?: string;
   }) {
     const application = await prisma.application.findUnique({
       where: { id: params.applicationId },
       include: { candidate: true, job: true }
     });
     if (!application) throw new Error('Application not found');
+
+    let meetingLink = params.meetingLink;
+    let meetLinkError: string | undefined;
+
+    // Generate Google Meet link if requested
+    if (params.useMeetLink && params.companyId) {
+      try {
+        const { googleOAuthService } = await import('../integration/google-oauth.service');
+        const result = await googleOAuthService.createMeetingEvent(
+          params.scheduledBy,
+          params.companyId,
+          {
+            summary: `Interview: ${application.job.title} with ${application.candidate?.first_name || ''} ${application.candidate?.last_name || ''}`,
+            start: params.scheduledDate,
+            end: new Date(params.scheduledDate.getTime() + params.duration * 60000),
+            attendees: application.candidate?.email ? [{ email: application.candidate.email }] : [],
+          }
+        );
+        if (result.link) {
+          meetingLink = result.link;
+        } else {
+          meetLinkError = result.error;
+        }
+      } catch (err: any) {
+        console.error('[InterviewService] Meet link generation failed:', err);
+        meetLinkError = `Failed to generate Meet link: ${err.message || 'Unknown error'}`;
+      }
+    }
+
+    const meetLinkRequested = params.useMeetLink && params.companyId;
+    const meetLinkFailed = meetLinkRequested && !meetingLink;
 
     // Create
     const interview = await prisma.videoInterview.create({
@@ -151,7 +185,7 @@ export class InterviewService {
         job_round_id: params.jobRoundId,
         scheduled_date: params.scheduledDate,
         duration: params.duration,
-        meeting_link: params.meetingLink,
+        meeting_link: meetingLink,
         status: 'SCHEDULED',
         type: params.type as any,
         interviewer_ids: params.interviewerIds || [],
@@ -168,7 +202,7 @@ export class InterviewService {
         jobTitle: application.job.title,
         companyName: 'Company',
         scheduledDate: params.scheduledDate,
-        meetingLink: params.meetingLink,
+        meetingLink: meetingLink,
         interviewType: params.type
       });
 
@@ -182,7 +216,12 @@ export class InterviewService {
       });
     }
 
-    return interview;
+    // Return interview with metadata about meet link generation
+    return {
+      ...interview,
+      _meetLinkFailed: meetLinkFailed,
+      _meetLinkError: meetLinkError,
+    };
   }
 
   static async getInterviews(filters: {
@@ -343,6 +382,111 @@ export class InterviewService {
     }
 
     return result;
+  }
+
+  static async suggestTime(params: {
+    interviewerIds: string[];
+    duration: number;
+    preferredDays: string[];
+    preferredTimeStart: string;
+    preferredTimeEnd: string;
+    dateRangeStart: string;
+    dateRangeEnd: string;
+    timezone: string;
+    companyId: string;
+  }) {
+    const {
+      interviewerIds, duration, preferredDays,
+      preferredTimeStart, preferredTimeEnd,
+      dateRangeStart, dateRangeEnd, timezone, companyId,
+    } = params;
+
+    const dayNameToIndex: Record<string, number> = {
+      sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+      thursday: 4, friday: 5, saturday: 6,
+    };
+
+    const preferredDayIndices = preferredDays.map(d => dayNameToIndex[d.toLowerCase()]).filter(d => d !== undefined);
+    const [prefStartHour, prefStartMin] = preferredTimeStart.split(':').map(Number);
+    const [prefEndHour, prefEndMin] = preferredTimeEnd.split(':').map(Number);
+    const prefStartMinutes = prefStartHour * 60 + prefStartMin;
+    const prefEndMinutes = prefEndHour * 60 + prefEndMin;
+    const prefCenterMinutes = (prefStartMinutes + prefEndMinutes) / 2;
+
+    // Fetch busy slots for all interviewers across the date range
+    const rangeStart = new Date(dateRangeStart + 'T00:00:00');
+    const rangeEnd = new Date(dateRangeEnd + 'T23:59:59');
+
+    const freeBusy = await googleOAuthService.getFreeBusy(
+      interviewerIds, companyId, rangeStart, rangeEnd, timezone
+    );
+
+    // Build array of all busy intervals per interviewer
+    const allBusySlots: Array<{ start: Date; end: Date }>[] = interviewerIds.map(id => {
+      const data = freeBusy[id];
+      if (!data || !data.connected) return [];
+      return data.busy.map(b => ({ start: new Date(b.start), end: new Date(b.end) }));
+    });
+
+    // Iterate through each day in range, find common free slots
+    const suggestions: Array<{ start: string; end: string; score: number; reason: string }> = [];
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    const current = new Date(dateRangeStart + 'T00:00:00');
+    const endDate = new Date(dateRangeEnd + 'T23:59:59');
+    const firstDay = new Date(current);
+
+    while (current <= endDate && suggestions.length < 10) {
+      const dayOfWeek = current.getDay();
+      if (!preferredDayIndices.includes(dayOfWeek)) {
+        current.setDate(current.getDate() + 1);
+        continue;
+      }
+
+      // Scan preferred time window in 30-min increments
+      for (let mins = prefStartMinutes; mins + duration <= prefEndMinutes; mins += 30) {
+        const slotStart = new Date(current);
+        slotStart.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+        const slotEnd = new Date(slotStart.getTime() + duration * 60000);
+
+        // Skip if slot is in the past
+        if (slotStart <= new Date()) continue;
+
+        // Check all interviewers are free
+        const allFree = allBusySlots.every(busySlots =>
+          !busySlots.some(b => slotStart < b.end && slotEnd > b.start)
+        );
+
+        if (allFree) {
+          // Score: prefer earlier days, prefer center of time range
+          const daysFromStart = Math.floor((slotStart.getTime() - firstDay.getTime()) / (1000 * 60 * 60 * 24));
+          const slotCenterMins = mins + duration / 2;
+          const distFromCenter = Math.abs(slotCenterMins - prefCenterMinutes);
+          const dayPenalty = daysFromStart * 2;
+          const timePenalty = distFromCenter / 10;
+          const score = Math.max(50, Math.round(100 - dayPenalty - timePenalty));
+
+          const dayName = dayNames[dayOfWeek];
+          const timeLabel = mins < 720 ? 'morning' : 'afternoon';
+          const reason = `All interviewers free — ${dayName} ${timeLabel}`;
+
+          suggestions.push({
+            start: slotStart.toISOString(),
+            end: slotEnd.toISOString(),
+            score,
+            reason,
+          });
+        }
+
+        if (suggestions.length >= 10) break;
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+
+    // Sort by score descending, return top 3
+    suggestions.sort((a, b) => b.score - a.score);
+    return { suggestions: suggestions.slice(0, 3) };
   }
 
   private static mapToDTO(interview: any) {

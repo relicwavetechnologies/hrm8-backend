@@ -204,7 +204,7 @@ export class ApplicationService extends BaseService {
     return { success, failed };
   }
 
-  private mapApplication(app: any): Application {
+  private mapApplication(app: any): any {
     console.log(`[mapApplication] Mapping application: ${app.id}`);
     // Find AI screening result (AUTOMATED) or fallback to first result
     const aiResult = Array.isArray(app.screening_result)
@@ -253,10 +253,31 @@ export class ApplicationService extends BaseService {
 
     return {
       ...app,
+      // Manual camelCase mapping for frontend compatibility
+      jobId: app.job_id,
+      candidateId: app.candidate_id,
+      appliedDate: app.applied_date,
+      createdAt: app.created_at,
+      updatedAt: app.updated_at,
+      isRead: app.is_read,
+      isNew: app.is_new,
+      resumeUrl: app.resume_url,
+      coverLetterUrl: app.cover_letter_url,
+      portfolioUrl: app.portfolio_url,
+      linkedInUrl: app.linked_in_url,
+      websiteUrl: app.website_url,
+      customAnswers: app.custom_answers,
+      questionnaireData: app.questionnaire_data,
+      manuallyAdded: app.manually_added,
+      addedBy: app.added_by,
+      addedAt: app.added_at,
+      shortlistedAt: app.shortlisted_at,
+      shortlistedBy: app.shortlisted_by,
       recruiterNotes: app.recruiter_notes,
-      // Map screening_result to aiAnalysis property expected by frontend
+      screeningNotes: app.screening_notes,
+
+      // Extended fields
       aiAnalysis,
-      // Map candidate details to parsedResume property expected by frontend
       parsedResume,
     };
   }
@@ -880,6 +901,8 @@ export class ApplicationService extends BaseService {
     type: string;
     interviewerIds?: string[];
     notes?: string;
+    useMeetLink?: boolean;
+    companyId?: string;
   }): Promise<any> {
     const application = await this.applicationRepository.findById(params.applicationId);
     if (!application) {
@@ -894,6 +917,8 @@ export class ApplicationService extends BaseService {
       type: params.type,
       interviewerIds: params.interviewerIds,
       notes: params.notes,
+      useMeetLink: params.useMeetLink,
+      companyId: params.companyId,
     });
 
     // Send email notifications to interviewers for IN_PERSON and PANEL types
