@@ -69,12 +69,12 @@ router.get('/audit-logs/stats', authenticateHrm8, auditLogController.getStats);
 router.get('/audit-logs/:entityType/:entityId', authenticateHrm8, auditLogController.getByEntity);
 
 // Commission Routes
-router.get('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.getAll);
+router.get('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getAll);
 router.post('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.create);
 router.post('/commissions/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.processPayments);
 router.get('/commissions/regional', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getRegional);
 router.get('/commissions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getById);
-router.put('/commissions/:id/confirm', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.confirm);
+router.put('/commissions/:id/confirm', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.confirm);
 router.put('/commissions/:id/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.markAsPaid);
 router.put('/commissions/:id/dispute', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.dispute);
 router.put('/commissions/:id/resolve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.resolveDispute);
@@ -226,10 +226,10 @@ router.get('/revenue/dashboard', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMI
 router.get('/revenue/summary', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getSummary);
 
 // Withdrawal Routes
-router.get('/admin/billing/withdrawals', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.getPendingWithdrawals);
-router.post('/admin/billing/withdrawals/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.approve);
-router.post('/admin/billing/withdrawals/:id/reject', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.reject);
-router.post('/admin/billing/withdrawals/:id/process', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), withdrawalController.processPayment);
+router.get('/admin/billing/withdrawals', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.getPendingWithdrawals);
+router.post('/admin/billing/withdrawals/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.approve);
+router.post('/admin/billing/withdrawals/:id/reject', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.reject);
+router.post('/admin/billing/withdrawals/:id/process', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.processPayment);
 
 // Settlement Routes
 router.get('/admin/billing/settlements', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), settlementController.getAll);

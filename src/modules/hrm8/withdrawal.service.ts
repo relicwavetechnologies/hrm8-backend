@@ -4,7 +4,34 @@ import { HttpException } from '../../core/http-exception';
 import { WithdrawalStatus } from '@prisma/client';
 
 export class WithdrawalService extends BaseService {
-    async getPendingWithdrawals() {
+    private async getScopedWithdrawal(id: string, allowedRegionIds?: string[]) {
+        const withdrawal = await prisma.commissionWithdrawal.findUnique({
+            where: { id },
+            include: {
+                consultant: {
+                    select: {
+                        region_id: true
+                    }
+                }
+            }
+        });
+
+        if (!withdrawal) {
+            throw new HttpException(404, 'Withdrawal not found');
+        }
+
+        if (allowedRegionIds && !allowedRegionIds.includes(withdrawal.consultant.region_id)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
+
+        return withdrawal;
+    }
+
+    async getPendingWithdrawals(allowedRegionIds?: string[]) {
+        if (allowedRegionIds && allowedRegionIds.length === 0) {
+            return [];
+        }
+
         // Fetch all withdrawals that are PENDING/PROCESSING/APPROVED?
         // Admin usually reviews PENDING ones.
         // Frontend WithdrawalsPage displays all statuses but filters/paginates?
@@ -14,6 +41,11 @@ export class WithdrawalService extends BaseService {
 
         const withdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
+                ...(allowedRegionIds ? {
+                    consultant: {
+                        region_id: { in: allowedRegionIds }
+                    }
+                } : {}),
                 // status: 'PENDING' // Should we restrict? Or return all? 
                 // Let's return all for now so the table can sort/filter, 
                 // or just PENDING if that's the intention.
@@ -50,35 +82,40 @@ export class WithdrawalService extends BaseService {
         }));
     }
 
-    async approveWithdrawal(id: string) {
+    async approveWithdrawal(id: string, allowedRegionIds?: string[], adminId?: string) {
         // Find
-        const w = await prisma.commissionWithdrawal.findUnique({ where: { id } });
-        if (!w) throw new HttpException(404, 'Withdrawal not found');
+        const w = await this.getScopedWithdrawal(id, allowedRegionIds);
         if (w.status !== 'PENDING') throw new HttpException(400, 'Only pending withdrawals can be approved');
 
         // Update
         return prisma.commissionWithdrawal.update({
             where: { id },
-            data: { status: 'APPROVED' } // Ready for payment processing
+            data: {
+                status: 'APPROVED',
+                processed_by: adminId || w.processed_by
+            } // Ready for payment processing
         });
     }
 
-    async rejectWithdrawal(id: string) {
-        const w = await prisma.commissionWithdrawal.findUnique({ where: { id } });
-        if (!w) throw new HttpException(404, 'Withdrawal not found');
+    async rejectWithdrawal(id: string, allowedRegionIds?: string[], adminId?: string, reason?: string) {
+        const w = await this.getScopedWithdrawal(id, allowedRegionIds);
         if (w.status !== 'PENDING') throw new HttpException(400, 'Only pending withdrawals can be rejected');
 
         return prisma.commissionWithdrawal.update({
             where: { id },
-            data: { status: 'REJECTED' } // Money returns to balance? 
+            data: {
+                status: 'REJECTED',
+                rejected_by: adminId || w.rejected_by,
+                rejected_at: new Date(),
+                rejection_reason: reason || w.rejection_reason
+            } // Money returns to balance? 
             // In consultant-withdrawal.service.ts, calculateBalance filters out active withdrawals.
             // REJECTED is not in ['PENDING', 'APPROVED', 'PROCESSING'], so it naturally releases the lock.
         });
     }
 
-    async processPayment(id: string, notes?: string) {
-        const w = await prisma.commissionWithdrawal.findUnique({ where: { id } });
-        if (!w) throw new HttpException(404, 'Withdrawal not found');
+    async processPayment(id: string, notes?: string, allowedRegionIds?: string[], adminId?: string) {
+        const w = await this.getScopedWithdrawal(id, allowedRegionIds);
         if (w.status !== 'APPROVED' && w.status !== 'PROCESSING') {
             throw new HttpException(400, 'Withdrawal must be approved first');
         }
@@ -118,6 +155,7 @@ export class WithdrawalService extends BaseService {
                 data: {
                     status: 'COMPLETED',
                     processed_at: new Date(),
+                    processed_by: adminId || w.processed_by,
                     notes: notes ? `${w.notes || ''}\n${notes}` : w.notes
                 }
             });

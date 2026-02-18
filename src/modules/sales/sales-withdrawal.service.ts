@@ -3,6 +3,7 @@ import { HttpException } from '../../core/http-exception';
 import { WithdrawalStatus } from '@prisma/client';
 
 export class SalesWithdrawalService {
+    private readonly LOCKED_WITHDRAWAL_STATUSES: WithdrawalStatus[] = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
 
     async calculateBalance(consultantId: string) {
         // 1. Get all commissions
@@ -17,7 +18,7 @@ export class SalesWithdrawalService {
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
+                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
             },
             select: { commission_ids: true }
         });
@@ -92,7 +93,7 @@ export class SalesWithdrawalService {
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
+                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
             },
             select: { commission_ids: true }
         });
@@ -196,6 +197,7 @@ export class SalesWithdrawalService {
                 email: true,
                 stripe_account_id: true,
                 stripe_account_status: true,
+                payout_enabled: true,
                 stripe_onboarded_at: true,
                 updated_at: true
             }
@@ -203,8 +205,14 @@ export class SalesWithdrawalService {
 
         if (!consultant) throw new HttpException(404, 'Consultant not found');
 
+        const detailsSubmitted = !!consultant.stripe_account_id;
+        const payoutEnabled = !!consultant.payout_enabled || consultant.stripe_account_status === 'active';
+        const isConnected = detailsSubmitted && payoutEnabled;
+
         return {
-            isConnected: !!consultant.stripe_account_id && consultant.stripe_account_status === 'active',
+            payoutEnabled,
+            detailsSubmitted,
+            isConnected,
             stripeAccountId: consultant.stripe_account_id,
             accountStatus: consultant.stripe_account_status,
             onboardedAt: consultant.stripe_onboarded_at,
@@ -284,6 +292,7 @@ export class SalesWithdrawalService {
         return {
             message: 'Login link generated',
             loginLink: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
+            url: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
             expiresIn: 15 * 60 // 15 minutes in seconds
         };
     }
