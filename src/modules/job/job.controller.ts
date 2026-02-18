@@ -120,8 +120,28 @@ export class JobController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const { id } = req.params as { id: string };
+      const { saveAsTemplate, templateName } = req.body;
 
-      const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id);
+      const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id, { saveAsTemplate, templateName });
+      return this.sendSuccess(res, { job });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  upgradeToManagedService = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+      const { servicePackage } = req.body as { servicePackage?: string };
+
+      const job = await this.jobService.upgradeToManagedService(
+        id,
+        req.user.companyId,
+        req.user.id,
+        { servicePackage }
+      );
+
       return this.sendSuccess(res, { job });
     } catch (error) {
       return this.sendError(res, error);

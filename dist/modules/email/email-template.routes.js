@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const email_template_controller_1 = require("./email-template.controller");
+const unified_auth_middleware_1 = require("../../middlewares/unified-auth.middleware");
+const router = (0, express_1.Router)();
+router.get('/variables', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.getVariables);
+router.post('/', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.create);
+router.get('/', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.getAll);
+router.get('/:id', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.getOne);
+router.put('/:id', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.update);
+router.delete('/:id', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.delete);
+router.post('/:id/preview', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.preview);
+router.post('/:id/send-test', unified_auth_middleware_1.authenticateUnified, email_template_controller_1.EmailTemplateController.sendTest);
+exports.default = router;

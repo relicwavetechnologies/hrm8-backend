@@ -274,27 +274,54 @@ export class PriceBookSelectionService {
     salaryMax?: number;
   }>> {
     const priceBook = await this.getEffectivePriceBook(companyId);
-    
-    const tiers = await prisma.priceTier.findMany({
+
+    const recruitmentTierQuery = (priceBookId: string) => prisma.priceTier.findMany({
       where: {
-        price_book_id: priceBook.id,
+        price_book_id: priceBookId,
         product: {
-          category: 'JOB_POSTING',
-          is_active: true
-        }
+          code: { startsWith: 'RECRUIT_' },
+          is_active: true,
+        },
       },
       include: { product: true },
       orderBy: [
         { product: { code: 'asc' } },
-        { salary_band_min: 'asc' }
-      ]
+        { salary_band_min: 'asc' },
+      ],
     });
-    
+
+    let resolvedPriceBook = priceBook;
+    let tiers = await recruitmentTierQuery(priceBook.id);
+
+    if (tiers.length === 0) {
+      const globalPriceBook = await prisma.priceBook.findFirst({
+        where: {
+          is_global: true,
+          is_active: true,
+          is_approved: true,
+          effective_from: { lte: new Date() },
+          OR: [
+            { effective_to: null },
+            { effective_to: { gte: new Date() } },
+          ],
+        },
+        orderBy: { effective_from: 'desc' },
+      });
+
+      if (globalPriceBook && globalPriceBook.id !== priceBook.id) {
+        const globalTiers = await recruitmentTierQuery(globalPriceBook.id);
+        if (globalTiers.length > 0) {
+          resolvedPriceBook = globalPriceBook;
+          tiers = globalTiers;
+        }
+      }
+    }
+
     return tiers.map(tier => ({
       serviceType: tier.product.code.replace('RECRUIT_', ''),
       name: tier.product.name,
       price: tier.unit_price,
-      currency: priceBook.billing_currency || priceBook.currency,
+      currency: resolvedPriceBook.billing_currency || resolvedPriceBook.currency,
       bandName: tier.band_name || undefined,
       salaryMin: tier.salary_band_min ? Number(tier.salary_band_min) : undefined,
       salaryMax: tier.salary_band_max ? Number(tier.salary_band_max) : undefined

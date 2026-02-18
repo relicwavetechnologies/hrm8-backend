@@ -1,9 +1,8 @@
 import { prisma } from '../../utils/prisma';
-import { WalletService } from '../wallet/wallet.service';
 import {
+  CommissionStatus,
   SubscriptionPlanType,
-  SubscriptionStatus,
-  VirtualTransactionType
+  SubscriptionStatus
 } from '@prisma/client';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
@@ -22,6 +21,15 @@ export interface CreateSubscriptionInput {
   startDate?: Date;
 }
 
+const PLAN_PERKS: Record<string, { jobQuota: number | null }> = {
+  PAYG: { jobQuota: 0 },
+  SMALL: { jobQuota: 5 },
+  MEDIUM: { jobQuota: 25 },
+  LARGE: { jobQuota: 50 },
+  ENTERPRISE: { jobQuota: null }, // Unlimited
+  RPO: { jobQuota: null },
+};
+
 export class SubscriptionService {
   /**
    * Create a new subscription with dynamic regional pricing
@@ -33,7 +41,7 @@ export class SubscriptionService {
       name,
       basePrice: providedBasePrice,
       billingCycle,
-      jobQuota,
+      jobQuota: providedJobQuota,
       discountPercent = 0,
       salesAgentId,
       referredBy,
@@ -42,6 +50,53 @@ export class SubscriptionService {
     } = input;
 
     return await prisma.$transaction(async (tx) => {
+      const normalizedSalesAgentId =
+        typeof salesAgentId === 'string' && salesAgentId.trim().length > 0
+          ? salesAgentId.trim()
+          : undefined;
+
+      // Resolve company-level attribution once; used for subscription snapshot + commission fallback.
+      const companyAttribution = await tx.company.findUnique({
+        where: { id: companyId },
+        select: { sales_agent_id: true, referred_by: true }
+      });
+
+      // Never write invalid consultant IDs to sales_agent_id.
+      let validatedInputSalesAgentId: string | null = null;
+      if (normalizedSalesAgentId) {
+        const consultant = await tx.consultant.findUnique({
+          where: { id: normalizedSalesAgentId },
+          select: { id: true }
+        });
+        if (consultant?.id) {
+          validatedInputSalesAgentId = consultant.id;
+        } else {
+          console.warn(
+            `[SubscriptionService] Ignoring invalid salesAgentId "${normalizedSalesAgentId}" for company ${companyId}`
+          );
+        }
+      }
+
+      let validatedCompanySalesAgentId: string | null = null;
+      if (companyAttribution?.sales_agent_id) {
+        const consultant = await tx.consultant.findUnique({
+          where: { id: companyAttribution.sales_agent_id },
+          select: { id: true }
+        });
+        if (consultant?.id) {
+          validatedCompanySalesAgentId = consultant.id;
+        } else {
+          console.warn(
+            `[SubscriptionService] Ignoring invalid company.sales_agent_id "${companyAttribution.sales_agent_id}" for company ${companyId}`
+          );
+        }
+      }
+
+      const resolvedSalesAgentId =
+        validatedInputSalesAgentId ||
+        validatedCompanySalesAgentId ||
+        null;
+
       // 1. Get company currency information
       const { pricingPeg, billingCurrency } =
         await CurrencyAssignmentService.getCompanyCurrencies(companyId);
@@ -72,6 +127,12 @@ export class SubscriptionService {
         priceBookId = priceBook.id;
         priceBookVersion = priceBook.version ?? undefined;
       }
+      const resolvedBasePrice = Number(basePrice);
+
+      // Default jobQuota from plan perks if not provided
+      const jobQuota = providedJobQuota !== undefined
+        ? providedJobQuota
+        : (PLAN_PERKS[planType]?.jobQuota ?? null);
 
       // Calculate end date
       const endDate = new Date(startDate);
@@ -82,19 +143,14 @@ export class SubscriptionService {
       }
       const renewalDate = new Date(endDate);
 
-      // Ensure planType is a valid SubscriptionPlanType (PAYG, SMALL, MEDIUM, LARGE, ENTERPRISE, RPO, etc.)
-      const planTypeStr = String(planType).toUpperCase().replace(/-/g, '_');
-      const validPlanTypes = ['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE', 'CUSTOM', 'PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'RPO'] as const;
-      const planTypeEnum = validPlanTypes.includes(planTypeStr as any) ? planTypeStr : 'BASIC';
-
       // Create subscription with dynamic pricing
       const subscription = await tx.subscription.create({
         data: {
           company_id: companyId,
           name,
-          plan_type: planTypeEnum as any,
+          plan_type: planType,
           status: SubscriptionStatus.ACTIVE,
-          base_price: basePrice,
+          base_price: resolvedBasePrice,
           currency,  // Dynamic currency
           billing_cycle: billingCycle,
           discount_percent: discountPercent,
@@ -103,36 +159,52 @@ export class SubscriptionService {
           renewal_date: renewalDate,
           job_quota: jobQuota,
           jobs_used: 0,
-          prepaid_balance: basePrice,
+          prepaid_balance: resolvedBasePrice,
           auto_renew: autoRenew,
-          sales_agent_id: salesAgentId,
+          sales_agent_id: resolvedSalesAgentId,
           referred_by: referredBy,
+          price_book_id: priceBookId,
+          pricing_peg: pricingPeg,
+          price_book_version: priceBookVersion,
         },
       });
 
-      // Get or create wallet
-      const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
+      // Atomically create subscription-sale commission when a valid consultant attribution exists.
+      const commissionConsultantId =
+        resolvedSalesAgentId ||
+        companyAttribution?.sales_agent_id ||
+        companyAttribution?.referred_by ||
+        null;
 
-      // Credit wallet with subscription value with pricing metadata
-      await WalletService.creditAccount({
-        accountId: account.id,
-        amount: basePrice,
-        type: VirtualTransactionType.SUBSCRIPTION_PURCHASE,
-        description: `${name} subscription purchase (${billingCurrency} ${basePrice})`,
-        referenceType: 'SUBSCRIPTION',
-        referenceId: subscription.id,
-        pricingPeg,
-        billingCurrency,
-        priceBookId,
-        priceBookVersion,
-      });
+      if (commissionConsultantId) {
+        const consultant = await tx.consultant.findUnique({
+          where: { id: commissionConsultantId },
+          select: { id: true, region_id: true, default_commission_rate: true }
+        });
 
-      console.log(`✅ Subscription created with regional pricing: ${billingCurrency} ${basePrice} (peg: ${pricingPeg})`);
+        if (consultant?.region_id) {
+          const commissionRate = consultant.default_commission_rate ?? 0.20;
+          const commissionAmount = Number((resolvedBasePrice * commissionRate).toFixed(2));
+
+          if (commissionAmount > 0) {
+            await tx.commission.create({
+              data: {
+                consultant_id: consultant.id,
+                region_id: consultant.region_id,
+                subscription_id: subscription.id,
+                type: 'SUBSCRIPTION_SALE',
+                amount: commissionAmount,
+                description: `Subscription sale commission for ${name}`,
+                status: CommissionStatus.PENDING,
+              }
+            });
+          }
+        }
+      }
+
+      console.log(`✅ Subscription created with regional pricing snapshot: ${billingCurrency} ${resolvedBasePrice} (peg: ${pricingPeg})`);
 
       return subscription;
-    }, {
-      maxWait: 10000,
-      timeout: 20000,
     });
   }
 
@@ -153,51 +225,36 @@ export class SubscriptionService {
     });
   }
 
-  static async processJobPosting(companyId: string, jobTitle: string, userId: string) {
-    // Logic to deduct job cost from subscription quota
-    // 1. Find active subscription
+  static async processJobPosting(companyId: string, _jobTitle: string, _userId: string) {
+    // Legacy compatibility wrapper:
+    // Subscription-based publishing is quota-only and must not touch wallet.
+    return this.useQuotaOnly(companyId);
+  }
+
+  /**
+   * Use one quota slot from the active subscription.
+   * This ONLY increments jobs_used — no wallet debit, no financial transaction.
+   * Used exclusively for self-managed job publishing (System A).
+   */
+  static async useQuotaOnly(companyId: string) {
     const subscription = await this.getActiveSubscription(companyId);
-    if (!subscription) throw new Error('No active subscription');
-
-    // 2. Check quota
-    if (subscription.job_quota && subscription.jobs_used >= subscription.job_quota) {
-      throw new Error('Job quota exceeded');
+    if (!subscription) {
+      throw new Error('No active subscription found');
     }
 
-    // 3. Calculate cost
-    let jobCost = 0;
-    if (subscription.job_quota && subscription.job_quota > 0) {
-      jobCost = subscription.base_price / subscription.job_quota;
+    if (
+      subscription.job_quota !== null &&
+      subscription.job_quota !== undefined &&
+      subscription.jobs_used >= subscription.job_quota
+    ) {
+      throw new Error('Job quota exhausted');
     }
 
-    // 4. Deduct from wallet with currency info
-    if (jobCost > 0) {
-      const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
-
-      // Get currency info for audit
-      const { pricingPeg, billingCurrency } =
-        await CurrencyAssignmentService.getCompanyCurrencies(companyId);
-
-      await WalletService.debitAccount({
-        accountId: account.id,
-        amount: jobCost,
-        type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
-        description: `Job posting from subscription quota: ${jobTitle}`,
-        referenceType: 'SUBSCRIPTION',
-        referenceId: subscription.id,
-        createdBy: userId,
-        pricingPeg,
-        billingCurrency: subscription.currency || billingCurrency,
-      });
-    }
-
-    // 5. Update subscription usage
     return prisma.subscription.update({
       where: { id: subscription.id },
       data: {
         jobs_used: { increment: 1 },
-        prepaid_balance: { decrement: jobCost }
-      }
+      },
     });
   }
 }

@@ -12,13 +12,25 @@ export class CommissionController extends BaseController {
         this.commissionService = new CommissionService(new CommissionRepository());
     }
 
+    private getScopedRegionIds(req: AuthenticatedRequest): string[] | undefined {
+        if (req.hrm8User?.role !== 'REGIONAL_LICENSEE') {
+            return undefined;
+        }
+
+        return req.assignedRegionIds || [];
+    }
+
     getAll = async (req: AuthenticatedRequest, res: Response) => {
         try {
-            const { limit, offset, consultantId } = req.query;
+            const { limit, offset, consultantId, regionId, status, commissionType } = req.query;
             const result = await this.commissionService.getAll({
                 limit: limit ? Number(limit) : undefined,
                 offset: offset ? Number(offset) : undefined,
                 consultantId: consultantId as string,
+                regionId: regionId as string | undefined,
+                status: status as string | undefined,
+                commissionType: commissionType as string | undefined,
+                allowedRegionIds: this.getScopedRegionIds(req),
             });
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -29,7 +41,7 @@ export class CommissionController extends BaseController {
     getById = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.commissionService.getById(id as string);
+            const result = await this.commissionService.getById(id as string, this.getScopedRegionIds(req));
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -48,7 +60,7 @@ export class CommissionController extends BaseController {
     confirm = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.commissionService.confirm(id as string);
+            const result = await this.commissionService.confirm(id as string, this.getScopedRegionIds(req));
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);

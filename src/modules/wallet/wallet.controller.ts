@@ -209,7 +209,7 @@ export class WalletController extends BaseController {
         throw new HttpException(400, 'Missing required fields: planName/name and amount/basePrice');
       }
 
-      // Company subscriptions: use SubscriptionService (credits wallet, dynamic regional pricing)
+      // Company subscriptions: use SubscriptionService (subscription snapshot + quota only)
       if (ownerType === 'COMPANY') {
         const planType = (body.planType || planName).toUpperCase().replace(/-/g, '_');
         const subscription = await SubscriptionService.createSubscription({
@@ -223,7 +223,7 @@ export class WalletController extends BaseController {
         });
         return this.sendSuccess(res, {
           subscription,
-          message: 'Subscription activated. Wallet has been credited.',
+          message: 'Subscription activated successfully.',
         });
       }
 

@@ -49,6 +49,26 @@ class CompanyStatsService extends service_1.BaseService {
         });
         return count;
     }
+    async getCompanyWalletBalance(companyId) {
+        const account = await prisma_1.prisma.virtualAccount.findUnique({
+            where: {
+                owner_type_owner_id: {
+                    owner_type: 'COMPANY',
+                    owner_id: companyId
+                }
+            }
+        });
+        return account?.balance || 0;
+    }
+    async getCompanyActiveSubscriptions(companyId) {
+        const count = await prisma_1.prisma.subscription.count({
+            where: {
+                company_id: companyId,
+                status: 'ACTIVE'
+            }
+        });
+        return count;
+    }
     async getCompanyStats(companyId) {
         const startTime = Date.now();
         try {
@@ -56,20 +76,24 @@ class CompanyStatsService extends service_1.BaseService {
                 this.getCompanyEmployeeCount(companyId),
                 this.getCompanyJobsPostedThisMonth(companyId),
                 this.getCompanyActiveJobs(companyId),
-                this.getCompanyApplicationsThisMonth(companyId)
+                this.getCompanyApplicationsThisMonth(companyId),
+                this.getCompanyWalletBalance(companyId),
+                this.getCompanyActiveSubscriptions(companyId)
             ]);
-            const [employeeCount, jobsPostedThisMonth, activeJobs, applicationsThisMonth] = results;
+            const [employeeCount, jobsPostedThisMonth, activeJobs, applicationsThisMonth, walletBalance, activeSubscriptions] = results;
             const duration = Date.now() - startTime;
             return {
                 employeeCount,
                 jobsPostedThisMonth,
                 activeJobs,
-                applicationsThisMonth
+                applicationsThisMonth,
+                walletBalance,
+                activeSubscriptions
             };
         }
         catch (error) {
             const duration = Date.now() - startTime;
-            console.error('[CompanyStatsService.getCompanyStats] Failed after', duration, 'ms:', error.message);
+            console.error('[CompanyStatsService] Failed after', duration, 'ms:', error.message);
             throw error;
         }
     }

@@ -81,6 +81,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/offers', offerRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
+  app.use('/api/subscription', subscriptionRoutes); // Alias for singular access
   app.use('/api/candidate', candidateRoutes);
   app.use('/api/consultant', consultantRoutes);
   app.use('/api/sales', salesRoutes);

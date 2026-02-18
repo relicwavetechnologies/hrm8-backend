@@ -1,78 +1,46 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.companyController = exports.CompanyController = void 0;
+exports.CompanyController = void 0;
 const controller_1 = require("../../core/controller");
-const verification_service_1 = require("../verification/verification.service");
+const company_service_1 = require("./company.service");
+const company_repository_1 = require("./company.repository");
+const company_stats_service_1 = require("./company-stats.service");
 class CompanyController extends controller_1.BaseController {
-    constructor(companyService = companyService, verificationServiceRef = verification_service_1.verificationService, companyProfileService = companyProfileService, companyStatsService = companyStatsService, companyRepository = companyRepository) {
+    constructor() {
         super();
-        this.companyService = companyService;
-        this.verificationServiceRef = verificationServiceRef;
-        this.companyProfileService = companyProfileService;
-        this.companyStatsService = companyStatsService;
-        this.companyRepository = companyRepository;
         this.getCompany = async (req, res) => {
             try {
-                const id = req.params.id;
-                const company = await this.companyService.findById(id);
-                if (!company) {
-                    return res.status(404).json({ success: false, error: 'Company not found' });
-                }
-                return this.sendSuccess(res, company);
+                const { id } = req.params;
+                const company = await this.companyService.getCompany(id);
+                return this.sendSuccess(res, { company });
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.getVerificationStatus = async (req, res) => {
+        this.updateCompany = async (req, res) => {
             try {
-                const id = req.params.id;
-                const status = await this.companyService.getVerificationStatus(id);
-                if (status === null) {
-                    return res.status(404).json({ success: false, error: 'Company not found' });
+                const { id } = req.params;
+                // Ensure user belongs to this company (simple authorization check)
+                if (req.user?.companyId !== id) {
+                    return this.sendError(res, new Error('Unauthorized to update this company'));
                 }
-                return this.sendSuccess(res, { status });
+                const company = await this.companyService.updateCompany(id, req.body);
+                return this.sendSuccess(res, { company });
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.verifyByEmail = async (req, res) => {
-            try {
-                const id = req.params.id;
-                const { token } = req.body;
-                const verified = await this.verificationServiceRef.verifyByEmailToken(id, token);
-                if (!verified) {
-                    return res.status(400).json({ success: false, error: 'Invalid or expired verification token' });
-                }
-                return this.sendSuccess(res, { message: 'Company verified successfully' });
-            }
-            catch (error) {
-                return this.sendError(res, error);
-            }
-        };
-        this.initiateManualVerification = async (req, res) => {
-            try {
-                const id = req.params.id;
-                const { gstNumber, registrationNumber, linkedInUrl } = req.body;
-                await this.verificationServiceRef.initiateManualVerification(id, {
-                    gstNumber,
-                    registrationNumber,
-                    linkedInUrl,
-                });
-                return this.sendSuccess(res, {
-                    message: 'Verification request submitted. Our team will review it shortly.'
-                });
-            }
-            catch (error) {
-                return this.sendError(res, error);
-            }
-        };
+        // Profile
         this.getProfile = async (req, res) => {
             try {
-                const id = req.params.id;
-                const data = await this.companyProfileService.getProgress(id);
-                return this.sendSuccess(res, data);
+                const { id } = req.params;
+                if (req.user?.companyId !== id) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const profile = await this.companyService.getProfile(id);
+                return this.sendSuccess(res, { profile });
             }
             catch (error) {
                 return this.sendError(res, error);
@@ -80,36 +48,31 @@ class CompanyController extends controller_1.BaseController {
         };
         this.updateProfile = async (req, res) => {
             try {
-                const id = req.params.id;
-                const payload = req.body;
-                const userId = req.user?.id;
-                if (!userId) {
-                    return res.status(401).json({ success: false, error: 'Not authenticated' });
+                const { id } = req.params;
+                if (req.user?.companyId !== id) {
+                    return this.sendError(res, new Error('Unauthorized'));
                 }
-                const profile = await this.companyProfileService.updateSection(id, payload, userId);
+                const profile = await this.companyService.updateProfile(id, req.body);
                 return this.sendSuccess(res, { profile });
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.completeProfile = async (req, res) => {
-            try {
-                const id = req.params.id;
-                const profile = await this.companyProfileService.completeProfile(id);
-                return this.sendSuccess(res, {
-                    profile,
-                    message: 'Company profile completed successfully.',
-                });
-            }
-            catch (error) {
-                return this.sendError(res, error);
-            }
+        // Verification (Admin only typically, or self-initiate)
+        this.verifyByEmail = async (req, res) => {
+            // Logic for verifying token would go here, often handled by AuthService or VerificationService
+            // For now, placeholder or specific implementation if needed
+            return this.sendSuccess(res, { message: 'Not implemented in this controller yet' });
         };
+        // Settings
         this.getJobAssignmentSettings = async (req, res) => {
             try {
-                const id = req.params.id;
-                const settings = await this.companyRepository.getJobAssignmentSettings(id);
+                const { id } = req.params;
+                if (req.user?.companyId !== id) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const settings = await this.companyService.getJobAssignmentSettings(id);
                 return this.sendSuccess(res, settings);
             }
             catch (error) {
@@ -118,38 +81,125 @@ class CompanyController extends controller_1.BaseController {
         };
         this.updateJobAssignmentMode = async (req, res) => {
             try {
-                const id = req.params.id;
-                const { mode } = req.body;
-                if (!mode || (mode !== 'AUTO_RULES_ONLY' && mode !== 'MANUAL_ONLY')) {
-                    return res.status(400).json({ success: false, error: 'Invalid mode' });
+                const { id } = req.params;
+                if (req.user?.companyId !== id) {
+                    return this.sendError(res, new Error('Unauthorized'));
                 }
-                const company = await this.companyRepository.updateJobAssignmentMode(id, mode);
-                return this.sendSuccess(res, {
-                    company,
-                    message: 'Job assignment mode updated successfully',
-                });
+                const { mode } = req.body;
+                const company = await this.companyService.updateJobAssignmentMode(id, mode);
+                return this.sendSuccess(res, { company });
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.getCompanyStats = async (req, res) => {
+        this.getStats = async (req, res) => {
             try {
-                const id = req.params.id;
+                const { id } = req.params;
                 if (req.user?.companyId !== id) {
-                    return res.status(403).json({
-                        success: false,
-                        error: 'Unauthorized to access this company\'s statistics',
-                    });
+                    return this.sendError(res, new Error('Unauthorized'));
                 }
-                const stats = await this.companyStatsService.getCompanyStats(id);
+                const stats = await company_stats_service_1.companyStatsService.getCompanyStats(id);
                 return this.sendSuccess(res, stats);
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
+        // Transactions
+        this.getTransactions = async (req, res) => {
+            try {
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const limit = parseInt(req.query.limit) || 50;
+                const offset = parseInt(req.query.offset) || 0;
+                const transactions = await this.companyService.getTransactions(companyId, limit, offset);
+                return this.sendSuccess(res, { transactions, limit, offset });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getTransactionStats = async (req, res) => {
+            try {
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const stats = await this.companyService.getTransactionStats(companyId);
+                return this.sendSuccess(res, stats);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Refund Requests
+        this.createRefundRequest = async (req, res) => {
+            try {
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const { amount, reason, description, invoiceNumber } = req.body;
+                const refundRequest = await this.companyService.createRefundRequest(companyId, {
+                    amount,
+                    reason,
+                    description,
+                    invoiceNumber
+                });
+                res.status(201);
+                return this.sendSuccess(res, { refundRequest });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getRefundRequests = async (req, res) => {
+            try {
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const limit = parseInt(req.query.limit) || 50;
+                const offset = parseInt(req.query.offset) || 0;
+                const refundRequests = await this.companyService.getRefundRequests(companyId, limit, offset);
+                return this.sendSuccess(res, { refundRequests, limit, offset });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.cancelRefundRequest = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const result = await this.companyService.cancelRefundRequest(id, companyId);
+                return this.sendSuccess(res, { message: 'Refund request cancelled', result });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.withdrawRefundRequest = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const companyId = req.user?.companyId;
+                if (!companyId) {
+                    return this.sendError(res, new Error('Unauthorized'));
+                }
+                const refundRequest = await this.companyService.withdrawRefundRequest(id, companyId);
+                return this.sendSuccess(res, { refundRequest });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.companyService = new company_service_1.CompanyService(new company_repository_1.CompanyRepository());
     }
 }
 exports.CompanyController = CompanyController;
-exports.companyController = new CompanyController();

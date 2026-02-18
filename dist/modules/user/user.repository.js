@@ -1,81 +1,95 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userRepository = exports.UserRepository = void 0;
+exports.UserRepository = void 0;
 const repository_1 = require("../../core/repository");
 class UserRepository extends repository_1.BaseRepository {
-    async create(userData) {
-        const user = await this.prisma.user.create({
+    async create(data) {
+        return this.prisma.user.create({ data });
+    }
+    async update(id, data) {
+        return this.prisma.user.update({
+            where: { id },
+            data,
+        });
+    }
+    async updatePassword(id, passwordHash, status) {
+        return this.prisma.user.update({
+            where: { id },
             data: {
-                email: userData.email.toLowerCase(),
-                name: userData.name,
-                password_hash: userData.passwordHash,
-                company_id: userData.companyId,
-                role: userData.role,
-                status: userData.status,
-                assigned_by: userData.assignedBy,
-                last_login_at: userData.lastLoginAt,
+                password_hash: passwordHash,
+                ...(status ? { status } : {}),
             },
         });
-        return this.mapPrismaToUser(user);
     }
-    async findById(id) {
-        const user = await this.prisma.user.findUnique({
+    async delete(id) {
+        return this.prisma.user.delete({
             where: { id },
         });
-        return user ? this.mapPrismaToUser(user) : null;
+    }
+    async findById(id) {
+        return this.prisma.user.findUnique({
+            where: { id },
+        });
     }
     async findByEmail(email) {
-        const user = await this.prisma.user.findUnique({
-            where: { email: email.toLowerCase() },
+        return this.prisma.user.findUnique({
+            where: { email },
         });
-        return user ? this.mapPrismaToUser(user) : null;
     }
     async findByCompanyId(companyId) {
-        const users = await this.prisma.user.findMany({
+        return this.prisma.user.findMany({
             where: { company_id: companyId },
             orderBy: { created_at: 'desc' },
         });
-        return users.map(user => this.mapPrismaToUser(user));
     }
-    async updateLastLogin(id) {
-        const user = await this.prisma.user.update({
-            where: { id },
-            data: { last_login_at: new Date() },
-        });
-        return this.mapPrismaToUser(user);
-    }
-    async updatePassword(id, passwordHash) {
-        const user = await this.prisma.user.update({
-            where: { id },
-            data: { password_hash: passwordHash },
-        });
-        return this.mapPrismaToUser(user);
-    }
-    async updateRole(id, role, assignedBy) {
-        const user = await this.prisma.user.update({
-            where: { id },
-            data: {
+    async findByCompanyIdAndRole(companyId, role) {
+        return this.prisma.user.findMany({
+            where: {
+                company_id: companyId,
                 role,
-                assigned_by: assignedBy
+            },
+            orderBy: { created_at: 'desc' },
+        });
+    }
+    async countByEmail(email, excludeId) {
+        return this.prisma.user.count({
+            where: {
+                email: email,
+                ...(excludeId ? { NOT: { id: excludeId } } : {}),
             },
         });
-        return this.mapPrismaToUser(user);
     }
-    mapPrismaToUser(prismaUser) {
-        return {
-            id: prismaUser.id,
-            email: prismaUser.email,
-            name: prismaUser.name,
-            passwordHash: prismaUser.password_hash,
-            companyId: prismaUser.company_id,
-            role: prismaUser.role,
-            status: prismaUser.status,
-            assignedBy: prismaUser.assigned_by || undefined,
-            lastLoginAt: prismaUser.last_login_at || undefined,
-            createdAt: prismaUser.created_at,
-            updatedAt: prismaUser.updated_at,
-        };
+    // Notification Preferences
+    async getNotificationPreferences(userId) {
+        return this.prisma.userNotificationPreferences.findUnique({
+            where: { user_id: userId },
+        });
+    }
+    async updateNotificationPreferences(userId, data) {
+        return this.prisma.userNotificationPreferences.upsert({
+            where: { user_id: userId },
+            create: data,
+            update: data,
+        });
+    }
+    // Alert Rules
+    async getAlertRules(userId) {
+        return this.prisma.userAlertRule.findMany({
+            where: { user_id: userId },
+            orderBy: { created_at: 'desc' },
+        });
+    }
+    async createAlertRule(data) {
+        return this.prisma.userAlertRule.create({ data });
+    }
+    async updateAlertRule(id, data) {
+        return this.prisma.userAlertRule.update({
+            where: { id },
+            data,
+        });
+    }
+    async deleteAlertRule(id) {
+        return this.prisma.userAlertRule.delete({ where: { id } });
     }
 }
 exports.UserRepository = UserRepository;
-exports.userRepository = new UserRepository();

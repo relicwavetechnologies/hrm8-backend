@@ -71,10 +71,34 @@ export class CommissionService extends BaseService {
         };
     }
 
-    async getAll(params: { limit?: number; offset?: number; consultantId?: string }) {
-        const { limit = 50, offset = 0, consultantId } = params;
+    async getAll(params: {
+        limit?: number;
+        offset?: number;
+        consultantId?: string;
+        regionId?: string;
+        status?: string;
+        commissionType?: string;
+        allowedRegionIds?: string[];
+    }) {
+        const { limit = 50, offset = 0, consultantId, regionId, status, commissionType, allowedRegionIds } = params;
+        if (allowedRegionIds && allowedRegionIds.length === 0) {
+            return { commissions: [], total: 0 };
+        }
+
         const where: any = {};
         if (consultantId) where.consultant_id = consultantId;
+        if (regionId) where.region_id = regionId;
+        if (status) where.status = status;
+        if (commissionType) where.type = commissionType;
+        if (allowedRegionIds) {
+            if (where.region_id) {
+                if (!allowedRegionIds.includes(where.region_id)) {
+                    return { commissions: [], total: 0 };
+                }
+            } else {
+                where.region_id = { in: allowedRegionIds };
+            }
+        }
 
         const [commissions, total] = await Promise.all([
             this.commissionRepository.findMany({
@@ -90,9 +114,12 @@ export class CommissionService extends BaseService {
         return { commissions: commissions.map(c => this.mapToDTO(c)), total };
     }
 
-    async getById(id: string) {
+    async getById(id: string, allowedRegionIds?: string[]) {
         const commission = await this.commissionRepository.findById(id);
         if (!commission) throw new HttpException(404, 'Commission not found');
+        if (allowedRegionIds && !allowedRegionIds.includes(commission.region_id)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
         return this.mapToDTO(commission);
     }
 
@@ -307,15 +334,19 @@ export class CommissionService extends BaseService {
         });
     }
 
-    async confirm(id: string) {
+    async confirm(id: string, allowedRegionIds?: string[]) {
         const commission = await this.commissionRepository.findById(id);
         if (!commission) throw new HttpException(404, 'Commission not found');
+        if (allowedRegionIds && !allowedRegionIds.includes(commission.region_id)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
+
+        if (commission.status === CommissionStatus.CONFIRMED) {
+            return commission;
+        }
 
         if (commission.status !== CommissionStatus.PENDING) {
-            return this.commissionRepository.update(id, {
-                status: CommissionStatus.CONFIRMED,
-                confirmed_at: new Date()
-            });
+            throw new HttpException(400, `Cannot confirm commission in status ${commission.status}`);
         }
 
         // PENDING → CONFIRMED: credit VirtualAccount so amount reflects in wallet
