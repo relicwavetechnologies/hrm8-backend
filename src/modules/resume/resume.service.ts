@@ -1,8 +1,10 @@
 import { BaseService } from '../../core/service';
 import { prisma } from '../../utils/prisma';
+import { ApplicationActivityService } from '../application/application-activity.service';
 
 export interface CreateAnnotationRequest {
     resume_id: string;
+    application_id?: string;
     user_id: string;
     user_name: string;
     user_color: string;
@@ -27,7 +29,7 @@ export class ResumeService extends BaseService {
      * Create a new annotation
      */
     async createAnnotation(data: CreateAnnotationRequest) {
-        return prisma.resumeAnnotation.create({
+        const annotation = await prisma.resumeAnnotation.create({
             data: {
                 resume_id: data.resume_id,
                 user_id: data.user_id,
@@ -39,6 +41,42 @@ export class ResumeService extends BaseService {
                 position: data.position,
             },
         });
+
+        let applicationId = data.application_id;
+        if (!applicationId) {
+            const resume = await prisma.candidateResume.findUnique({
+                where: { id: data.resume_id },
+                select: { candidate_id: true },
+            });
+            if (resume?.candidate_id) {
+                const app = await prisma.application.findFirst({
+                    where: { candidate_id: resume.candidate_id },
+                    orderBy: { updated_at: 'desc' },
+                    select: { id: true },
+                });
+                applicationId = app?.id;
+            }
+        }
+
+        if (applicationId) {
+            await ApplicationActivityService.logSafe({
+                applicationId,
+                actorId: data.user_id,
+                action: data.type === 'comment' ? 'annotation_commented' : 'annotation_highlighted',
+                subject: data.type === 'comment' ? 'Annotation comment added' : 'Text highlighted',
+                description: data.type === 'comment'
+                    ? `${data.user_name} commented on highlighted text`
+                    : `${data.user_name} highlighted resume text`,
+                metadata: {
+                    annotationId: annotation.id,
+                    resumeId: data.resume_id,
+                    type: data.type,
+                    comment: data.comment,
+                },
+            });
+        }
+
+        return annotation;
     }
 
     /**

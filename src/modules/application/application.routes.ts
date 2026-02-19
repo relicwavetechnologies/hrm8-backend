@@ -37,6 +37,10 @@ router.put('/:id/manual-screening', authenticate, applicationController.updateMa
 // Single application operations - must come after specific routes
 router.get('/:id/resume', authenticateUnified, applicationController.getResume);
 router.get('/:id', authenticateUnified, applicationController.getApplication);
+router.get('/:id/activities', authenticate, applicationController.getActivities);
+router.get('/:id/activity', authenticate, applicationController.getActivities); // Compatibility alias
+router.post('/:id/activities/log', authenticate, applicationController.logGenericActivity);
+router.post('/:id/activity/log', authenticate, applicationController.logGenericActivity); // Compatibility alias
 router.put('/:id/round/:roundId', authenticate, applicationController.moveToRound);
 router.put('/:id/score', authenticate, applicationController.updateScore);
 router.put('/:id/rank', authenticate, applicationController.updateRank);

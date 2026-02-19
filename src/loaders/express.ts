@@ -69,6 +69,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/job-templates', jobTemplateRoutes);
   app.use('/api/screening-templates', screeningTemplateRoutes);
   app.use('/api/applications', applicationRoutes);
+  app.use('/api/application', applicationRoutes); // Compatibility alias
   app.use('/api/assessment', assessmentRoutes);
   app.use('/api/assessments', assessmentRoutes); // Plural alias for consistency
   app.use('/api/communication', communicationRoutes);
