@@ -119,6 +119,11 @@ export class ApplicationService extends BaseService {
     return applications.map(app => this.mapApplication(app));
   }
 
+  async getCompanyApplications(companyId: string): Promise<{ applications: any[] }> {
+    const applications = await this.applicationRepository.findByCompanyId(companyId);
+    return { applications: applications.map(app => this.mapApplication(app)) };
+  }
+
   async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
     let applications = await this.applicationRepository.findByJobId(jobId, filters);
 

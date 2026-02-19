@@ -17,6 +17,9 @@ router.post('/bulk-analyze', authenticate, applicationController.bulkAiAnalysis)
 // Check if candidate has applied
 router.get('/check', authenticateUnified, applicationController.checkApplication);
 
+// Get ALL applications for the company (single bulk fetch for Candidates tab)
+router.get('/company', authenticate, applicationController.getCompanyApplications);
+
 // Get job applications (CRITICAL for /ats/jobs page)
 router.get('/job/:jobId', authenticate, applicationController.getJobApplications);
 

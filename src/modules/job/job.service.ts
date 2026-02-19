@@ -235,21 +235,22 @@ export class JobService extends BaseService {
     // Map database fields to API response format (camelCase)
     const mappedJobs = jobs.map(job => this.mapToResponse(job));
 
-    // If ApplicationRepository is available, add application counts to each job
-    if (this.applicationRepository) {
-      const jobsWithCounts = await Promise.all(
-        mappedJobs.map(async (job) => {
-          const counts = await this.applicationRepository!.countByJobId(job.id);
-          const unreadCounts = await this.applicationRepository!.countUnreadByJobId(job.id);
+    // applicantsCount is already set from _count.applications in mapToResponse.
+    // Fetch unread counts in a single grouped query instead of 2 queries per job.
+    if (mappedJobs.length > 0) {
+      const jobIds = mappedJobs.map(j => j.id);
+      const unreadGroups = await prisma.application.groupBy({
+        by: ['job_id'],
+        where: { job_id: { in: jobIds }, is_read: false },
+        _count: { id: true },
+      });
+      const unreadMap = new Map(unreadGroups.map(r => [r.job_id, r._count.id]));
 
-          return {
-            ...job,
-            totalApplications: counts,
-            unreadApplicants: unreadCounts,
-          };
-        })
-      );
-      return jobsWithCounts;
+      return mappedJobs.map(job => ({
+        ...job,
+        totalApplications: job.applicantsCount,
+        unreadApplicants: unreadMap.get(job.id) ?? 0,
+      }));
     }
 
     return mappedJobs;

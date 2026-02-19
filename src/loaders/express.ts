@@ -32,6 +32,7 @@ import assistantRoutes from '../modules/assistant/assistant.routes';
 import emailTemplateRoutes from '../modules/email/email-template.routes';
 import messagingRoutes from '../modules/messaging/messaging.routes';
 import pricingRoutes from '../modules/pricing/pricing.routes';
+import taskRoutes from '../modules/task/task.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -95,6 +96,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/email-templates', emailTemplateRoutes);
   app.use('/api/messaging', messagingRoutes);
   app.use('/api/pricing', pricingRoutes);
+  app.use('/api/tasks', taskRoutes);
 
   // Error middleware must be registered last
   app.use(errorMiddleware);

@@ -115,6 +115,19 @@ export class ApplicationController extends BaseController {
     }
   };
 
+  // Get ALL applications for the authenticated user's company (used by Candidates sidebar tab)
+  getCompanyApplications = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.companyId) {
+        return this.sendError(res, new Error('Unauthorized'), 401);
+      }
+      const result = await this.applicationService.getCompanyApplications(req.user.companyId);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Get job applications (CRITICAL for /ats/jobs page)
   getJobApplications = async (req: AuthenticatedRequest, res: Response) => {
     try {

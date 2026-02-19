@@ -204,6 +204,31 @@ export class ApplicationTaskService {
     return { success: true, message: 'Task deleted successfully' };
   }
 
+  // Get all tasks for a company (bulk fetch)
+  static async getCompanyTasks(companyId: string) {
+    return prisma.applicationTask.findMany({
+      where: {
+        application: {
+          job: { company_id: companyId },
+        },
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        application: {
+          select: {
+            id: true,
+            job: { select: { id: true, title: true } },
+            candidate: {
+              select: { id: true, email: true, first_name: true, last_name: true, photo: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ status: 'asc' }, { priority: 'desc' }, { created_at: 'desc' }],
+    });
+  }
+
   // Get task statistics for an application
   static async getTaskStats(applicationId: string) {
     const tasks = await prisma.applicationTask.findMany({
