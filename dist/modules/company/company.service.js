@@ -1,65 +1,175 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.companyService = exports.CompanyService = void 0;
+exports.CompanyService = void 0;
 const service_1 = require("../../core/service");
-const types_1 = require("../../types");
-const company_repository_1 = require("./company.repository");
-const company_profile_service_1 = require("./company-profile.service"); // Circular dep? No, Service uses Service.
-const verification_service_1 = require("../verification/verification.service");
-const domain_1 = require("../../utils/domain");
+const http_exception_1 = require("../../core/http-exception");
+const currency_assignment_service_1 = require("../pricing/currency-assignment.service");
 class CompanyService extends service_1.BaseService {
-    constructor(repository = company_repository_1.companyRepository, 
-    // Delay injection or use a getter if circular dependency becomes an issue.
-    // However, here CompanyService uses CompanyProfileService (to init profile),
-    // and CompanyProfileService might use CompanyService? Let's check.
-    // CompanyProfileService uses InvitationService. It doesn't seem to use CompanyService directly in logic shown.
-    profileService = company_profile_service_1.companyProfileService, verificationServiceRef = verification_service_1.verificationService) {
+    constructor(companyRepository) {
         super();
-        this.repository = repository;
-        this.profileService = profileService;
-        this.verificationServiceRef = verificationServiceRef;
+        this.companyRepository = companyRepository;
     }
-    async registerCompany(registrationData, options) {
-        const domain = (0, domain_1.extractDomain)(registrationData.companyWebsite);
-        const adminEmailDomain = (0, domain_1.extractEmailDomain)(registrationData.adminEmail);
-        const domainsMatch = (0, domain_1.doDomainsBelongToSameOrg)(domain, adminEmailDomain);
-        if (!domainsMatch && !options?.skipDomainValidation) {
-            throw new Error('Admin email domain must match your company website domain. Please use your corporate email address.');
+    async createCompany(data) {
+        const domain = data.domain.toLowerCase();
+        // Check if domain exists
+        const exists = await this.companyRepository.countByDomain(domain);
+        if (exists > 0) {
+            throw new http_exception_1.HttpException(409, `Company with domain "${domain}" already exists.`);
         }
-        const company = await this.repository.create({
-            name: registrationData.companyName,
-            website: registrationData.companyWebsite,
+        // Create company
+        const company = await this.companyRepository.create({
+            name: data.name,
             domain: domain,
-            countryOrRegion: registrationData.countryOrRegion.trim(),
-            acceptedTerms: registrationData.acceptTerms,
-            verificationStatus: options?.skipEmailVerification
-                ? types_1.CompanyVerificationStatus.VERIFIED
-                : types_1.CompanyVerificationStatus.PENDING,
-            regionId: options?.regionId,
-            salesAgentId: options?.salesAgentId,
+            website: data.website,
+            country_or_region: data.countryOrRegion,
+            accepted_terms: data.acceptedTerms,
+            verification_status: data.verificationStatus || 'PENDING',
+            verification_method: data.verificationMethod,
+            verified_at: data.verificationData?.verifiedAt,
+            verified_by: data.verificationData?.verifiedBy,
+            gst_number: data.verificationData?.gstNumber,
+            registration_number: data.verificationData?.registrationNumber,
+            linked_in_url: data.verificationData?.linkedInUrl,
+            region: data.regionId ? { connect: { id: data.regionId } } : undefined,
+            sales_agent: data.salesAgentId ? { connect: { id: data.salesAgentId } } : undefined,
         });
-        await this.profileService.initializeProfile(company.id);
-        if (!options?.skipEmailVerification) {
-            await this.verificationServiceRef.initiateEmailVerification(company, registrationData.adminEmail);
+        // Assign pricing peg and billing currency from country code or region
+        let countryCode = data.countryCode;
+        if (!countryCode && (data.regionId || data.countryOrRegion)) {
+            countryCode = (await currency_assignment_service_1.CurrencyAssignmentService.resolveCountryCode(data.countryOrRegion, data.regionId)) ?? undefined;
         }
+        if (countryCode) {
+            try {
+                await currency_assignment_service_1.CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+            }
+            catch (error) {
+                console.warn(`Failed to assign currency to company ${company.id}:`, error);
+                // Continue - company will default to USD
+            }
+        }
+        return company;
+    }
+    async updateCompany(id, data) {
+        const company = await this.companyRepository.findById(id);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        return this.companyRepository.update(id, data);
+    }
+    async getCompany(id) {
+        const company = await this.companyRepository.findById(id);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        return company;
+    }
+    async getCompanyByDomain(domain) {
+        return this.companyRepository.findByDomain(domain);
+    }
+    // --- Profile ---
+    async getProfile(companyId) {
+        const profile = await this.companyRepository.findProfileByCompanyId(companyId);
+        if (!profile) {
+            // Auto-create empty profile if not exists
+            return this.companyRepository.createProfile({
+                company: { connect: { id: companyId } },
+                status: 'NOT_STARTED',
+                profile_data: { teamMembers: { invites: [] }, additionalLocations: [] },
+            });
+        }
+        return profile;
+    }
+    async updateProfile(companyId, data) {
+        return this.companyRepository.upsertProfile(companyId, {
+            company: { connect: { id: companyId } },
+            ...data
+        }, data);
+    }
+    // --- Verification ---
+    async updateVerificationStatus(id, status, method) {
+        const updateData = { verification_status: status };
+        if (method)
+            updateData.verification_method = method;
+        if (status === 'VERIFIED')
+            updateData.verified_at = new Date();
+        return this.companyRepository.update(id, updateData);
+    }
+    // --- Settings ---
+    async getJobAssignmentSettings(id) {
+        const company = await this.companyRepository.findById(id);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
         return {
-            company,
-            verificationMethod: options?.skipEmailVerification
-                ? types_1.VerificationMethod.MANUAL_VERIFICATION
-                : types_1.VerificationMethod.VERIFICATION_EMAIL,
-            verificationRequired: !options?.skipEmailVerification,
+            jobAssignmentMode: company.job_assignment_mode,
+            preferredRecruiterId: company.preferred_recruiter_id,
         };
     }
-    async findByDomain(domain) {
-        return await this.repository.findByDomain(domain);
+    async updateJobAssignmentMode(id, mode) {
+        return this.companyRepository.update(id, { job_assignment_mode: mode });
     }
-    async findById(id) {
-        return await this.repository.findById(id);
+    // --- Transactions ---
+    async getTransactions(companyId, limit, offset) {
+        const company = await this.companyRepository.findById(companyId);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        return this.companyRepository.findTransactions(companyId, limit, offset);
     }
-    async getVerificationStatus(companyId) {
-        const company = await this.repository.findById(companyId);
-        return company?.verificationStatus || null;
+    async getTransactionStats(companyId) {
+        const company = await this.companyRepository.findById(companyId);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        return this.companyRepository.getTransactionStats(companyId);
+    }
+    // --- Refund Requests ---
+    async createRefundRequest(companyId, data) {
+        const company = await this.companyRepository.findById(companyId);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        if (!data.amount || data.amount <= 0) {
+            throw new http_exception_1.HttpException(400, 'Amount must be greater than 0');
+        }
+        if (!data.reason) {
+            throw new http_exception_1.HttpException(400, 'Reason is required');
+        }
+        return this.companyRepository.createRefundRequest({
+            company: { connect: { id: companyId } },
+            amount: data.amount,
+            reason: data.reason,
+            description: data.description,
+            invoice_number: data.invoiceNumber,
+            status: 'PENDING'
+        });
+    }
+    async getRefundRequests(companyId, limit, offset) {
+        const company = await this.companyRepository.findById(companyId);
+        if (!company)
+            throw new http_exception_1.HttpException(404, 'Company not found');
+        return this.companyRepository.findRefundRequests({ company_id: companyId }, limit, offset);
+    }
+    async cancelRefundRequest(requestId, companyId) {
+        const request = await this.companyRepository.findRefundRequestById(requestId);
+        if (!request)
+            throw new http_exception_1.HttpException(404, 'Refund request not found');
+        if (request.company_id !== companyId) {
+            throw new http_exception_1.HttpException(403, 'Unauthorized');
+        }
+        if (request.status !== 'PENDING') {
+            throw new http_exception_1.HttpException(400, `Cannot cancel a ${request.status} refund request`);
+        }
+        return this.companyRepository.deleteRefundRequest(requestId);
+    }
+    async withdrawRefundRequest(requestId, companyId) {
+        const request = await this.companyRepository.findRefundRequestById(requestId);
+        if (!request)
+            throw new http_exception_1.HttpException(404, 'Refund request not found');
+        if (request.company_id !== companyId) {
+            throw new http_exception_1.HttpException(403, 'Unauthorized');
+        }
+        if (request.status !== 'PENDING') {
+            throw new http_exception_1.HttpException(400, `Cannot withdraw a ${request.status} refund request`);
+        }
+        return this.companyRepository.updateRefundRequest(requestId, {
+            status: 'WITHDRAWN',
+            withdrawn_at: new Date()
+        });
     }
 }
 exports.CompanyService = CompanyService;
-exports.companyService = new CompanyService();

@@ -4,17 +4,28 @@ exports.passwordResetTokenRepository = exports.PasswordResetTokenRepository = vo
 const repository_1 = require("../../core/repository");
 class PasswordResetTokenRepository extends repository_1.BaseRepository {
     async invalidateActiveTokensForUser(userId) {
-        // Stub
+        return this.prisma.passwordResetToken.updateMany({
+            where: {
+                user_id: userId,
+                used_at: null,
+                expires_at: { gt: new Date() },
+            },
+            data: { used_at: new Date() },
+        });
     }
     async create(data) {
-        // Stub
+        return this.prisma.passwordResetToken.create({ data });
     }
     async findByTokenHash(hash) {
-        // Stub
-        return null;
+        return this.prisma.passwordResetToken.findUnique({
+            where: { token_hash: hash },
+        });
     }
     async markAsUsed(id) {
-        // Stub
+        return this.prisma.passwordResetToken.update({
+            where: { id },
+            data: { used_at: new Date() },
+        });
     }
 }
 exports.PasswordResetTokenRepository = PasswordResetTokenRepository;

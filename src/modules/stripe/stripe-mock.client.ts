@@ -41,9 +41,11 @@ async function simulateWebhook(event: WebhookEventData, delayMs: number = 1500):
     if (!response.ok) {
       const text = await response.text();
       logger.error('Webhook delivery failed', { status: response.status, response: text });
+      throw new Error(`Mock webhook delivery failed with status ${response.status}`);
     }
   } catch (error) {
     logger.error('Webhook delivery error', error);
+    throw error;
   }
 }
 
@@ -221,9 +223,8 @@ export class MockStripeClient implements IStripeClient {
 export async function completeMockPayment(sessionId: string): Promise<void> {
   const session = mockSessions.get(sessionId);
   if (!session) {
-    logger.warn('Mock session not found for payment, ignoring', { sessionId });
-    // Don't throw, just ignore to prevent crashes if session lost
-    return;
+    logger.warn('Mock session not found for payment', { sessionId });
+    throw new Error('Mock checkout session not found. Please restart checkout.');
   }
 
   // Update session to completed

@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const job_template_controller_1 = require("./job-template.controller");
+const auth_middleware_1 = require("../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+const controller = new job_template_controller_1.JobTemplateController();
+router.get('/', auth_middleware_1.authenticate, controller.list);
+router.get('/:id', auth_middleware_1.authenticate, controller.getById);
+router.get('/:id/job-data', auth_middleware_1.authenticate, controller.getTemplateJobData);
+router.post('/', auth_middleware_1.authenticate, controller.create);
+router.post('/from-job/:id', auth_middleware_1.authenticate, controller.createFromJob);
+router.post('/generate-ai', auth_middleware_1.authenticate, controller.generateAI);
+router.post('/:id/use', auth_middleware_1.authenticate, controller.use);
+router.delete('/:id', auth_middleware_1.authenticate, controller.delete);
+exports.default = router;

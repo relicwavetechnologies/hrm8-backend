@@ -108,6 +108,8 @@ model User {
   created_at               DateTime                     @default(now()) @map("created_at")
   updated_at               DateTime                     @default(now()) @updatedAt @map("updated_at")
   assigned_by              String?                      @map("assigned_by")
+  assigned_tasks           ApplicationTask[]            @relation("TaskAssignee")
+  created_tasks            ApplicationTask[]            @relation("TaskCreator")
   assessment               Assessment[]
   assessment_comment       AssessmentComment[]
   assessment_grade         AssessmentGrade[]
@@ -116,6 +118,7 @@ model User {
   evaluations              CandidateEvaluation[]
   email_logs               EmailLog[]                   @relation("UserEmailLogs")
   email_template           EmailTemplate[]
+  interview_notes          InterviewNote[]
   sent_invitations         Invitation[]                 @relation("InvitedBy")
   created_jobs             Job[]                        @relation("JobCreator")
   sent_job_invitations     JobInvitation[]              @relation("JobInviter")
@@ -133,9 +136,6 @@ model User {
   hiring_teams             JobHiringTeamMember[]
   alert_rules              UserAlertRule[]              @relation("UserAlertRules")
   notification_preferences UserNotificationPreferences? @relation("UserNotificationPreferences")
-  created_tasks            ApplicationTask[]            @relation("TaskCreator")
-  assigned_tasks           ApplicationTask[]            @relation("TaskAssignee")
-  interview_notes          InterviewNote[]
 
   @@index([email])
   @@index([company_id])
@@ -304,6 +304,9 @@ model Job {
   payment_failed_at                   DateTime?
   stripe_payment_intent_id            String?
   stripe_session_id                   String?
+  price_book_id                       String?                     @map("price_book_id")
+  pricing_peg                         String?                     @map("pricing_peg")
+  price_book_version                  String?                     @map("price_book_version")
   clicks_count                        Int                         @default(0)
   views_count                         Int                         @default(0)
   auto_archive_on_expiry              Boolean                     @default(true) @map("auto_archive_on_expiry")
@@ -723,6 +726,7 @@ model Application {
   candidate                  Candidate                  @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
   job                        Job                        @relation(fields: [job_id], references: [id], onDelete: Cascade)
   application_round_progress ApplicationRoundProgress[]
+  application_tasks          ApplicationTask[]
   assessment                 Assessment[]
   call_logs                  CallLog[]
   evaluations                CandidateEvaluation[]
@@ -736,7 +740,6 @@ model Application {
   slack_logs                 SlackLog[]
   sms_logs                   SmsLog[]
   video_interview            VideoInterview[]
-  application_tasks          ApplicationTask[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
@@ -763,10 +766,9 @@ model ApplicationTask {
   completed_at   DateTime?    @map("completed_at")
   created_at     DateTime     @default(now()) @map("created_at")
   updated_at     DateTime     @default(now()) @updatedAt @map("updated_at")
-
-  application Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
-  creator     User        @relation("TaskCreator", fields: [created_by], references: [id])
-  assignee    User?       @relation("TaskAssignee", fields: [assigned_to], references: [id])
+  application    Application  @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  assignee       User?        @relation("TaskAssignee", fields: [assigned_to], references: [id])
+  creator        User         @relation("TaskCreator", fields: [created_by], references: [id])
 
   @@index([application_id])
   @@index([assigned_to])
@@ -1203,21 +1205,21 @@ model RegionalLicensee {
 }
 
 model RegionalRevenue {
-  id             String            @id @default(uuid())
-  region_id      String            @map("region_id")
-  licensee_id    String?           @map("licensee_id")
-  period_start   DateTime          @map("period_start")
-  period_end     DateTime          @map("period_end")
-  total_revenue  Float             @map("total_revenue")
-  licensee_share Float             @map("licensee_share")
-  hrm8_share     Float             @map("hrm8_share")
-  status         RevenueStatus     @default(PENDING)
-  paid_at        DateTime?         @map("paid_at")
-  payment_reference String?        @map("payment_reference")
-  created_at     DateTime          @default(now()) @map("created_at")
-  updated_at     DateTime          @default(now()) @updatedAt @map("updated_at")
-  licensee       RegionalLicensee? @relation(fields: [licensee_id], references: [id])
-  region         Region            @relation(fields: [region_id], references: [id])
+  id                String            @id @default(uuid())
+  region_id         String            @map("region_id")
+  licensee_id       String?           @map("licensee_id")
+  period_start      DateTime          @map("period_start")
+  period_end        DateTime          @map("period_end")
+  total_revenue     Float             @map("total_revenue")
+  licensee_share    Float             @map("licensee_share")
+  hrm8_share        Float             @map("hrm8_share")
+  status            RevenueStatus     @default(PENDING)
+  paid_at           DateTime?         @map("paid_at")
+  payment_reference String?           @map("payment_reference")
+  created_at        DateTime          @default(now()) @map("created_at")
+  updated_at        DateTime          @default(now()) @updatedAt @map("updated_at")
+  licensee          RegionalLicensee? @relation(fields: [licensee_id], references: [id])
+  region            Region            @relation(fields: [region_id], references: [id])
 
   @@index([licensee_id])
   @@index([region_id])
@@ -1313,16 +1315,15 @@ model VideoInterview {
 }
 
 model InterviewNote {
-  id           String   @id @default(uuid())
-  interview_id String   @map("interview_id")
-  author_id    String   @map("author_id")
-  author_name  String   @map("author_name")
+  id           String         @id @default(uuid())
+  interview_id String         @map("interview_id")
+  author_id    String         @map("author_id")
+  author_name  String         @map("author_name")
   content      String
-  created_at   DateTime @default(now()) @map("created_at")
-  updated_at   DateTime @default(now()) @updatedAt @map("updated_at")
-
-  interview VideoInterview @relation(fields: [interview_id], references: [id], onDelete: Cascade)
-  author    User           @relation(fields: [author_id], references: [id])
+  created_at   DateTime       @default(now()) @map("created_at")
+  updated_at   DateTime       @default(now()) @updatedAt @map("updated_at")
+  author       User           @relation(fields: [author_id], references: [id])
+  interview    VideoInterview @relation(fields: [interview_id], references: [id], onDelete: Cascade)
 
   @@index([interview_id])
   @@index([author_id])
@@ -1735,11 +1736,11 @@ model JobHiringTeamMember {
   user_id      String?                   @map("user_id")
   email        String
   name         String?
-  role         HiringTeamRole            @default(MEMBER)
-  permissions  Json?
   status       HiringTeamMemberStatus    @default(PENDING)
   invited_at   DateTime                  @default(now()) @map("invited_at")
   joined_at    DateTime?                 @map("joined_at")
+  role         HiringTeamRole            @default(MEMBER)
+  permissions  Json?
   job          Job                       @relation(fields: [job_id], references: [id], onDelete: Cascade)
   user         User?                     @relation(fields: [user_id], references: [id])
   member_roles JobHiringTeamMemberRole[]
@@ -2001,6 +2002,9 @@ model Subscription {
   prepaid_balance        Float?               @default(0) @map("prepaid_balance")
   renewal_failed_at      DateTime?            @map("renewal_failed_at")
   renewal_failure_reason String?              @map("renewal_failure_reason")
+  price_book_id          String?              @map("price_book_id")
+  pricing_peg            String?              @map("pricing_peg")
+  price_book_version     String?              @map("price_book_version")
   bill                   Bill[]
   commissions            Commission[]         @relation("SubscriptionCommissions")
   company                Company              @relation(fields: [company_id], references: [id], onDelete: Cascade)
@@ -2938,9 +2942,9 @@ enum VideoInterviewType {
 }
 
 enum JobRoundType {
-  CUSTOM // Simple mode: manual-only rounds (no automation)
-  ASSESSMENT // Advanced mode: automated rounds (full automation support)
-  INTERVIEW // Both modes: role-managed interview rounds
+  ASSESSMENT
+  INTERVIEW
+  CUSTOM
 }
 
 enum NotificationType {

@@ -8,6 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateSessionId = generateSessionId;
+exports.generateToken = generateToken;
 exports.getSessionExpiration = getSessionExpiration;
 exports.isSessionExpired = isSessionExpired;
 exports.getSessionCookieOptions = getSessionCookieOptions;
@@ -17,6 +18,12 @@ const crypto_1 = __importDefault(require("crypto"));
  * @returns Random session ID string
  */
 function generateSessionId() {
+    return crypto_1.default.randomBytes(32).toString('hex');
+}
+/**
+ * Generate a secure random token
+ */
+function generateToken() {
     return crypto_1.default.randomBytes(32).toString('hex');
 }
 /**
@@ -46,25 +53,25 @@ function getSessionCookieOptions(maxAge) {
     const isProduction = process.env.NODE_ENV === 'production';
     // Determine sameSite setting:
     // - If explicitly set via env var, use that
-    // - In production, default to 'none' for cross-site compatibility (common in cloud deployments)
-    // - In development, use 'lax' for localhost compatibility
+    // - Default to 'lax' which works for localhost development (ports don't affect SameSite)
+    // - sameSite: 'none' requires Secure: true, which is fine on localhost but strict in browsers
     let sameSite = 'lax';
+    let secure = false;
     if (process.env.COOKIE_SAME_SITE) {
         const envValue = process.env.COOKIE_SAME_SITE.toLowerCase();
         if (envValue === 'none' || envValue === 'strict' || envValue === 'lax') {
             sameSite = envValue;
         }
     }
-    else if (isProduction) {
-        // Default to 'none' in production for cross-site compatibility
-        // This is required when frontend and backend are on different domains
-        sameSite = 'none';
+    // In production, or if SameSite=None, we MUST use Secure
+    if (isProduction || sameSite === 'none') {
+        secure = true;
     }
     return {
         httpOnly: true, // Prevent XSS attacks
-        secure: isProduction, // HTTPS only in production (required for sameSite: 'none')
-        sameSite: sameSite,
-        maxAge: maxAge || 24 * 60 * 60 * 1000, // 24 hours default
+        secure: secure, // HTTPS only in production
+        sameSite: sameSite, // 'lax' allows localhost:8080 → localhost:3000
+        maxAge: maxAge || 7 * 24 * 60 * 60 * 1000, // 7 days default
         path: '/', // Available on all routes
         // Don't set domain - let browser handle it based on the request origin
     };

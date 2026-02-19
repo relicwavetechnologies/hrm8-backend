@@ -29,3 +29,9 @@ Do not commit database credentials. Keep real values only in local `.env.dev` an
 - Do not create, edit, or delete files in `prisma/migrations/` on `dev`
 - Do not edit or delete migration files on `dev`
 - Schema iteration on `dev` is allowed only via `prisma db push`
+- Never use `prisma db push --accept-data-loss`
+- Safe sync order for runtime mismatches:
+  1. `pnpm prisma db pull --print` (inspect DB reality first)
+  2. Reconcile `prisma/schema.prisma` with required app fields
+  3. `pnpm prisma db push` (plain push only)
+  4. If Prisma reports data-loss risk, stop and repeat from step 1

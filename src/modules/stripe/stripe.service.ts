@@ -6,6 +6,7 @@
 import { StripeFactory } from './stripe.factory';
 import { CreateCheckoutSessionParams, StripeCheckoutSession } from './stripe.types';
 import { WalletService } from '../wallet/wallet.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 import { prisma } from '../../utils/prisma';
 import { Logger } from '../../utils/logger';
 
@@ -38,7 +39,7 @@ export class StripeService {
 
     // Convert to cents if needed (Stripe expects cents)
     const amountInCents = amount;
-    
+
     // Currency symbol mapping
     const currencySymbols: Record<string, string> = {
       'usd': '$',
@@ -88,7 +89,7 @@ export class StripeService {
 
   /**
    * Process completed checkout session webhook
-   * Credits wallet or creates subscription based on payment type
+   * Credits wallet with payment amount
    */
   static async processCheckoutCompleted(session: StripeCheckoutSession): Promise<void> {
     // Validate payment was successful
@@ -96,6 +97,7 @@ export class StripeService {
       return;
     }
 
+    // Extract metadata
     const metadata = session.metadata || {};
     const paymentType = metadata.type || 'unknown';
     const companyId = metadata.companyId;
@@ -105,41 +107,53 @@ export class StripeService {
       throw new Error('Missing companyId in session metadata');
     }
 
+    // Credit wallet based on payment type
     if (paymentType === 'wallet_recharge') {
       const timer = this.logger.startTimer();
       await this.creditWalletFromPayment(session, companyId, userId);
-      timer.end('Wallet credited', { companyId, amount: session.amount_total / 100 });
-    } else if (paymentType === 'subscription_purchase') {
+      timer.end('Wallet credited', {
+        companyId,
+        amount: session.amount_total / 100,
+      });
+    } else if (paymentType === 'subscription') {
       const timer = this.logger.startTimer();
-      await this.createSubscriptionFromPayment(session, companyId);
-      timer.end('Subscription created', { companyId, planType: metadata.planType });
+      await this.activateSubscriptionFromPayment(session, companyId, userId, metadata);
+      timer.end('Subscription activated', {
+        companyId,
+        amount: session.amount_total / 100,
+        planType: metadata.planType,
+      });
     } else {
       this.logger.warn('Unknown payment type', { paymentType, sessionId: session.id });
     }
   }
 
   /**
-   * Create subscription from successful Stripe payment
+   * Activate subscription from successful payment
    */
-  private static async createSubscriptionFromPayment(
+  private static async activateSubscriptionFromPayment(
     session: StripeCheckoutSession,
-    companyId: string
+    companyId: string,
+    _userId: string | undefined,
+    metadata: Record<string, string>
   ): Promise<void> {
-    const metadata = session.metadata || {};
-    const planType = metadata.planType || 'PAYG';
-    const name = metadata.planName || metadata.name || planType;
-    const basePrice = session.amount_total / 100;
-    const billingCycle = (metadata.billingCycle || 'MONTHLY') as 'MONTHLY' | 'ANNUAL';
-    const jobQuota = metadata.jobQuota ? parseInt(metadata.jobQuota, 10) : undefined;
+    const amountInDollars = session.amount_total / 100;
+    const { planType, name, billingCycle, jobQuota, salesAgentId, consultantId } = metadata;
 
-    const { SubscriptionService } = await import('../subscription/subscription.service');
+    if (!planType || !name || !billingCycle) {
+      throw new Error('Missing subscription details in metadata');
+    }
+
     await SubscriptionService.createSubscription({
       companyId,
       planType: planType as any,
       name,
-      basePrice,
-      billingCycle,
-      jobQuota: jobQuota || null,
+      basePrice: amountInDollars,
+      billingCycle: billingCycle as 'MONTHLY' | 'ANNUAL',
+      jobQuota: jobQuota ? parseInt(jobQuota, 10) : undefined,
+      // Only pass consultant attribution when explicitly provided in metadata.
+      // Buyer user IDs are not consultant IDs and must not be written to sales_agent_id.
+      salesAgentId: salesAgentId || consultantId || undefined,
       autoRenew: true,
     });
   }

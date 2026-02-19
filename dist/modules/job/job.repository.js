@@ -1,211 +1,393 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.jobRepository = exports.JobRepository = void 0;
+exports.JobRepository = void 0;
 const repository_1 = require("../../core/repository");
 class JobRepository extends repository_1.BaseRepository {
-    async create(jobData) {
-        const job = await this.prisma.job.create({
-            data: {
-                company_id: jobData.companyId,
-                created_by: jobData.createdBy,
-                job_code: jobData.jobCode,
-                title: jobData.title,
-                description: jobData.description,
-                job_summary: jobData.jobSummary,
-                status: jobData.status,
-                hiring_mode: jobData.hiringMode,
-                location: jobData.location,
-                department: jobData.department,
-                work_arrangement: jobData.workArrangement,
-                employment_type: jobData.employmentType,
-                number_of_vacancies: jobData.numberOfVacancies,
-                salary_min: jobData.salaryMin,
-                salary_max: jobData.salaryMax,
-                salary_currency: jobData.salaryCurrency,
-                salary_description: jobData.salaryDescription,
-                category: jobData.category,
-                promotional_tags: jobData.promotionalTags,
-                featured: jobData.featured,
-                stealth: jobData.stealth,
-                visibility: jobData.visibility,
-                requirements: jobData.requirements,
-                responsibilities: jobData.responsibilities,
-                terms_accepted: jobData.termsAccepted,
-                terms_accepted_at: jobData.termsAcceptedAt,
-                terms_accepted_by: jobData.termsAcceptedBy,
-                expires_at: jobData.expiryDate, // Fixed: expiry_date -> expires_at
-                hiring_team: jobData.hiringTeam,
-                application_form: jobData.applicationForm,
-                video_interviewing_enabled: jobData.videoInterviewingEnabled,
-                assignment_mode: jobData.assignmentMode,
-                region_id: jobData.regionId,
-                service_package: jobData.servicePackage,
-                payment_status: jobData.paymentStatus,
-            },
+    async create(data) {
+        return this.prisma.job.create({ data });
+    }
+    async update(id, data) {
+        return this.prisma.job.update({
+            where: { id },
+            data,
         });
-        return this.mapPrismaToJob(job);
     }
     async findById(id) {
-        const job = await this.prisma.job.findUnique({
+        return this.prisma.job.findUnique({
             where: { id },
         });
-        return job ? this.mapPrismaToJob(job) : null;
+    }
+    async findByJobCode(jobCode) {
+        if (!jobCode)
+            return null;
+        return this.prisma.job.findFirst({
+            where: { job_code: jobCode },
+        });
     }
     async findByCompanyId(companyId) {
-        const jobs = await this.prisma.job.findMany({
+        return this.prisma.job.findMany({
             where: { company_id: companyId },
             orderBy: { created_at: 'desc' },
         });
-        return jobs.map((job) => this.mapPrismaToJob(job));
     }
     async findByCompanyIdWithFilters(companyId, filters) {
         const where = {
             company_id: companyId,
         };
-        if (filters.status)
+        // Only add status filter if explicitly provided
+        if (filters.status && filters.status !== 'All Status' && filters.status !== '') {
             where.status = filters.status;
-        if (filters.department)
+        }
+        if (filters.department && filters.department !== 'All Departments') {
             where.department = filters.department;
-        if (filters.location)
-            where.location = { contains: filters.location, mode: 'insensitive' };
-        if (filters.hiringMode)
+        }
+        if (filters.location && filters.location !== 'All Locations') {
+            where.location = filters.location;
+        }
+        if (filters.hiringMode && filters.hiringMode !== 'All Modes') {
             where.hiring_mode = filters.hiringMode;
-        const jobs = await this.prisma.job.findMany({
+        }
+        // Handle archiving logic
+        if (filters.onlyArchived === 'true') {
+            where.archived = true;
+        }
+        else if (filters.includeArchived !== 'true') {
+            where.archived = false; // Default behavior: hide archived
+        }
+        // Add search filter if provided
+        if (filters.search) {
+            where.title = {
+                contains: filters.search,
+                mode: 'insensitive',
+            };
+        }
+        // Parse pagination
+        const page = filters.page ? Number(filters.page) : 1;
+        const limit = filters.limit ? Number(filters.limit) : 1000; // Default high limit for now
+        const skip = (page - 1) * limit;
+        return this.prisma.job.findMany({
             where,
             orderBy: { created_at: 'desc' },
+            skip,
+            take: limit,
+            include: {
+                company: {
+                    select: {
+                        id: true,
+                        name: true,
+                        website: true,
+                    },
+                },
+                _count: {
+                    select: {
+                        applications: true,
+                    },
+                },
+            },
         });
-        return jobs.map((job) => this.mapPrismaToJob(job));
-    }
-    async update(id, data) {
-        const updateData = {};
-        if (data.title !== undefined)
-            updateData.title = data.title;
-        if (data.description !== undefined)
-            updateData.description = data.description;
-        if (data.jobSummary !== undefined)
-            updateData.job_summary = data.jobSummary;
-        if (data.status !== undefined)
-            updateData.status = data.status;
-        if (data.hiringMode !== undefined)
-            updateData.hiring_mode = data.hiringMode;
-        if (data.location !== undefined)
-            updateData.location = data.location;
-        if (data.department !== undefined)
-            updateData.department = data.department;
-        if (data.workArrangement !== undefined)
-            updateData.work_arrangement = data.workArrangement;
-        if (data.employmentType !== undefined)
-            updateData.employment_type = data.employmentType;
-        if (data.numberOfVacancies !== undefined)
-            updateData.number_of_vacancies = data.numberOfVacancies;
-        if (data.salaryMin !== undefined)
-            updateData.salary_min = data.salaryMin;
-        if (data.salaryMax !== undefined)
-            updateData.salary_max = data.salaryMax;
-        if (data.salaryCurrency !== undefined)
-            updateData.salary_currency = data.salaryCurrency;
-        if (data.salaryDescription !== undefined)
-            updateData.salary_description = data.salaryDescription;
-        if (data.category !== undefined)
-            updateData.category = data.category;
-        if (data.promotionalTags !== undefined)
-            updateData.promotional_tags = data.promotionalTags;
-        if (data.featured !== undefined)
-            updateData.featured = data.featured;
-        if (data.stealth !== undefined)
-            updateData.stealth = data.stealth;
-        if (data.visibility !== undefined)
-            updateData.visibility = data.visibility;
-        if (data.requirements !== undefined)
-            updateData.requirements = data.requirements;
-        if (data.responsibilities !== undefined)
-            updateData.responsibilities = data.responsibilities;
-        if (data.expiryDate !== undefined)
-            updateData.expires_at = data.expiryDate; // Fixed
-        if (data.closeDate !== undefined)
-            updateData.close_date = data.closeDate;
-        if (data.postingDate !== undefined)
-            updateData.posting_date = data.postingDate;
-        if (data.applicationForm !== undefined)
-            updateData.application_form = data.applicationForm;
-        if (data.videoInterviewingEnabled !== undefined)
-            updateData.video_interviewing_enabled = data.videoInterviewingEnabled;
-        if (data.assignedConsultantId !== undefined)
-            updateData.assigned_consultant_id = data.assignedConsultantId;
-        if (data.shareLink !== undefined)
-            updateData.share_link = data.shareLink;
-        if (data.referralLink !== undefined)
-            updateData.referral_link = data.referralLink;
-        if (data.alertsEnabled !== undefined)
-            updateData.alerts_enabled = data.alertsEnabled;
-        const job = await this.prisma.job.update({
-            where: { id },
-            data: updateData,
-        });
-        return this.mapPrismaToJob(job);
     }
     async delete(id) {
-        await this.prisma.job.delete({
+        // Soft delete
+        return this.prisma.job.update({
             where: { id },
+            data: { status: 'CLOSED' },
         });
     }
-    async bulkDelete(ids, companyId) {
-        const result = await this.prisma.job.deleteMany({
+    async bulkDelete(jobIds, companyId) {
+        // Soft delete multiple jobs
+        const result = await this.prisma.job.updateMany({
             where: {
-                id: { in: ids },
+                id: { in: jobIds },
                 company_id: companyId,
+            },
+            data: { status: 'CLOSED' },
+        });
+        return result.count;
+    }
+    async bulkArchive(jobIds, companyId, userId) {
+        const result = await this.prisma.job.updateMany({
+            where: {
+                id: { in: jobIds },
+                company_id: companyId,
+            },
+            data: {
+                archived: true,
+                archived_at: new Date(),
+                archived_by: userId || null,
             },
         });
         return result.count;
     }
-    mapPrismaToJob(prismaJob) {
-        return {
-            id: prismaJob.id,
-            companyId: prismaJob.company_id,
-            createdBy: prismaJob.created_by,
-            jobCode: prismaJob.job_code,
-            title: prismaJob.title,
-            description: prismaJob.description,
-            jobSummary: prismaJob.job_summary || undefined,
-            status: prismaJob.status,
-            hiringMode: prismaJob.hiring_mode,
-            location: prismaJob.location,
-            department: prismaJob.department || undefined,
-            workArrangement: prismaJob.work_arrangement,
-            employmentType: prismaJob.employment_type,
-            numberOfVacancies: prismaJob.number_of_vacancies,
-            salaryMin: prismaJob.salary_min || undefined,
-            salaryMax: prismaJob.salary_max || undefined,
-            salaryCurrency: prismaJob.salary_currency,
-            salaryDescription: prismaJob.salary_description || undefined,
-            category: prismaJob.category || undefined,
-            promotionalTags: prismaJob.promotional_tags || [],
-            featured: prismaJob.featured,
-            stealth: prismaJob.stealth,
-            visibility: prismaJob.visibility,
-            requirements: prismaJob.requirements || [],
-            responsibilities: prismaJob.responsibilities || [],
-            termsAccepted: prismaJob.terms_accepted,
-            termsAcceptedAt: prismaJob.terms_accepted_at || undefined,
-            termsAcceptedBy: prismaJob.terms_accepted_by || undefined,
-            expiryDate: prismaJob.expires_at || undefined, // Fixed
-            closeDate: prismaJob.close_date || undefined,
-            postingDate: prismaJob.posting_date || undefined,
-            hiringTeam: prismaJob.hiring_team || [],
-            applicationForm: prismaJob.application_form || undefined,
-            videoInterviewingEnabled: prismaJob.video_interviewing_enabled,
-            assignmentMode: prismaJob.assignment_mode,
-            regionId: prismaJob.region_id || undefined,
-            servicePackage: prismaJob.service_package || undefined,
-            paymentStatus: prismaJob.payment_status || undefined,
-            assignedConsultantId: prismaJob.assigned_consultant_id || undefined,
-            shareLink: prismaJob.share_link || undefined,
-            referralLink: prismaJob.referral_link || undefined,
-            alertsEnabled: prismaJob.alerts_enabled || undefined,
-            createdAt: prismaJob.created_at,
-            updatedAt: prismaJob.updated_at,
+    async bulkUnarchive(jobIds, companyId) {
+        const result = await this.prisma.job.updateMany({
+            where: {
+                id: { in: jobIds },
+                company_id: companyId,
+            },
+            data: {
+                archived: false,
+                archived_at: null,
+                archived_by: null,
+            },
+        });
+        return result.count;
+    }
+    async countByCompany(companyId) {
+        return this.prisma.job.count({
+            where: { company_id: companyId },
+        });
+    }
+    async findPublicJobs(filters, limit = 50, offset = 0) {
+        const where = {
+            status: 'OPEN',
+            visibility: 'public',
+            archived: false,
+            NOT: {
+                posting_date: null // Only show jobs with posting dates
+            },
+            ...filters
         };
+        // Properly merge OR clauses to avoid override
+        const expiresAtCondition = {
+            OR: [
+                { expires_at: null },
+                { expires_at: { gte: new Date() } }
+            ]
+        };
+        if (where.OR) {
+            // If filters already has OR (e.g., search), combine with AND
+            where.AND = [
+                { OR: where.OR }, // Search OR conditions
+                expiresAtCondition // Expires_at OR condition
+            ];
+            delete where.OR;
+        }
+        else {
+            where.OR = expiresAtCondition.OR;
+        }
+        const [jobs, total] = await Promise.all([
+            this.prisma.job.findMany({
+                where,
+                orderBy: [
+                    { featured: 'desc' },
+                    { posting_date: 'desc' }
+                ],
+                take: limit,
+                skip: offset,
+                include: {
+                    company: {
+                        select: {
+                            id: true,
+                            name: true,
+                            website: true,
+                            careers_page_logo: true
+                        }
+                    }
+                }
+            }),
+            this.prisma.job.count({ where })
+        ]);
+        return { jobs, total };
+    }
+    async createJobAnalytics(data) {
+        return this.prisma.jobAnalytics.create({ data });
+    }
+    async getPublicJobFilters() {
+        const jobs = await this.prisma.job.findMany({
+            where: {
+                status: 'OPEN',
+                visibility: 'public',
+                archived: false,
+                OR: [
+                    { expires_at: null },
+                    { expires_at: { gte: new Date() } }
+                ]
+            },
+            select: {
+                category: true,
+                department: true,
+                location: true,
+                hiring_mode: true,
+                promotional_tags: true,
+                company: {
+                    select: {
+                        id: true,
+                        name: true,
+                    }
+                }
+            }
+        });
+        const categories = [...new Set(jobs.map(j => j.category).filter(Boolean))].sort();
+        const departments = [...new Set(jobs.map(j => j.department).filter(Boolean))].sort();
+        const locations = [...new Set(jobs.map(j => j.location).filter(Boolean))].sort();
+        const hiringModes = [...new Set(jobs.map(j => j.hiring_mode).filter(Boolean))].sort();
+        // Extract unique tags
+        const allTags = new Set();
+        jobs.forEach(j => {
+            if (j.promotional_tags) {
+                j.promotional_tags.forEach(tag => allTags.add(tag));
+            }
+        });
+        // Extract unique companies
+        const companiesMap = new Map();
+        jobs.forEach(j => {
+            if (j.company) {
+                companiesMap.set(j.company.id, j.company);
+            }
+        });
+        return {
+            categories,
+            departments,
+            locations,
+            hiringModes,
+            companies: Array.from(companiesMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+            tags: Array.from(allTags).sort(),
+            types: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'CASUAL', 'INTERNSHIP', 'FREELANCE'], // Using ENUM values
+            arrangements: ['ON_SITE', 'REMOTE', 'HYBRID']
+        };
+    }
+    async getPublicJobAggregations() {
+        const jobs = await this.prisma.job.findMany({
+            where: {
+                status: 'OPEN',
+                visibility: 'public',
+                archived: false,
+                OR: [
+                    { expires_at: null },
+                    { expires_at: { gte: new Date() } }
+                ]
+            },
+            select: {
+                category: true,
+                department: true,
+                location: true,
+                hiring_mode: true,
+            }
+        });
+        const aggregate = (arr) => {
+            const counts = {};
+            arr.filter(Boolean).forEach(val => {
+                counts[val] = (counts[val] || 0) + 1;
+            });
+            return Object.entries(counts).map(([name, count]) => ({ name, count }));
+        };
+        return {
+            categories: aggregate(jobs.map(j => j.category)),
+            departments: aggregate(jobs.map(j => j.department)),
+            locations: aggregate(jobs.map(j => j.location)),
+            hiringModes: aggregate(jobs.map(j => j.hiring_mode)),
+        };
+    }
+    // Job Roles (per-job, production-grade)
+    async createJobRoles(jobId, roles) {
+        await this.prisma.jobRole.createMany({
+            data: roles.map((r) => ({
+                job_id: jobId,
+                name: r.name,
+                is_default: r.isDefault ?? false,
+            })),
+        });
+    }
+    async createJobRole(jobId, data) {
+        return this.prisma.jobRole.create({
+            data: {
+                job_id: jobId,
+                name: data.name,
+                is_default: data.isDefault ?? false,
+            },
+        });
+    }
+    async getJobRoles(jobId) {
+        return this.prisma.jobRole.findMany({
+            where: { job_id: jobId },
+            orderBy: { name: 'asc' },
+        });
+    }
+    /** Returns user IDs of hiring team members who have the given job role (for round auto-assign). */
+    async getMemberUserIdsByJobRoleId(jobId, jobRoleId) {
+        const members = await this.prisma.jobHiringTeamMemberRole.findMany({
+            where: {
+                job_role_id: jobRoleId,
+                member: { job_id: jobId },
+            },
+            include: { member: { select: { user_id: true } } },
+        });
+        return members.map((m) => m.member.user_id).filter((id) => id != null);
+    }
+    // Team Management Methods
+    async addTeamMember(jobId, data) {
+        const { roleIds, user_id: userId, ...rest } = data;
+        const member = await this.prisma.jobHiringTeamMember.create({
+            data: {
+                ...rest,
+                job: { connect: { id: jobId } },
+                ...(userId ? { user: { connect: { id: userId } } } : {}),
+            },
+        });
+        if (Array.isArray(roleIds) && roleIds.length > 0) {
+            await this.prisma.jobHiringTeamMemberRole.createMany({
+                data: roleIds.map((rid) => ({ member_id: member.id, job_role_id: rid })),
+                skipDuplicates: true,
+            });
+        }
+        return member;
+    }
+    async getTeamMembers(jobId) {
+        return this.prisma.jobHiringTeamMember.findMany({
+            where: { job_id: jobId },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        role: true,
+                    },
+                },
+                member_roles: {
+                    include: { job_role: { select: { id: true, name: true } } },
+                },
+            },
+        });
+    }
+    async updateTeamMember(id, data) {
+        return this.prisma.jobHiringTeamMember.update({
+            where: { id },
+            data,
+        });
+    }
+    /** Set job-role assignments for a member (replaces existing). */
+    async setMemberJobRoles(memberId, jobRoleIds) {
+        await this.prisma.jobHiringTeamMemberRole.deleteMany({ where: { member_id: memberId } });
+        if (jobRoleIds.length > 0) {
+            await this.prisma.jobHiringTeamMemberRole.createMany({
+                data: jobRoleIds.map((rid) => ({ member_id: memberId, job_role_id: rid })),
+                skipDuplicates: true,
+            });
+        }
+    }
+    async removeTeamMember(id) {
+        return this.prisma.jobHiringTeamMember.delete({
+            where: { id }
+        });
+    }
+    async getTeamMember(memberId) {
+        return this.prisma.jobHiringTeamMember.findUnique({
+            where: { id: memberId },
+        });
+    }
+    async findTeamMemberByEmail(jobId, email) {
+        return this.prisma.jobHiringTeamMember.findFirst({
+            where: {
+                job_id: jobId,
+                email: { equals: email, mode: 'insensitive' }
+            }
+        });
+    }
+    async findUserByEmail(email) {
+        return this.prisma.user.findFirst({
+            where: { email: { equals: email, mode: 'insensitive' } }
+        });
     }
 }
 exports.JobRepository = JobRepository;
-exports.jobRepository = new JobRepository();
