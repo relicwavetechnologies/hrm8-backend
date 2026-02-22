@@ -115,6 +115,19 @@ export class ApplicationController extends BaseController {
     }
   };
 
+  // Get ALL applications for the authenticated user's company (used by Candidates sidebar tab)
+  getCompanyApplications = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.companyId) {
+        return this.sendError(res, new Error('Unauthorized'), 401);
+      }
+      const result = await this.applicationService.getCompanyApplications(req.user.companyId);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Get job applications (CRITICAL for /ats/jobs page)
   getJobApplications = async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -227,7 +240,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Stage is required'), 400);
       }
 
-      const application = await this.applicationService.updateStage(id, stage as ApplicationStage);
+      const application = await this.applicationService.updateStage(id, stage as ApplicationStage, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -436,7 +449,7 @@ export class ApplicationController extends BaseController {
           // Assuming we use the 'shortlisted' boolean or a specific stage.
         }
       } else if (decision === 'REJECT') {
-        await this.applicationService.updateStage(id, 'REJECTED');
+        await this.applicationService.updateStage(id, 'REJECTED', req.user.id);
       }
 
       return this.sendSuccess(res, { evaluation });
@@ -463,6 +476,35 @@ export class ApplicationController extends BaseController {
       const { id } = req.params as { id: string };
       const notes = await this.applicationService.getNotes(id);
       return this.sendSuccess(res, { notes });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Get unified activity logs for an application
+  getActivities = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 200;
+      const activities = await this.applicationService.getActivities(id, Number.isFinite(limit) ? limit : 200);
+      return this.sendSuccess(res, { activities });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  // Generic event logger for future/unknown events
+  logGenericActivity = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) throw new Error('Unauthorized');
+      const { id } = req.params as { id: string };
+      const { eventName, payload } = req.body || {};
+      if (!eventName || typeof eventName !== 'string') {
+        return this.sendError(res, new Error('eventName is required'), 400);
+      }
+      const result = await this.applicationService.logGenericActivity(id, req.user.id, eventName, payload);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }

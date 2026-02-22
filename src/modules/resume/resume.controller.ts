@@ -48,11 +48,12 @@ export class ResumeController extends BaseController {
     createAnnotation = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { resumeId } = req.params as { resumeId: string };
-            const { user_id, user_name, user_color, type, text, comment, position } = req.body;
+            const { application_id, user_id, user_name, user_color, type, text, comment, position } = req.body;
 
             const annotation = await this.resumeService.createAnnotation({
                 resume_id: resumeId,
-                user_id: user_id || req.user?.id,
+                application_id,
+                user_id: !user_id || user_id === 'current-user' ? req.user?.id : user_id,
                 user_name: user_name || (req.user as any)?.name || 'Unknown',
                 user_color,
                 type,
@@ -73,7 +74,9 @@ export class ResumeController extends BaseController {
     deleteAnnotation = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params as { id: string };
-            const userId = req.body.user_id || req.user?.id;
+            const userId = !req.body.user_id || req.body.user_id === 'current-user'
+              ? req.user?.id
+              : req.body.user_id;
 
             if (!userId) {
                 return res.status(400).json({ success: false, error: 'User ID required' });
@@ -86,4 +89,3 @@ export class ResumeController extends BaseController {
         }
     };
 }
-

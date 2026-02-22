@@ -17,6 +17,9 @@ router.post('/bulk-analyze', authenticate, applicationController.bulkAiAnalysis)
 // Check if candidate has applied
 router.get('/check', authenticateUnified, applicationController.checkApplication);
 
+// Get ALL applications for the company (single bulk fetch for Candidates tab)
+router.get('/company', authenticate, applicationController.getCompanyApplications);
+
 // Get job applications (CRITICAL for /ats/jobs page)
 router.get('/job/:jobId', authenticate, applicationController.getJobApplications);
 
@@ -37,6 +40,10 @@ router.put('/:id/manual-screening', authenticate, applicationController.updateMa
 // Single application operations - must come after specific routes
 router.get('/:id/resume', authenticateUnified, applicationController.getResume);
 router.get('/:id', authenticateUnified, applicationController.getApplication);
+router.get('/:id/activities', authenticate, applicationController.getActivities);
+router.get('/:id/activity', authenticate, applicationController.getActivities); // Compatibility alias
+router.post('/:id/activities/log', authenticate, applicationController.logGenericActivity);
+router.post('/:id/activity/log', authenticate, applicationController.logGenericActivity); // Compatibility alias
 router.put('/:id/round/:roundId', authenticate, applicationController.moveToRound);
 router.put('/:id/score', authenticate, applicationController.updateScore);
 router.put('/:id/rank', authenticate, applicationController.updateRank);

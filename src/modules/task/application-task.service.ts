@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 import { TaskStatus, TaskPriority } from '@prisma/client';
+import { ApplicationActivityService } from '../application/application-activity.service';
 
 export class ApplicationTaskService {
   // Create a new task
@@ -50,6 +51,23 @@ export class ApplicationTaskService {
             email: true,
           },
         },
+      },
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: params.applicationId,
+      actorId: params.createdBy,
+      action: params.assignedTo ? 'task_assigned' : 'task_created',
+      subject: params.assignedTo ? 'Task created and assigned' : 'Task created',
+      description: params.assignedTo
+        ? `Task "${params.title}" assigned`
+        : `Task "${params.title}" created`,
+      metadata: {
+        taskId: task.id,
+        title: task.title,
+        priority: task.priority,
+        status: task.status,
+        assignedTo: task.assigned_to,
       },
     });
 
@@ -144,6 +162,17 @@ export class ApplicationTaskService {
       },
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: task.application_id,
+      action: updates.assignedTo ? 'task_assigned' : 'task_updated',
+      subject: updates.assignedTo ? 'Task assignment updated' : 'Task updated',
+      description: `Task "${updatedTask.title}" updated`,
+      metadata: {
+        taskId: updatedTask.id,
+        updates,
+      },
+    });
+
     return updatedTask;
   }
 
@@ -161,7 +190,43 @@ export class ApplicationTaskService {
       where: { id: taskId },
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: task.application_id,
+      action: 'task_deleted',
+      subject: 'Task deleted',
+      description: `Task "${task.title}" deleted`,
+      metadata: {
+        taskId,
+        title: task.title,
+      },
+    });
+
     return { success: true, message: 'Task deleted successfully' };
+  }
+
+  // Get all tasks for a company (bulk fetch)
+  static async getCompanyTasks(companyId: string) {
+    return prisma.applicationTask.findMany({
+      where: {
+        application: {
+          job: { company_id: companyId },
+        },
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        application: {
+          select: {
+            id: true,
+            job: { select: { id: true, title: true } },
+            candidate: {
+              select: { id: true, email: true, first_name: true, last_name: true, photo: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ status: 'asc' }, { priority: 'desc' }, { created_at: 'desc' }],
+    });
   }
 
   // Get task statistics for an application

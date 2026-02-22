@@ -94,6 +94,17 @@ export class ApplicationTaskController extends BaseController {
     }
   };
 
+  // Get all tasks for the authenticated company
+  getCompanyTasks = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.companyId) return this.sendError(res, new Error('Unauthorized'), 401);
+      const tasks = await ApplicationTaskService.getCompanyTasks(req.user.companyId);
+      return this.sendSuccess(res, { tasks });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Get task statistics
   getTaskStats = async (req: AuthenticatedRequest, res: Response) => {
     try {

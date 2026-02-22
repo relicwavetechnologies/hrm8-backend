@@ -6,7 +6,7 @@ import { EmailTemplateAIService } from '../ai/email-template-ai.service';
 import { gmailService } from '../integration/gmail.service';
 import nodemailer from 'nodemailer';
 import { env } from '../../config/env';
-import { v4 as uuidv4 } from 'uuid';
+import { ApplicationActivityService } from '../application/application-activity.service';
 
 const prisma = new PrismaClient();
 const prismaAny = prisma as any;
@@ -90,9 +90,9 @@ export class CommunicationService extends BaseService {
       throw new HttpException(404, 'Application not found');
     }
 
-    return prismaAny.callLog.create({
+    const callLog = await prismaAny.callLog.create({
       data: {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         application_id: data.applicationId,
         user_id: data.userId,
         call_date: data.callDate,
@@ -105,6 +105,21 @@ export class CommunicationService extends BaseService {
         User: { select: { id: true, name: true, email: true } }
       }
     });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'call_logged',
+      subject: 'Call logged',
+      description: `Call outcome: ${data.outcome}`,
+      metadata: {
+        callLogId: callLog.id,
+        outcome: data.outcome,
+        duration: data.duration,
+      },
+    });
+
+    return callLog;
   }
 
   async getCallLogs(applicationId: string) {
@@ -153,7 +168,7 @@ export class CommunicationService extends BaseService {
       throw new HttpException(400, 'User email not available');
     }
 
-    let status = EmailStatus.SENT;
+    let status: EmailStatus = EmailStatus.SENT;
     let needsReconnect = false;
 
     // Try to send via Gmail API first, fall back to SMTP if needed
@@ -189,7 +204,7 @@ export class CommunicationService extends BaseService {
     // Log the email
     const emailLog = await prismaAny.emailLog.create({
       data: {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         application_id: data.applicationId,
         user_id: data.userId,
         to_email: application.candidate.email,
@@ -201,6 +216,20 @@ export class CommunicationService extends BaseService {
       include: {
         User: { select: { id: true, name: true, email: true } }
       }
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'email_sent',
+      subject: 'Email sent',
+      description: `Email sent to ${application.candidate.email}: ${data.subject}`,
+      metadata: {
+        emailLogId: emailLog.id,
+        to: application.candidate.email,
+        subject: data.subject,
+        status: emailLog.status,
+      },
     });
 
     return { emailLog, needsReconnect: needsReconnect || undefined };
@@ -298,7 +327,7 @@ export class CommunicationService extends BaseService {
     // Create log entry
     const smsLog = await prismaAny.smsLog.create({
       data: {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         application_id: data.applicationId,
         user_id: data.userId,
         to_number: application.candidate.phone,
@@ -326,7 +355,7 @@ export class CommunicationService extends BaseService {
         });
 
         // Update status to SENT
-        return prismaAny.smsLog.update({
+        const sentLog = await prismaAny.smsLog.update({
           where: { id: smsLog.id },
           data: {
             status: 'SENT' as SmsStatusType,
@@ -336,6 +365,18 @@ export class CommunicationService extends BaseService {
             User: { select: { id: true, name: true, email: true } }
           }
         });
+        await ApplicationActivityService.logSafe({
+          applicationId: data.applicationId,
+          actorId: data.userId,
+          action: 'sms_sent',
+          subject: 'SMS sent',
+          description: `SMS sent to ${application.candidate.phone}`,
+          metadata: {
+            smsLogId: sentLog.id,
+            status: sentLog.status,
+          },
+        });
+        return sentLog;
       } catch (error: any) {
         await prismaAny.smsLog.update({
           where: { id: smsLog.id },
@@ -347,6 +388,18 @@ export class CommunicationService extends BaseService {
         throw new HttpException(500, `Failed to send SMS: ${error.message}`);
       }
     }
+
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'sms_sent',
+      subject: 'SMS logged',
+      description: `SMS logged for ${application.candidate.phone}`,
+      metadata: {
+        smsLogId: smsLog.id,
+        status: smsLog.status,
+      },
+    });
 
     return smsLog;
   }
@@ -385,7 +438,7 @@ export class CommunicationService extends BaseService {
     // Log the Slack message
     const slackLog = await prismaAny.slackLog.create({
       data: {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         application_id: data.applicationId,
         user_id: data.userId,
         recipient_ids: data.recipientIds,
@@ -432,6 +485,18 @@ export class CommunicationService extends BaseService {
         // Don't throw - we still logged the attempt
       }
     }
+
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'slack_message_sent',
+      subject: 'Slack message sent',
+      description: `Slack message sent to ${data.recipientIds.length} recipient(s)`,
+      metadata: {
+        slackLogId: slackLog.id,
+        recipientCount: data.recipientIds.length,
+      },
+    });
 
     return slackLog;
   }
@@ -513,7 +578,7 @@ export class CommunicationService extends BaseService {
       throw new HttpException(400, 'User email not available');
     }
 
-    let status = EmailStatus.SENT;
+    let status: EmailStatus = EmailStatus.SENT;
     let error = null;
 
     // Try to send via Gmail API first, fall back to SMTP if needed
@@ -550,9 +615,9 @@ export class CommunicationService extends BaseService {
     }
 
     // Log the email
-    return prismaAny.emailLog.create({
+    const emailLog = await prismaAny.emailLog.create({
       data: {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         application_id: data.applicationId,
         user_id: data.userId,
         to_email: data.to,
@@ -564,6 +629,22 @@ export class CommunicationService extends BaseService {
         User: { select: { id: true, name: true, email: true } }
       }
     });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'email_reply_sent',
+      subject: 'Email reply sent',
+      description: `Reply sent to ${data.to}: ${data.subject}`,
+      metadata: {
+        emailLogId: emailLog.id,
+        to: data.to,
+        subject: data.subject,
+        status: emailLog.status,
+      },
+    });
+
+    return emailLog;
   }
 
   async rewriteEmailReply(data: {

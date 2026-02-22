@@ -11,6 +11,7 @@ import { emailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { InterviewService } from '../interview/interview.service';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
+import { ApplicationActivityService } from './application-activity.service';
 
 export class ApplicationService extends BaseService {
   constructor(
@@ -53,11 +54,8 @@ export class ApplicationService extends BaseService {
       manually_added: false,
     });
 
-    // Trigger AI Scoring asynchronously
-    CandidateScoringService.scoreCandidate({
-      applicationId: application.id,
-      jobId: data.jobId
-    }).catch((err) => {
+    // Trigger persisted AI analysis asynchronously
+    this.triggerAiAnalysis(application.id, data.jobId).catch((err) => {
       console.error('Failed to trigger AI analysis:', err);
     });
 
@@ -120,6 +118,11 @@ export class ApplicationService extends BaseService {
   async getCandidateApplications(candidateId: string): Promise<Application[]> {
     const applications = await this.applicationRepository.findByCandidateId(candidateId);
     return applications.map(app => this.mapApplication(app));
+  }
+
+  async getCompanyApplications(companyId: string): Promise<{ applications: any[] }> {
+    const applications = await this.applicationRepository.findByCompanyId(companyId);
+    return { applications: applications.map(app => this.mapApplication(app)) };
   }
 
   async getJobApplications(jobId: string, filters?: ApplicationFilters): Promise<{ applications: Application[]; roundProgress: Record<string, any> }> {
@@ -218,16 +221,23 @@ export class ApplicationService extends BaseService {
     const hasAnalysis = !!aiResult || !!app.ai_analysis;
 
     const aiAnalysis = hasAnalysis ? {
-      summary: analysisData.summary || aiResult?.summary, // Support both new execution JSON and potential legacy fields
-      detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis,
-      behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits,
-      concerns: analysisData.concerns,
-      strengths: analysisData.strengths,
-      careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory,
-      flightRisk: analysisData.flightRisk || analysisData.flight_risk,
-      culturalFit: analysisData.culturalFit || analysisData.cultural_fit,
-      salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark,
-      technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment,
+      summary: analysisData.summary || aiResult?.summary,
+      scores: analysisData.scores || null,
+      overallScore: analysisData?.scores?.overall ?? aiResult?.score ?? app.score ?? null,
+      recommendation: analysisData.recommendation || null,
+      justification: analysisData.justification || null,
+      improvementAreas: analysisData.improvementAreas || analysisData.improvement_areas || [],
+      detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis || null,
+      behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits || [],
+      communicationStyle: analysisData.communicationStyle || analysisData.communication_style || null,
+      concerns: analysisData.concerns || [],
+      strengths: analysisData.strengths || [],
+      careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory || null,
+      flightRisk: analysisData.flightRisk || analysisData.flight_risk || null,
+      culturalFit: analysisData.culturalFit || analysisData.cultural_fit || null,
+      salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark || null,
+      technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment || null,
+      analyzedAt: analysisData.analyzedAt || analysisData.analyzed_at || aiResult?.created_at || null,
     } : null;
 
     // Map candidate data to parsedResume format
@@ -323,11 +333,12 @@ export class ApplicationService extends BaseService {
     return this.applicationRepository.unshortlist(id);
   }
 
-  async updateStage(id: string, stage: ApplicationStage): Promise<Application> {
+  async updateStage(id: string, stage: ApplicationStage, actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
+    const previousStage = (application as any).stage;
     const updatedApp = await this.applicationRepository.updateStage(id, stage);
 
     // Notify Candidate of status change
@@ -341,6 +352,18 @@ export class ApplicationService extends BaseService {
       actionUrl: `/candidate/applications/${id}`,
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      action: 'stage_changed',
+      subject: 'Candidate stage changed',
+      description: `Stage changed from ${previousStage} to ${stage}`,
+      actorId,
+      metadata: {
+        previousStage,
+        newStage: stage,
+      },
+    });
+
     return updatedApp;
   }
 
@@ -349,7 +372,14 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateNotes(id, notes);
+    const updated = await this.applicationRepository.updateNotes(id, notes);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      action: 'notes_updated',
+      subject: 'Application notes updated',
+      description: 'Application notes were updated',
+    });
+    return updated;
   }
 
   async withdrawApplication(id: string, candidateId: string): Promise<Application> {
@@ -464,6 +494,11 @@ export class ApplicationService extends BaseService {
       tags: data.tags || []
     });
 
+    // Trigger persisted AI analysis asynchronously for manually added applicants
+    this.triggerAiAnalysis(app.id, data.jobId).catch((err) => {
+      console.error('Failed to trigger AI analysis for manual application:', err);
+    });
+
     return app;
   }
 
@@ -486,7 +521,7 @@ export class ApplicationService extends BaseService {
     const candidate = await this.candidateRepository.findById(candidateId);
     if (!candidate) throw new HttpException(404, 'Candidate not found');
 
-    return this.applicationRepository.create({
+    const app = await this.applicationRepository.create({
       candidate: { connect: { id: candidateId } },
       job: { connect: { id: jobId } },
       status: 'NEW',
@@ -496,6 +531,13 @@ export class ApplicationService extends BaseService {
       source: 'TALENT_POOL',
       resume_url: candidate.resume_url // Copy resume from candidate profile if exists
     });
+
+    // Trigger persisted AI analysis asynchronously for talent-pool applications
+    this.triggerAiAnalysis(app.id, jobId).catch((err) => {
+      console.error('Failed to trigger AI analysis for talent-pool application:', err);
+    });
+
+    return app;
   }
 
   async getResume(id: string): Promise<any> {
@@ -577,6 +619,8 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
+    const previousRoundId = (application as any).application_round_progress?.[0]?.job_round_id || null;
+    const previousStage = (application as any).stage || null;
 
     // Handle fallback round IDs (e.g., "fixed-OFFER-{jobId}")
     let actualRoundId = jobRoundId;
@@ -657,6 +701,22 @@ export class ApplicationService extends BaseService {
         console.error(`[ApplicationService] Failed to create placement commission for application ${applicationId}:`, error);
       }
     }
+
+    await ApplicationActivityService.logSafe({
+      applicationId,
+      actorId: userId,
+      action: 'round_changed',
+      subject: 'Candidate moved to round',
+      description: `Moved to round ${targetRound.name} (${targetRound.type})`,
+      metadata: {
+        previousRoundId,
+        newRoundId: actualRoundId,
+        previousStage,
+        newStage: mappedStage,
+        roundName: targetRound.name,
+        roundType: targetRound.type,
+      },
+    });
 
     // Auto-assign Assessment
     if (targetRound.type === 'ASSESSMENT') {
@@ -855,6 +915,18 @@ export class ApplicationService extends BaseService {
     // Save updated notes
     await this.applicationRepository.updateNotes(applicationId, JSON.stringify(notes));
 
+    await ApplicationActivityService.logSafe({
+      applicationId,
+      actorId: userId,
+      action: 'note_added',
+      subject: 'Application note added',
+      description: mentions.length > 0 ? `Added note with ${mentions.length} mention(s)` : 'Added note',
+      metadata: {
+        noteId: newNote.id,
+        mentions,
+      },
+    });
+
     // Send notifications to mentioned users
     if (mentions.length > 0) {
       await this.sendMentionNotifications(applicationId, userId, content, mentions);
@@ -945,6 +1017,21 @@ export class ApplicationService extends BaseService {
       companyId: params.companyId,
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: params.applicationId,
+      actorId: params.scheduledBy,
+      action: 'interview_scheduled',
+      subject: 'Interview scheduled',
+      description: `${params.type} interview scheduled for ${params.scheduledDate.toISOString()}`,
+      metadata: {
+        interviewId: interview.id,
+        type: params.type,
+        duration: params.duration,
+        scheduledDate: params.scheduledDate,
+        interviewerIds: params.interviewerIds || [],
+      },
+    });
+
     // Send email notifications to interviewers for IN_PERSON and PANEL types
     if (['IN_PERSON', 'PANEL'].includes(params.type) && params.interviewerIds?.length) {
       try {
@@ -1017,6 +1104,17 @@ export class ApplicationService extends BaseService {
       },
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: interview.application_id,
+      action: 'interview_updated',
+      subject: 'Interview updated',
+      description: 'Interview details were updated',
+      metadata: {
+        interviewId,
+        updates,
+      },
+    });
+
     return interview;
   }
 
@@ -1028,6 +1126,17 @@ export class ApplicationService extends BaseService {
         status: 'CANCELLED',
         cancellation_reason: cancellationReason,
         updated_at: new Date(),
+      },
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: interview.application_id,
+      action: 'interview_cancelled',
+      subject: 'Interview cancelled',
+      description: cancellationReason || 'Interview was cancelled',
+      metadata: {
+        interviewId,
+        cancellationReason,
       },
     });
 
@@ -1048,6 +1157,18 @@ export class ApplicationService extends BaseService {
       },
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: interview.application_id,
+      actorId: authorId,
+      action: 'interview_note_added',
+      subject: 'Interview note added',
+      description: `${authorName} added an interview note`,
+      metadata: {
+        interviewId,
+        noteId: note.id,
+      },
+    });
+
     return note;
   }
 
@@ -1064,6 +1185,37 @@ export class ApplicationService extends BaseService {
     const note = await prisma.interviewNote.findUnique({ where: { id: noteId } });
     if (!note) throw new HttpException(404, 'Note not found');
     if (note.author_id !== authorId) throw new HttpException(403, 'Forbidden: You can only delete your own notes');
+    const interview = await prisma.videoInterview.findUnique({
+      where: { id: note.interview_id },
+      select: { application_id: true },
+    });
     await prisma.interviewNote.delete({ where: { id: noteId } });
+    if (interview?.application_id) {
+      await ApplicationActivityService.logSafe({
+        applicationId: interview.application_id,
+        actorId: authorId,
+        action: 'interview_note_deleted',
+        subject: 'Interview note deleted',
+        description: 'Interview note was deleted',
+        metadata: {
+          noteId,
+          interviewId: note.interview_id,
+        },
+      });
+    }
+  }
+
+  async getActivities(applicationId: string, limit = 200) {
+    return ApplicationActivityService.list(applicationId, limit);
+  }
+
+  async logGenericActivity(applicationId: string, actorId: string | undefined, eventName: string, payload?: Record<string, unknown>) {
+    await ApplicationActivityService.logGeneric({
+      applicationId,
+      actorId,
+      eventName,
+      payload,
+    });
+    return { success: true };
   }
 }
