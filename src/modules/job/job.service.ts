@@ -16,8 +16,6 @@ import { UsageEngine } from './job-usage.engine';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
-import { CommissionService } from '../hrm8/commission.service';
-import { CommissionRepository } from '../hrm8/commission.repository';
 
 export class JobService extends BaseService {
   constructor(
@@ -314,34 +312,6 @@ export class JobService extends BaseService {
     return map[servicePackage];
   }
 
-  private async ensureRecruitmentCommission(consultantId: string, jobId: string, jobTitle: string): Promise<void> {
-    const existing = await prisma.commission.findFirst({
-      where: {
-        consultant_id: consultantId,
-        job_id: jobId,
-        type: 'RECRUITMENT_SERVICE',
-      },
-      select: { id: true },
-    });
-
-    if (existing) return;
-
-    try {
-      const commissionService = new CommissionService(new CommissionRepository());
-      await commissionService.requestCommission({
-        consultantId,
-        type: 'RECRUITMENT_SERVICE',
-        jobId,
-        calculateFromJob: true,
-        description: `Commission for job: ${jobTitle}`,
-      });
-      console.log(`[JobService] Commission created for consultant ${consultantId} on job ${jobId}`);
-    } catch (err) {
-      console.error(`[JobService] Commission creation failed for job ${jobId}:`, err);
-      // Non-fatal: job flow should still continue if commission creation fails
-    }
-  }
-
   private mapToResponse(job: any): any {
     if (!job) return null;
 
@@ -559,8 +529,7 @@ export class JobService extends BaseService {
         // 2) wallet debit for selected managed service
         // 3) auto-assign consultant
         // 4) consume quota
-        // 5) create commission
-        // 6) activate job
+        // 5) activate job
         const servicePackage = this.normalizeServicePackage(job.service_package, hiringMode);
 
         // Step 1: Wallet debit
@@ -624,10 +593,7 @@ export class JobService extends BaseService {
         await SubscriptionService.useQuotaOnly(companyId);
         console.log(`[JobService] Quota consumed for HRM8-managed job ${id}`);
 
-        // Step 4: Create commission (only after successful wallet debit)
-        await this.ensureRecruitmentCommission(consultantId!, id, job.title);
-
-        // Step 5: Activate job
+        // Step 4: Activate job
         updatedJob = await this.jobRepository.update(id, {
           status: 'OPEN',
           posting_date: new Date(),
@@ -817,7 +783,6 @@ export class JobService extends BaseService {
         consultantId = assignResult.consultantId;
       }
 
-      await this.ensureRecruitmentCommission(consultantId!, id, job.title);
     }
 
     const updatedJob = await this.jobRepository.update(id, {
