@@ -4,7 +4,9 @@ exports.AssessmentService = void 0;
 const service_1 = require("../../core/service");
 const http_exception_1 = require("../../core/http-exception");
 const email_service_1 = require("../email/email.service");
+const gmail_service_1 = require("../integration/gmail.service");
 const env_1 = require("../../config/env");
+const prisma_1 = require("../../utils/prisma");
 class AssessmentService extends service_1.BaseService {
     constructor(assessmentRepository) {
         super();
@@ -40,7 +42,7 @@ class AssessmentService extends service_1.BaseService {
                     const questionData = config.questions.map((q, index) => ({
                         assessment_id: assessment.id,
                         question_text: q.text || q.question_text || q.question || q.title || 'Question text missing',
-                        question_type: q.type || q.question_type || 'single-choice',
+                        question_type: q.type || q.question_type || 'MULTIPLE_CHOICE',
                         options: q.options || null,
                         points: q.points || 1,
                         order: q.order !== undefined ? q.order : index
@@ -130,7 +132,7 @@ class AssessmentService extends service_1.BaseService {
             const questionData = config.questions.map((q, index) => ({
                 assessment_id: assessment.id,
                 question_text: q.text || q.question_text || '',
-                question_type: q.type || q.question_type || 'single-choice',
+                question_type: q.type || q.question_type || 'MULTIPLE_CHOICE',
                 options: q.options || null,
                 points: q.points || 1,
                 order: q.order !== undefined ? q.order : index
@@ -177,66 +179,79 @@ class AssessmentService extends service_1.BaseService {
         }
     }
     // Manual invite - works without requiring assessment config to be enabled
-    async manualInviteToAssessment(applicationId, jobRoundId, invitedBy) {
-        // Check if assessment already exists
-        const existingAssessment = await this.assessmentRepository.findByApplicationAndRound(applicationId, jobRoundId);
-        if (existingAssessment) {
-            return { success: false, error: 'Assessment already exists for this candidate in this round' };
-        }
+    async manualInviteToAssessment(applicationId, invitedBy, options) {
         // Get application details
         const application = await this.assessmentRepository.findApplicationForAssignment(applicationId);
         if (!application) {
             return { success: false, error: 'Application not found' };
         }
-        // Get config if available (for settings like pass_threshold, deadline)
-        const config = await this.assessmentRepository.findConfigByJobRoundId(jobRoundId);
-        // Calculate expiry (7 days default if no config)
+        // Calculate expiry (7 days default for direct assessments)
         let expiryDate = new Date();
-        expiryDate.setDate(expiryDate.getDate() + (config?.deadline_days || 7));
+        const finalDeadlineDays = options?.deadlineDays || 7;
+        expiryDate.setDate(expiryDate.getDate() + finalDeadlineDays);
         // Create assessment
         const assessment = await this.assessmentRepository.create({
             user: { connect: { id: invitedBy } },
             application: { connect: { id: applicationId } },
             candidate_id: application.candidate_id,
             job_id: application.job_id,
-            job_round_id: jobRoundId,
+            job_round_id: null,
             assessment_type: 'SKILLS_BASED',
-            provider: config?.provider || 'native',
+            provider: 'native',
             invited_at: new Date(),
             expiry_date: expiryDate,
-            pass_threshold: config?.pass_threshold || 70,
+            pass_threshold: 70,
             status: 'INVITED',
             invitation_token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
         });
-        // Link to progress
-        await this.assessmentRepository.linkToRoundProgress(applicationId, jobRoundId, assessment.id);
-        // Create questions from config
-        if (config?.questions && Array.isArray(config.questions)) {
-            const questionData = config.questions.map((q, index) => ({
+        // Create questions from payload
+        if (options?.questions && Array.isArray(options.questions) && options.questions.length > 0) {
+            const questionData = options.questions.map((q, index) => ({
                 assessment_id: assessment.id,
-                question_text: q.text || q.question_text || '',
-                question_type: q.type || q.question_type || 'single-choice',
+                question_text: q.questionText || q.text || '',
+                question_type: q.type || 'MULTIPLE_CHOICE',
                 options: q.options || null,
                 points: q.points || 1,
                 order: q.order !== undefined ? q.order : index
             }));
             await this.assessmentRepository.createManyQuestions(questionData);
         }
-        // Send email
+        // Send email via Gmail API only
         try {
+            const sender = await prisma_1.prisma.user.findUnique({
+                where: { id: invitedBy },
+                select: { email: true },
+            });
+            if (!sender?.email || !application.job?.company_id) {
+                throw new http_exception_1.HttpException(400, 'Gmail is not connected for this user. Connect Gmail to send assessment emails.');
+            }
             const candidateName = `${application.candidate.first_name} ${application.candidate.last_name}`;
             const jobTitle = application.job.title;
             const assessmentUrl = `${env_1.env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
-            await email_service_1.emailService.sendAssessmentInvitation({
+            const subject = `Assessment Invitation: ${jobTitle}`;
+            const body = `<p>Hi ${candidateName},</p><p>You have been invited to complete an assessment for the <strong>${jobTitle}</strong> position.</p><p>Please complete the assessment by clicking the link below:</p><p><a href="${assessmentUrl}">Start Assessment</a></p>${expiryDate ? `<p>This link expires on ${expiryDate.toLocaleString()}</p>` : ''}<p>Good luck!</p>`;
+            const gmailResult = await gmail_service_1.gmailService.sendEmail(invitedBy, application.job.company_id, {
                 to: application.candidate.email,
-                candidateName,
-                jobTitle,
-                assessmentUrl,
-                expiryDate
+                subject,
+                body,
+                senderEmail: sender.email,
             });
+            if (!gmailResult.success) {
+                if (gmailResult.needsFallback) {
+                    throw new http_exception_1.HttpException(400, 'Gmail send permission missing. Reconnect Gmail and grant Gmail send access.');
+                }
+                throw new http_exception_1.HttpException(500, gmailResult.error || 'Failed to send assessment email via Gmail API');
+            }
         }
         catch (error) {
-            console.error(`[AssessmentService] Failed to send email to ${application.candidate.email}`, error);
+            console.error(`[AssessmentService] Failed to send assessment email via Gmail to ${application.candidate.email}`, error);
+            try {
+                await prisma_1.prisma.assessment.delete({ where: { id: assessment.id } });
+            }
+            catch (cleanupError) {
+                console.error('[AssessmentService] Failed to rollback assessment after Gmail send failure', cleanupError);
+            }
+            return { success: false, error: error instanceof Error ? error.message : 'Failed to send assessment email via Gmail' };
         }
         return { success: true, assessmentId: assessment.id };
     }
@@ -296,6 +311,41 @@ class AssessmentService extends service_1.BaseService {
         });
         // Return all assessments - frontend decides what to show based on current application stage
         return mappedAssessments;
+    }
+    async getApplicationAssessments(applicationId) {
+        const assessments = await this.assessmentRepository.findByApplicationIdWithDetails(applicationId);
+        return assessments.map((a) => {
+            const app = a.application;
+            const name = app?.candidate ? `${app.candidate.first_name} ${app.candidate.last_name}` : '';
+            const email = app?.candidate?.email || '';
+            let averageScore = null;
+            if (a.assessment_response && a.assessment_response.length > 0) {
+                const grades = a.assessment_response
+                    .flatMap((r) => r.assessment_grade || [])
+                    .filter((g) => g.score !== null && g.score !== undefined);
+                if (grades.length > 0) {
+                    const sum = grades.reduce((acc, curr) => acc + curr.score, 0);
+                    averageScore = Number((sum / grades.length).toFixed(2));
+                }
+            }
+            return {
+                id: a.id,
+                applicationId: a.application_id,
+                candidateName: name,
+                candidateEmail: email,
+                status: a.status,
+                score: a.results?.score || null,
+                averageScore,
+                invitedAt: a.invited_at,
+                completedAt: a.completed_at,
+                invitationToken: a.invitation_token,
+                isMovedToNextRound: false,
+                isFinalized: a.status === 'COMPLETED' && averageScore !== null,
+                applicationStage: app?.stage,
+                roundId: a.job_round_id || null,
+                roundName: a.job_round_id ? 'Assessment Round' : 'Direct Assessment',
+            };
+        });
     }
     async getGradingDetails(assessmentId) {
         const assessment = await this.assessmentRepository.getGradingData(assessmentId);
@@ -396,7 +446,7 @@ class AssessmentService extends service_1.BaseService {
         }
         return { success: true, passed };
     }
-    async resendInvitation(assessmentId) {
+    async resendInvitation(assessmentId, requestedByUserId) {
         const assessment = await this.assessmentRepository.findWithCandidateDetails(assessmentId);
         if (!assessment)
             throw new http_exception_1.HttpException(404, 'Assessment not found');
@@ -405,23 +455,35 @@ class AssessmentService extends service_1.BaseService {
             invited_at: new Date()
         });
         if (assessment.application) {
-            try {
-                const candidateName = `${assessment.application.candidate.first_name} ${assessment.application.candidate.last_name}`;
-                const jobTitle = assessment.application.job.title;
-                const assessmentUrl = `${env_1.env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
-                await email_service_1.emailService.sendAssessmentInvitation({
-                    to: assessment.application.candidate.email,
-                    candidateName,
-                    jobTitle,
-                    assessmentUrl,
-                    expiryDate: assessment.expiry_date || undefined
-                });
+            const inviterUserId = requestedByUserId || assessment.invited_by;
+            if (!inviterUserId) {
+                throw new http_exception_1.HttpException(400, 'Cannot resend assessment: inviter user not found');
             }
-            catch (error) {
-                console.error(`[AssessmentService] Failed to resend email to ${assessment.application.candidate.email}`, error);
+            const sender = await prisma_1.prisma.user.findUnique({
+                where: { id: inviterUserId },
+                select: { email: true },
+            });
+            if (!sender?.email || !assessment.application.job?.company_id) {
+                throw new http_exception_1.HttpException(400, 'Gmail is not connected for this user. Connect Gmail to send assessment emails.');
+            }
+            const candidateName = `${assessment.application.candidate.first_name} ${assessment.application.candidate.last_name}`;
+            const jobTitle = assessment.application.job.title;
+            const assessmentUrl = `${env_1.env.FRONTEND_URL}/assessment/${assessment.invitation_token}`;
+            const subject = `Assessment Invitation: ${jobTitle}`;
+            const body = `<p>Hi ${candidateName},</p><p>You have been invited to complete an assessment for the <strong>${jobTitle}</strong> position.</p><p>Please complete the assessment by clicking the link below:</p><p><a href="${assessmentUrl}">Start Assessment</a></p>${assessment.expiry_date ? `<p>This link expires on ${assessment.expiry_date.toLocaleString()}</p>` : ''}<p>Good luck!</p>`;
+            const gmailResult = await gmail_service_1.gmailService.sendEmail(inviterUserId, assessment.application.job.company_id, {
+                to: assessment.application.candidate.email,
+                subject,
+                body,
+                senderEmail: sender.email,
+            });
+            if (!gmailResult.success) {
+                if (gmailResult.needsFallback) {
+                    throw new http_exception_1.HttpException(400, 'Gmail send permission missing. Reconnect Gmail and grant Gmail send access.');
+                }
+                throw new http_exception_1.HttpException(500, gmailResult.error || 'Failed to resend assessment email via Gmail API');
             }
         }
-        return { message: 'Invitation resent' };
     }
 }
 exports.AssessmentService = AssessmentService;

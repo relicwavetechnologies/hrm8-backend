@@ -88,7 +88,7 @@ export class InterviewController extends BaseController {
         type,
         meetingLink,
         notes,
-      });
+      }, req.user?.id || 'system');
       return this.sendSuccess(res, { interview, message: 'Interview updated successfully' });
     } catch (error) {
       return this.sendError(res, error);
@@ -99,7 +99,7 @@ export class InterviewController extends BaseController {
     try {
       const id = req.params.id as string;
       const { status, notes } = req.body;
-      const interview = await InterviewService.updateStatus(id, status, notes);
+      const interview = await InterviewService.updateStatus(id, status, notes, req.user?.id || 'system');
       return this.sendSuccess(res, { interview });
     } catch (error) {
       return this.sendError(res, error);
@@ -110,7 +110,7 @@ export class InterviewController extends BaseController {
     try {
       const id = req.params.id as string;
       const feedback = req.body; // Expects interviewer_id, overall_rating, etc.
-      const interview = await InterviewService.addFeedback(id, feedback);
+      const interview = await InterviewService.addFeedback(id, feedback, req.user?.id || feedback?.interviewer_id || 'system');
       return this.sendSuccess(res, { interview });
     } catch (error) {
       return this.sendError(res, error);

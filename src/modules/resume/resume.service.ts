@@ -96,9 +96,39 @@ export class ResumeService extends BaseService {
             throw new Error('Unauthorized to delete this annotation');
         }
 
-        return prisma.resumeAnnotation.delete({
+        const deleted = await prisma.resumeAnnotation.delete({
             where: { id: annotationId },
         });
+
+        const resume = await prisma.candidateResume.findUnique({
+            where: { id: annotation.resume_id },
+            select: { candidate_id: true },
+        });
+
+        if (resume?.candidate_id) {
+            const app = await prisma.application.findFirst({
+                where: { candidate_id: resume.candidate_id },
+                orderBy: { updated_at: 'desc' },
+                select: { id: true },
+            });
+
+            if (app?.id) {
+                await ApplicationActivityService.logSafe({
+                    applicationId: app.id,
+                    actorId: userId,
+                    action: 'annotation_deleted',
+                    subject: 'Annotation removed',
+                    description: 'Resume annotation was deleted',
+                    metadata: {
+                        annotationId: annotation.id,
+                        resumeId: annotation.resume_id,
+                        type: annotation.type,
+                    },
+                });
+            }
+        }
+
+        return deleted;
     }
 
     /**

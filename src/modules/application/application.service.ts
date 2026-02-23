@@ -1,6 +1,6 @@
 import { BaseService } from '../../core/service';
 import { ApplicationRepository } from './application.repository';
-import { Application, ApplicationStatus, ApplicationStage, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
+import { Application, ApplicationStatus, ApplicationStage, NotificationRecipientType, UniversalNotificationType, ActorType } from '@prisma/client';
 import { CandidateScoringService } from '../ai/candidate-scoring.service';
 import { HttpException } from '../../core/http-exception';
 import { SubmitApplicationRequest, ApplicationFilters } from './application.model';
@@ -51,6 +51,18 @@ export class ApplicationService extends BaseService {
       tags: [],
       shortlisted: false,
       manually_added: false,
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: application.id,
+      action: 'application_submitted',
+      actorType: ActorType.SYSTEM,
+      subject: 'Application submitted',
+      description: 'Candidate submitted a new application',
+      metadata: {
+        candidateId: data.candidateId,
+        jobId: data.jobId,
+      },
     });
 
     // Trigger persisted AI analysis asynchronously
@@ -169,7 +181,7 @@ export class ApplicationService extends BaseService {
     return { applications: mappedApplications, roundProgress };
   }
 
-  async triggerAiAnalysis(applicationId: string, jobId: string): Promise<void> {
+  async triggerAiAnalysis(applicationId: string, jobId: string, actorId?: string): Promise<void> {
     try {
       const result = await CandidateScoringService.scoreCandidate({ applicationId, jobId });
 
@@ -184,19 +196,42 @@ export class ApplicationService extends BaseService {
       // Update application score
       await this.applicationRepository.updateScore(applicationId, result.scores.overall);
 
+      await ApplicationActivityService.logSafe({
+        applicationId,
+        actorId,
+        action: 'ai_analysis_completed',
+        subject: 'AI analysis completed',
+        description: `AI screening completed with overall score ${result.scores.overall}`,
+        metadata: {
+          recommendation: result.recommendation,
+          scores: result.scores,
+        },
+      });
+
     } catch (error) {
       console.error('Error in triggerAiAnalysis:', error);
+      await ApplicationActivityService.logSafe({
+        applicationId,
+        actorId,
+        action: 'ai_analysis_failed',
+        subject: 'AI analysis failed',
+        description: error instanceof Error ? error.message : 'AI screening failed',
+        metadata: {
+          jobId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
       // Log but don't fail the request
     }
   }
 
-  async bulkAiAnalysis(applicationIds: string[], jobId: string): Promise<{ success: number; failed: number }> {
+  async bulkAiAnalysis(applicationIds: string[], jobId: string, actorId?: string): Promise<{ success: number; failed: number }> {
     let success = 0;
     let failed = 0;
 
     await Promise.all(applicationIds.map(async (id) => {
       try {
-        await this.triggerAiAnalysis(id, jobId);
+        await this.triggerAiAnalysis(id, jobId, actorId);
         success++;
       } catch (error) {
         console.error(`Failed to analyze application ${id}`, error);
@@ -292,28 +327,67 @@ export class ApplicationService extends BaseService {
     };
   }
 
-  async updateScore(id: string, score: number): Promise<Application> {
+  async updateScore(id: string, score: number, actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateScore(id, score);
+    const previousScore = (application as any).score ?? null;
+    const updated = await this.applicationRepository.updateScore(id, score);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'score_updated',
+      subject: 'Candidate score updated',
+      description: `Score updated from ${previousScore ?? 'N/A'} to ${score}`,
+      metadata: {
+        previousScore,
+        newScore: score,
+      },
+    });
+    return updated;
   }
 
-  async updateRank(id: string, rank: number): Promise<Application> {
+  async updateRank(id: string, rank: number, actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateRank(id, rank);
+    const previousRank = (application as any).rank ?? null;
+    const updated = await this.applicationRepository.updateRank(id, rank);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'rank_updated',
+      subject: 'Candidate rank updated',
+      description: `Rank updated from ${previousRank ?? 'N/A'} to ${rank}`,
+      metadata: {
+        previousRank,
+        newRank: rank,
+      },
+    });
+    return updated;
   }
 
-  async updateTags(id: string, tags: string[]): Promise<Application> {
+  async updateTags(id: string, tags: string[], actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.updateTags(id, tags);
+    const previousTags = Array.isArray((application as any).tags) ? (application as any).tags : [];
+    const updated = await this.applicationRepository.updateTags(id, tags);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'tags_updated',
+      subject: 'Candidate tags updated',
+      description: `Updated tags (${previousTags.length} -> ${tags.length})`,
+      metadata: {
+        previousTags,
+        newTags: tags,
+      },
+    });
+    return updated;
   }
 
   async shortlistCandidate(id: string, userId: string): Promise<Application> {
@@ -321,15 +395,39 @@ export class ApplicationService extends BaseService {
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.shortlist(id, userId);
+    const updated = await this.applicationRepository.shortlist(id, userId);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId: userId,
+      action: 'application_shortlisted',
+      subject: 'Candidate shortlisted',
+      description: 'Candidate was shortlisted',
+      metadata: {
+        previousShortlisted: (application as any).shortlisted ?? false,
+        shortlisted: true,
+      },
+    });
+    return updated;
   }
 
-  async unshortlistCandidate(id: string): Promise<Application> {
+  async unshortlistCandidate(id: string, actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
     }
-    return this.applicationRepository.unshortlist(id);
+    const updated = await this.applicationRepository.unshortlist(id);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'application_unshortlisted',
+      subject: 'Candidate unshortlisted',
+      description: 'Candidate was removed from shortlist',
+      metadata: {
+        previousShortlisted: (application as any).shortlisted ?? false,
+        shortlisted: false,
+      },
+    });
+    return updated;
   }
 
   async updateStage(id: string, stage: ApplicationStage, actorId?: string): Promise<Application> {
@@ -366,7 +464,7 @@ export class ApplicationService extends BaseService {
     return updatedApp;
   }
 
-  async updateNotes(id: string, notes: string): Promise<Application> {
+  async updateNotes(id: string, notes: string, actorId?: string): Promise<Application> {
     const application = await this.getApplication(id);
     if (!application) {
       throw new HttpException(404, 'Application not found');
@@ -374,6 +472,7 @@ export class ApplicationService extends BaseService {
     const updated = await this.applicationRepository.updateNotes(id, notes);
     await ApplicationActivityService.logSafe({
       applicationId: id,
+      actorId,
       action: 'notes_updated',
       subject: 'Application notes updated',
       description: 'Application notes were updated',
@@ -392,9 +491,20 @@ export class ApplicationService extends BaseService {
       throw new HttpException(403, 'Unauthorized to withdraw this application');
     }
 
-    return this.applicationRepository.update(id, {
+    const updated = await this.applicationRepository.update(id, {
       status: 'WITHDRAWN',
     });
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorType: ActorType.SYSTEM,
+      action: 'application_withdrawn',
+      subject: 'Application withdrawn',
+      description: 'Candidate withdrew the application',
+      metadata: {
+        candidateId,
+      },
+    });
+    return updated;
   }
 
   async deleteApplication(id: string, candidateId: string): Promise<void> {
@@ -408,15 +518,52 @@ export class ApplicationService extends BaseService {
       throw new HttpException(403, 'Unauthorized to delete this application');
     }
 
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorType: ActorType.SYSTEM,
+      action: 'application_deleted',
+      subject: 'Application deleted',
+      description: 'Application was deleted by candidate request',
+      metadata: {
+        candidateId,
+        stage: (application as any).stage,
+        status: (application as any).status,
+      },
+    });
+
     await this.applicationRepository.delete(id);
   }
 
-  async markAsRead(id: string): Promise<Application> {
-    return this.applicationRepository.markAsRead(id);
+  async markAsRead(id: string, actorId?: string): Promise<Application> {
+    const updated = await this.applicationRepository.markAsRead(id);
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'application_marked_read',
+      subject: 'Application marked as read',
+      description: 'Application marked as read',
+    });
+    return updated;
   }
 
-  async bulkScoreCandidates(applicationIds: string[], scores: Record<string, number>): Promise<number> {
-    return this.applicationRepository.bulkUpdateScore(applicationIds, scores);
+  async bulkScoreCandidates(applicationIds: string[], scores: Record<string, number>, actorId?: string): Promise<number> {
+    const updatedCount = await this.applicationRepository.bulkUpdateScore(applicationIds, scores);
+    await Promise.all(
+      applicationIds.map((applicationId) =>
+        ApplicationActivityService.logSafe({
+          applicationId,
+          actorId,
+          action: 'score_updated',
+          subject: 'Candidate score updated in bulk',
+          description: 'Score updated via bulk action',
+          metadata: {
+            newScore: scores[applicationId],
+            bulk: true,
+          },
+        })
+      )
+    );
+    return updatedCount;
   }
 
   async getApplicationCountForJob(jobId: string): Promise<{ total: number; unread: number }> {
@@ -494,21 +641,45 @@ export class ApplicationService extends BaseService {
     });
 
     // Trigger persisted AI analysis asynchronously for manually added applicants
-    this.triggerAiAnalysis(app.id, data.jobId).catch((err) => {
+    this.triggerAiAnalysis(app.id, data.jobId, recruiterId).catch((err) => {
       console.error('Failed to trigger AI analysis for manual application:', err);
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: app.id,
+      actorId: recruiterId,
+      action: 'application_created_manual',
+      subject: 'Application added manually',
+      description: 'Recruiter added candidate manually',
+      metadata: {
+        source: 'MANUAL',
+        tags: data.tags || [],
+      },
     });
 
     return app;
   }
 
-  async updateManualScreening(id: string, data: { status: any, score?: number, notes?: string, date?: Date }): Promise<Application> {
-    return this.applicationRepository.update(id, {
+  async updateManualScreening(id: string, data: { status: any, score?: number, notes?: string, date?: Date }, actorId?: string): Promise<Application> {
+    const updated = await this.applicationRepository.update(id, {
       manual_screening_status: data.status,
       manual_screening_score: data.score,
       screening_notes: data.notes,
       manual_screening_date: data.date || new Date(),
       manual_screening_completed: true
     });
+    await ApplicationActivityService.logSafe({
+      applicationId: id,
+      actorId,
+      action: 'manual_screening_updated',
+      subject: 'Manual screening updated',
+      description: `Manual screening set to ${data.status}`,
+      metadata: {
+        status: data.status,
+        score: data.score,
+      },
+    });
+    return updated;
   }
 
   async createFromTalentPool(candidateId: string, jobId: string, recruiterId: string): Promise<Application> {
@@ -532,8 +703,19 @@ export class ApplicationService extends BaseService {
     });
 
     // Trigger persisted AI analysis asynchronously for talent-pool applications
-    this.triggerAiAnalysis(app.id, jobId).catch((err) => {
+    this.triggerAiAnalysis(app.id, jobId, recruiterId).catch((err) => {
       console.error('Failed to trigger AI analysis for talent-pool application:', err);
+    });
+
+    await ApplicationActivityService.logSafe({
+      applicationId: app.id,
+      actorId: recruiterId,
+      action: 'application_created_talent_pool',
+      subject: 'Application added from talent pool',
+      description: 'Candidate was added to job from talent pool',
+      metadata: {
+        source: 'TALENT_POOL',
+      },
     });
 
     return app;
@@ -810,6 +992,20 @@ export class ApplicationService extends BaseService {
   }) {
     const evaluation = await this.applicationRepository.addEvaluation(data);
 
+    await ApplicationActivityService.logSafe({
+      applicationId: data.applicationId,
+      actorId: data.userId,
+      action: 'evaluation_added',
+      subject: 'Evaluation added',
+      description: data.decision
+        ? `Evaluation saved with decision ${data.decision}`
+        : 'Evaluation saved',
+      metadata: {
+        score: data.score,
+        decision: data.decision,
+      },
+    });
+
     // If decision provided, handle application status update
     // Only 'APPROVE' or 'REJECT' should trigger status changes AND only if user has permission (handled in Controller/Middleware)
     // Assuming Permission Check is done before calling this service or within the controller.
@@ -991,6 +1187,7 @@ export class ApplicationService extends BaseService {
       notes: params.notes,
       useMeetLink: params.useMeetLink,
       companyId: params.companyId,
+      skipActivityLog: true,
     });
 
     await ApplicationActivityService.logSafe({
@@ -1071,7 +1268,7 @@ export class ApplicationService extends BaseService {
   }
 
   // Update an interview
-  async updateInterview(interviewId: string, updates: any): Promise<any> {
+  async updateInterview(interviewId: string, updates: any, actorId?: string): Promise<any> {
     const interview = await prisma.videoInterview.update({
       where: { id: interviewId },
       data: {
@@ -1082,6 +1279,7 @@ export class ApplicationService extends BaseService {
 
     await ApplicationActivityService.logSafe({
       applicationId: interview.application_id,
+      actorId,
       action: 'interview_updated',
       subject: 'Interview updated',
       description: 'Interview details were updated',
@@ -1095,7 +1293,7 @@ export class ApplicationService extends BaseService {
   }
 
   // Cancel an interview
-  async cancelInterview(interviewId: string, cancellationReason?: string): Promise<any> {
+  async cancelInterview(interviewId: string, cancellationReason?: string, actorId?: string): Promise<any> {
     const interview = await prisma.videoInterview.update({
       where: { id: interviewId },
       data: {
@@ -1107,6 +1305,7 @@ export class ApplicationService extends BaseService {
 
     await ApplicationActivityService.logSafe({
       applicationId: interview.application_id,
+      actorId,
       action: 'interview_cancelled',
       subject: 'Interview cancelled',
       description: cancellationReason || 'Interview was cancelled',

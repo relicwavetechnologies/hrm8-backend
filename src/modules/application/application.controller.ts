@@ -162,7 +162,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Score must be a number'), 400);
       }
 
-      const application = await this.applicationService.updateScore(id, score);
+      const application = await this.applicationService.updateScore(id, score, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -179,7 +179,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Rank must be a number'), 400);
       }
 
-      const application = await this.applicationService.updateRank(id, rank);
+      const application = await this.applicationService.updateRank(id, rank, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -196,7 +196,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Tags must be an array'), 400);
       }
 
-      const application = await this.applicationService.updateTags(id, tags);
+      const application = await this.applicationService.updateTags(id, tags, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -223,7 +223,7 @@ export class ApplicationController extends BaseController {
   unshortlistCandidate = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const application = await this.applicationService.unshortlistCandidate(id);
+      const application = await this.applicationService.unshortlistCandidate(id, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -257,7 +257,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Notes must be a string'), 400);
       }
 
-      const application = await this.applicationService.updateNotes(id, notes);
+      const application = await this.applicationService.updateNotes(id, notes, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -306,7 +306,7 @@ export class ApplicationController extends BaseController {
   markAsRead = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const application = await this.applicationService.markAsRead(id);
+      const application = await this.applicationService.markAsRead(id, req.user?.id);
       return this.sendSuccess(res, { application });
     } catch (error) {
       return this.sendError(res, error);
@@ -333,7 +333,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Application IDs array and scores object are required'), 400);
       }
 
-      const updatedCount = await this.applicationService.bulkScoreCandidates(applicationIds, scores);
+      const updatedCount = await this.applicationService.bulkScoreCandidates(applicationIds, scores, req.user?.id);
       return this.sendSuccess(res, { updatedCount, message: `${updatedCount} application(s) scored successfully` });
     } catch (error) {
       return this.sendError(res, error);
@@ -349,7 +349,7 @@ export class ApplicationController extends BaseController {
         return this.sendError(res, new Error('Application IDs array and Job ID are required'), 400);
       }
 
-      const result = await this.applicationService.bulkAiAnalysis(applicationIds, jobId);
+      const result = await this.applicationService.bulkAiAnalysis(applicationIds, jobId, req.user?.id);
       return this.sendSuccess(res, {
         ...result,
         message: `Analysis completed: ${result.success} succeeded, ${result.failed} failed`
@@ -400,7 +400,7 @@ export class ApplicationController extends BaseController {
   updateManualScreening = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const result = await this.applicationService.updateManualScreening(id, req.body);
+      const result = await this.applicationService.updateManualScreening(id, req.body, req.user?.id);
       return this.sendSuccess(res, { application: result });
     } catch (error) {
       return this.sendError(res, error);
@@ -575,7 +575,7 @@ export class ApplicationController extends BaseController {
       const { id, interviewId } = req.params as { id: string; interviewId: string };
       const updates = req.body;
 
-      const interview = await this.applicationService.updateInterview(interviewId, updates);
+      const interview = await this.applicationService.updateInterview(interviewId, updates, req.user.id);
       return this.sendSuccess(res, { interview });
     } catch (error) {
       return this.sendError(res, error);
@@ -589,10 +589,7 @@ export class ApplicationController extends BaseController {
       const { id, interviewId } = req.params as { id: string; interviewId: string };
       const { cancellationReason } = req.body;
 
-      const interview = await this.applicationService.cancelInterview(
-        interviewId,
-        cancellationReason
-      );
+      const interview = await this.applicationService.cancelInterview(interviewId, cancellationReason, req.user.id);
       return this.sendSuccess(res, { interview });
     } catch (error) {
       return this.sendError(res, error);

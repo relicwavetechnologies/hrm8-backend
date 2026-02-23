@@ -126,7 +126,7 @@ export class CommunicationController extends BaseController {
       if (!req.user) throw new Error('Unauthorized');
 
       const { id: applicationId } = req.params;
-      const { subject, body, templateId } = req.body;
+      const { subject, body, templateId, cc } = req.body;
 
       if (!subject || !body) {
         return this.sendError(res, new Error('subject and body are required'), 400);
@@ -138,6 +138,7 @@ export class CommunicationController extends BaseController {
         subject,
         body,
         templateId,
+        cc,
       });
 
       return this.sendSuccess(res, {
@@ -302,7 +303,7 @@ export class CommunicationController extends BaseController {
       if (!req.user) throw new Error('Unauthorized');
 
       const { id: applicationId } = req.params;
-      const { threadId, messageId, subject, body, to } = req.body;
+      const { threadId, messageId, subject, body, to, cc } = req.body;
 
       if (!threadId || !messageId || !subject || !body || !to) {
         return this.sendError(
@@ -320,6 +321,7 @@ export class CommunicationController extends BaseController {
         subject,
         body,
         to,
+        cc,
       });
 
       return this.sendSuccess(res, { emailLog });

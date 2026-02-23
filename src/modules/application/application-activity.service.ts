@@ -3,6 +3,21 @@ import { prisma } from '../../utils/prisma';
 import OpenAI from 'openai';
 
 type ApplicationActivityType =
+  | 'application_submitted'
+  | 'application_created_manual'
+  | 'application_created_talent_pool'
+  | 'application_shortlisted'
+  | 'application_unshortlisted'
+  | 'application_withdrawn'
+  | 'application_deleted'
+  | 'application_marked_read'
+  | 'score_updated'
+  | 'rank_updated'
+  | 'tags_updated'
+  | 'manual_screening_updated'
+  | 'evaluation_added'
+  | 'ai_analysis_completed'
+  | 'ai_analysis_failed'
   | 'round_changed'
   | 'stage_changed'
   | 'email_sent'
@@ -18,14 +33,41 @@ type ApplicationActivityType =
   | 'notes_updated'
   | 'annotation_highlighted'
   | 'annotation_commented'
+  | 'annotation_deleted'
+  | 'assessment_invited'
+  | 'assessment_started'
+  | 'assessment_response_saved'
+  | 'assessment_submitted'
+  | 'assessment_resend'
+  | 'assessment_graded'
+  | 'assessment_vote_added'
+  | 'assessment_comment_added'
+  | 'assessment_finalized'
   | 'interview_scheduled'
+  | 'interview_status_updated'
   | 'interview_updated'
   | 'interview_cancelled'
+  | 'interview_feedback_added'
   | 'interview_note_added'
   | 'interview_note_deleted'
   | 'other';
 
 const KNOWN_ACTIONS: ApplicationActivityType[] = [
+  'application_submitted',
+  'application_created_manual',
+  'application_created_talent_pool',
+  'application_shortlisted',
+  'application_unshortlisted',
+  'application_withdrawn',
+  'application_deleted',
+  'application_marked_read',
+  'score_updated',
+  'rank_updated',
+  'tags_updated',
+  'manual_screening_updated',
+  'evaluation_added',
+  'ai_analysis_completed',
+  'ai_analysis_failed',
   'round_changed',
   'stage_changed',
   'email_sent',
@@ -41,9 +83,21 @@ const KNOWN_ACTIONS: ApplicationActivityType[] = [
   'notes_updated',
   'annotation_highlighted',
   'annotation_commented',
+  'annotation_deleted',
+  'assessment_invited',
+  'assessment_started',
+  'assessment_response_saved',
+  'assessment_submitted',
+  'assessment_resend',
+  'assessment_graded',
+  'assessment_vote_added',
+  'assessment_comment_added',
+  'assessment_finalized',
   'interview_scheduled',
+  'interview_status_updated',
   'interview_updated',
   'interview_cancelled',
+  'interview_feedback_added',
   'interview_note_added',
   'interview_note_deleted',
   'other',
@@ -98,7 +152,7 @@ export class ApplicationActivityService {
     if (action.includes('call')) return ActivityType.CALL;
     if (action.includes('interview')) return ActivityType.MEETING;
     if (action.includes('note') || action.includes('annotation')) return ActivityType.NOTE;
-    if (action.includes('task')) return ActivityType.TASK;
+    if (action.includes('task') || action.includes('assessment')) return ActivityType.TASK;
     return ActivityType.FOLLOW_UP;
   }
 
@@ -204,7 +258,7 @@ Keep subject <= 80 chars and description <= 220 chars.`,
       data: {
         company_id: app.job.company_id,
         created_by: input.actorId || 'system',
-        actor_type: input.actorType || ActorType.HRM8_USER,
+        actor_type: input.actorType || (input.actorId ? ActorType.HRM8_USER : ActorType.SYSTEM),
         type: input.activityType || this.mapToActivityType(input.action),
         subject: input.subject,
         description: input.description || `${input.subject} for ${candidateName} (${app.job.title || 'Job'})`,
@@ -271,9 +325,50 @@ Keep subject <= 80 chars and description <= 220 chars.`,
       take: limit,
     });
 
+    const actorIds = Array.from(
+      new Set(
+        logs
+          .map((log) => log.created_by)
+          .filter((id) => !!id && id !== 'system')
+      )
+    );
+
+    const users = actorIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+
+    const userNameById = new Map(
+      users.map((user) => [user.id, user.name || user.email || 'Unknown user'])
+    );
+
+    const unresolvedActorIds = actorIds.filter((id) => !userNameById.has(id));
+    const consultants = unresolvedActorIds.length > 0
+      ? await prisma.consultant.findMany({
+          where: { id: { in: unresolvedActorIds } },
+          select: { id: true, first_name: true, last_name: true, email: true },
+        })
+      : [];
+
+    const consultantNameById = new Map(
+      consultants.map((consultant) => {
+        const name = `${consultant.first_name || ''} ${consultant.last_name || ''}`.trim()
+          || consultant.email
+          || 'Unknown consultant';
+        return [consultant.id, name];
+      })
+    );
+
     return logs.map((log) => {
       const eventTag = log.tags.find((t) => t.startsWith('event:')) || 'event:other';
       const action = eventTag.replace('event:', '');
+      const createdByName =
+        log.created_by === 'system'
+          ? 'System'
+          : userNameById.get(log.created_by) || consultantNameById.get(log.created_by) || undefined;
+
       return {
         id: log.id,
         action,
@@ -282,6 +377,7 @@ Keep subject <= 80 chars and description <= 220 chars.`,
         description: log.description,
         createdAt: log.created_at,
         createdBy: log.created_by,
+        createdByName,
         actorType: log.actor_type,
         tags: log.tags,
         metadata: log.attachments,

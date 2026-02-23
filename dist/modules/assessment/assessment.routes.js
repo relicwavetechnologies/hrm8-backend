@@ -7,6 +7,7 @@ const router = (0, express_1.Router)();
 const assessmentController = new assessment_controller_1.AssessmentController();
 // Manual invite (MUST be before /:token routes)
 router.post('/invite', auth_middleware_1.authenticate, assessmentController.inviteCandidate);
+router.get('/application/:applicationId', auth_middleware_1.authenticate, assessmentController.getAssessmentsByApplication);
 // Public routes (Candidate portal)
 router.get('/:token', assessmentController.getAssessmentByToken);
 router.post('/:token/start', assessmentController.startAssessment);

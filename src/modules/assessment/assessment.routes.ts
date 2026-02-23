@@ -7,6 +7,7 @@ const assessmentController = new AssessmentController();
 
 // Manual invite (MUST be before /:token routes)
 router.post('/invite', authenticate, assessmentController.inviteCandidate);
+router.get('/application/:applicationId', authenticate, assessmentController.getAssessmentsByApplication);
 
 // Public routes (Candidate portal)
 router.get('/:token', assessmentController.getAssessmentByToken);
@@ -25,4 +26,3 @@ router.post('/:id/finalize', authenticate, assessmentController.finalizeAssessme
 router.post('/:id/resend', authenticate, assessmentController.resendInvitation);
 
 export default router;
-
