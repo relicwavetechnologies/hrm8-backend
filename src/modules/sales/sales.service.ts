@@ -6,6 +6,7 @@ import { HttpException } from '../../core/http-exception';
 import { SalesValidators } from './sales.validators';
 import { prisma } from '../../utils/prisma';
 import { notifySalesAgent } from '../notification/notification-service-singleton';
+import { normalizeConversionIntentSnapshot } from './conversion-intent.util';
 
 export class SalesService extends BaseService {
   private withdrawalService: SalesWithdrawalService;
@@ -289,8 +290,11 @@ export class SalesService extends BaseService {
       throw new HttpException(400, 'Consultant does not have an assigned region');
     }
 
-    // Use lead data for company/contact info – form only sends agentNotes and tempPassword
-    return this.salesRepository.createConversionRequest({
+    const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
+      data?.intentSnapshot ?? data?.intent_snapshot
+    );
+
+    const createPayload: any = {
       lead: { connect: { id: leadId } },
       consultant: { connect: { id: consultantId } },
       region: { connect: { id: consultant.region_id } },
@@ -302,9 +306,13 @@ export class SalesService extends BaseService {
       city: lead.city || null,
       state_province: lead.state_province || null,
       agent_notes: data.agentNotes || data.notes || null,
+      intent_snapshot: normalizedIntentSnapshot ?? undefined,
       temp_password: data.tempPassword || null,
       status: 'PENDING'
-    });
+    };
+
+    // Use lead data for company/contact info – form only sends agentNotes and tempPassword
+    return this.salesRepository.createConversionRequest(createPayload);
   }
 
   // --- Conversion Requests ---

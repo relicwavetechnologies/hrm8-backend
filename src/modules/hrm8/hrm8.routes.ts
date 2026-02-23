@@ -136,6 +136,7 @@ router.get('/companies/:id/jobs', authenticateHrm8, regionalCompanyController.ge
 // Lead Conversion Routes
 router.get('/conversion-requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getAll);
 router.get('/conversion-requests/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getOne);
+router.get('/conversion-requests/:id/review-context', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getReviewContext);
 router.put('/conversion-requests/:id/approve', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), leadConversionController.approve);
 router.put('/conversion-requests/:id/decline', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), leadConversionController.decline);
 

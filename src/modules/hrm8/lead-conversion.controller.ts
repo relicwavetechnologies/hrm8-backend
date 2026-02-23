@@ -29,8 +29,21 @@ export class LeadConversionController extends BaseController {
     getOne = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.leadConversionService.getOne(id as string);
-            return this.sendSuccess(res, result);
+            const result = await this.leadConversionService.getOne(id as string, req.assignedRegionIds);
+            return this.sendSuccess(res, { request: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    getReviewContext = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const context = await this.leadConversionService.getReviewContext(
+                id as string,
+                req.assignedRegionIds
+            );
+            return this.sendSuccess(res, { context });
         } catch (error) {
             return this.sendError(res, error);
         }
@@ -51,7 +64,8 @@ export class LeadConversionController extends BaseController {
                 {
                     ip: req.ip,
                     userAgent: req.get('user-agent') || undefined
-                }
+                },
+                req.assignedRegionIds
             );
             return this.sendSuccess(res, result);
         } catch (error) {
@@ -74,7 +88,8 @@ export class LeadConversionController extends BaseController {
                 {
                     ip: req.ip,
                     userAgent: req.get('user-agent') || undefined
-                }
+                },
+                req.assignedRegionIds
             );
             return this.sendSuccess(res, result);
         } catch (error) {

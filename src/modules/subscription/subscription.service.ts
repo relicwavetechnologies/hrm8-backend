@@ -1,8 +1,12 @@
 import { prisma } from '../../utils/prisma';
 import {
+  BillStatus,
   CommissionStatus,
   SubscriptionPlanType,
-  SubscriptionStatus
+  SubscriptionStatus,
+  TransactionStatus,
+  VirtualAccountOwner,
+  VirtualTransactionType,
 } from '@prisma/client';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
@@ -169,8 +173,22 @@ export class SubscriptionService {
         },
       });
 
-      // Atomically create subscription-sale commission when a valid consultant attribution exists.
+      // Atomically create subscription-sale commission with first-payment guard for converted companies.
+      const approvedConversionRequest = await tx.leadConversionRequest.findFirst({
+        where: {
+          company_id: companyId,
+          status: { in: ['APPROVED', 'CONVERTED'] },
+        },
+        orderBy: [{ converted_at: 'desc' }, { created_at: 'desc' }],
+        select: {
+          id: true,
+          consultant_id: true,
+        },
+      });
+
+      const conversionAttributedConsultantId = approvedConversionRequest?.consultant_id || null;
       const commissionConsultantId =
+        conversionAttributedConsultantId ||
         resolvedSalesAgentId ||
         companyAttribution?.sales_agent_id ||
         companyAttribution?.referred_by ||
@@ -183,10 +201,59 @@ export class SubscriptionService {
         });
 
         if (consultant?.region_id) {
+          const existingCommission = await tx.commission.findFirst({
+            where: {
+              consultant_id: consultant.id,
+              type: 'SUBSCRIPTION_SALE',
+              subscription: {
+                company_id: companyId,
+              },
+            },
+            select: { id: true },
+          });
+
+          let isEligiblePaymentEvent = true;
+
+          // For converted-company attribution, commission can only be created
+          // on the first successful payment event for that converted company.
+          if (conversionAttributedConsultantId) {
+            const [previousSubscription, firstPaidBill, firstManagedWalletDebit] = await Promise.all([
+              tx.subscription.findFirst({
+                where: {
+                  company_id: companyId,
+                  id: { not: subscription.id },
+                  created_at: { lt: subscription.created_at },
+                },
+                select: { id: true },
+              }),
+              tx.bill.findFirst({
+                where: {
+                  company_id: companyId,
+                  status: BillStatus.PAID,
+                },
+                select: { id: true },
+              }),
+              tx.virtualTransaction.findFirst({
+                where: {
+                  virtual_account: {
+                    owner_type: VirtualAccountOwner.COMPANY,
+                    owner_id: companyId,
+                  },
+                  type: VirtualTransactionType.JOB_POSTING_DEDUCTION,
+                  status: TransactionStatus.COMPLETED,
+                  reference_type: 'JOB',
+                },
+                select: { id: true },
+              }),
+            ]);
+
+            isEligiblePaymentEvent = !previousSubscription && !firstPaidBill && !firstManagedWalletDebit;
+          }
+
           const commissionRate = consultant.default_commission_rate ?? 0.20;
           const commissionAmount = Number((resolvedBasePrice * commissionRate).toFixed(2));
 
-          if (commissionAmount > 0) {
+          if (!existingCommission && isEligiblePaymentEvent && commissionAmount > 0) {
             await tx.commission.create({
               data: {
                 consultant_id: consultant.id,

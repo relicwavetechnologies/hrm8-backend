@@ -1,7 +1,6 @@
 import { BaseService } from '../../core/service';
 import { JobRepository } from '../job/job.repository';
 import { CompanyRepository } from '../company/company.repository';
-import { JobStatus } from '@prisma/client';
 
 export class PublicService extends BaseService {
   constructor(
@@ -9,6 +8,86 @@ export class PublicService extends BaseService {
     private companyRepository: CompanyRepository
   ) {
     super();
+  }
+
+  private normalizeSocial(value: unknown): Record<string, string> | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const obj = value as Record<string, unknown>;
+    const normalized: Record<string, string> = {};
+    for (const [key, raw] of Object.entries(obj)) {
+      if (typeof raw === 'string' && raw.trim()) {
+        normalized[key] = raw.trim();
+      }
+    }
+    return Object.keys(normalized).length > 0 ? normalized : null;
+  }
+
+  private normalizeImages(value: unknown): string[] | null {
+    if (!Array.isArray(value)) return null;
+    const images = value.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    return images.length > 0 ? images : null;
+  }
+
+  private toPublicCompany(company: {
+    id: string;
+    name: string;
+    website: string;
+    domain: string;
+    careers_page_logo: string | null;
+    careers_page_banner: string | null;
+    careers_page_about: string | null;
+    careers_page_social: unknown;
+    careers_page_images: unknown;
+  }, jobCount: number) {
+    return {
+      id: company.id,
+      name: company.name,
+      website: company.website,
+      domain: company.domain,
+      logoUrl: company.careers_page_logo,
+      bannerUrl: company.careers_page_banner,
+      about: company.careers_page_about,
+      social: this.normalizeSocial(company.careers_page_social),
+      images: this.normalizeImages(company.careers_page_images),
+      jobCount,
+    };
+  }
+
+  private toPublicJob(job: any) {
+    return {
+      id: job.id,
+      title: job.title,
+      description: job.description,
+      jobSummary: job.job_summary,
+      category: job.category,
+      location: job.location,
+      department: job.department,
+      workArrangement: job.work_arrangement,
+      employmentType: job.employment_type,
+      numberOfVacancies: job.number_of_vacancies,
+      salaryMin: job.salary_min,
+      salaryMax: job.salary_max,
+      salaryCurrency: job.salary_currency,
+      salaryDescription: job.salary_description,
+      requirements: Array.isArray(job.requirements) ? job.requirements : [],
+      responsibilities: Array.isArray(job.responsibilities) ? job.responsibilities : [],
+      promotionalTags: Array.isArray(job.promotional_tags) ? job.promotional_tags : [],
+      featured: !!job.featured,
+      postingDate: job.posting_date,
+      expiryDate: job.expires_at,
+      regionId: job.region_id,
+      company: {
+        id: job.company?.id,
+        name: job.company?.name || 'Unknown Company',
+        website: job.company?.website || '',
+        domain: job.company?.domain,
+        logoUrl: job.company?.careers_page_logo,
+        aboutCompany: job.company?.careers_page_about,
+      },
+      createdAt: job.created_at,
+    };
   }
 
   async getPublicJobs(filters: any) {
@@ -41,13 +120,122 @@ export class PublicService extends BaseService {
     const company = await this.companyRepository.findById(job.company_id);
 
     return {
+      ...this.toPublicJob({
+        ...job,
+        company: company ? {
+          id: company.id,
+          name: company.name,
+          website: company.website,
+          domain: company.domain,
+          careers_page_logo: company.careers_page_logo,
+          careers_page_about: company.careers_page_about,
+        } : null,
+      }),
+      // Keep raw fields for backward compatibility with older consumers.
       ...job,
       company: company ? {
         id: company.id,
         name: company.name,
         website: company.website,
-        logoUrl: company.careers_page_logo
+        domain: company.domain,
+        logoUrl: company.careers_page_logo,
+        aboutCompany: company.careers_page_about,
       } : { name: 'Unknown Company' }
+    };
+  }
+
+  async getPublicCompanies(filters: {
+    search?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const result = await this.companyRepository.findPublicCompanies({
+      search: filters.search,
+      limit: filters.limit,
+      offset: filters.offset,
+    });
+
+    const companyIds = result.companies.map((company) => company.id);
+    const countsByCompanyId = await this.jobRepository.getPublicJobCountsByCompanyIds(companyIds);
+
+    return {
+      companies: result.companies.map((company) =>
+        this.toPublicCompany(company, countsByCompanyId[company.id] || 0)
+      ),
+      total: result.total,
+    };
+  }
+
+  async getPublicCompany(id: string, filters: {
+    search?: string;
+    department?: string;
+    location?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const company = await this.companyRepository.findPublicCompanyById(id);
+    if (!company) return null;
+
+    const where: any = { company_id: id };
+    if (filters.department?.trim()) {
+      where.department = filters.department.trim();
+    }
+    if (filters.location?.trim()) {
+      where.location = filters.location.trim();
+    }
+    if (filters.search?.trim()) {
+      const search = filters.search.trim();
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { job_summary: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [jobsResult, facets, countByCompany] = await Promise.all([
+      this.jobRepository.findPublicJobs(where, filters.limit, filters.offset),
+      this.jobRepository.getPublicCompanyJobFacets(id),
+      this.jobRepository.getPublicJobCountsByCompanyIds([id]),
+    ]);
+
+    return {
+      company: this.toPublicCompany(company, countByCompany[id] || 0),
+      jobs: jobsResult.jobs.map((job) => this.toPublicJob(job)),
+      totalJobs: jobsResult.total,
+      filters: facets,
+    };
+  }
+
+  async getPublicCompanyJobs(id: string, filters: {
+    search?: string;
+    department?: string;
+    location?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const company = await this.companyRepository.findPublicCompanyById(id);
+    if (!company) return null;
+
+    const where: any = { company_id: id };
+    if (filters.department?.trim()) {
+      where.department = filters.department.trim();
+    }
+    if (filters.location?.trim()) {
+      where.location = filters.location.trim();
+    }
+    if (filters.search?.trim()) {
+      const search = filters.search.trim();
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { job_summary: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const jobsResult = await this.jobRepository.findPublicJobs(where, filters.limit, filters.offset);
+    return {
+      jobs: jobsResult.jobs.map((job) => this.toPublicJob(job)),
+      total: jobsResult.total,
     };
   }
 
@@ -66,7 +254,11 @@ export class PublicService extends BaseService {
       ]
     };
 
-    return this.jobRepository.findPublicJobs(where, limit, 0);
+    const result = await this.jobRepository.findPublicJobs(where, limit, 0);
+    return {
+      jobs: result.jobs.map((job) => this.toPublicJob(job)),
+      total: result.total,
+    };
   }
 
   async trackJobView(jobId: string, data: { event_type: string; source: string; session_id?: string; referrer?: string; ip?: string; userAgent?: string }) {

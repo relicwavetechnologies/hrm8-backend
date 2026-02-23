@@ -2,6 +2,7 @@ import { BaseService } from '../../core/service';
 import { Consultant360Repository } from './consultant360.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
+import { normalizeConversionIntentSnapshot } from '../sales/conversion-intent.util';
 
 export class Consultant360Service extends BaseService {
   constructor(private repository: Consultant360Repository) {
@@ -160,6 +161,10 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Consultant does not have an assigned region');
     }
 
+    const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
+      data?.intentSnapshot ?? data?.intent_snapshot
+    );
+
     // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.repository.createConversionRequest({
       lead: { connect: { id: leadId } },
@@ -173,6 +178,7 @@ export class Consultant360Service extends BaseService {
       city: lead.city || null,
       state_province: lead.state_province || null,
       agent_notes: data.agentNotes || data.notes || null,
+      intent_snapshot: normalizedIntentSnapshot ?? undefined,
       temp_password: data.tempPassword || null,
       status: 'PENDING'
     });

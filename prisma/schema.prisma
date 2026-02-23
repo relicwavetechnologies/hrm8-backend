@@ -1824,6 +1824,7 @@ model LeadConversionRequest {
   city           String?
   state_province String?                 @map("state_province")
   agent_notes    String?                 @map("agent_notes")
+  intent_snapshot Json?                  @map("intent_snapshot")
   reviewed_by    String?                 @map("reviewed_by")
   reviewed_at    DateTime?               @map("reviewed_at")
   admin_notes    String?                 @map("admin_notes")
