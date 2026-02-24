@@ -113,7 +113,7 @@ export class ApplicationTaskService {
     type?: string;
     assignedTo?: string;
     dueDate?: Date;
-  }) {
+  }, actorId?: string) {
     const task = await prisma.applicationTask.findUnique({
       where: { id: taskId },
     });
@@ -164,6 +164,7 @@ export class ApplicationTaskService {
 
     await ApplicationActivityService.logSafe({
       applicationId: task.application_id,
+      actorId,
       action: updates.assignedTo ? 'task_assigned' : 'task_updated',
       subject: updates.assignedTo ? 'Task assignment updated' : 'Task updated',
       description: `Task "${updatedTask.title}" updated`,
@@ -177,7 +178,7 @@ export class ApplicationTaskService {
   }
 
   // Delete a task
-  static async deleteTask(taskId: string) {
+  static async deleteTask(taskId: string, actorId?: string) {
     const task = await prisma.applicationTask.findUnique({
       where: { id: taskId },
     });
@@ -192,6 +193,7 @@ export class ApplicationTaskService {
 
     await ApplicationActivityService.logSafe({
       applicationId: task.application_id,
+      actorId,
       action: 'task_deleted',
       subject: 'Task deleted',
       description: `Task "${task.title}" deleted`,

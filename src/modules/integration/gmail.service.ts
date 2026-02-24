@@ -177,6 +177,7 @@ export class GmailService {
       subject: string;
       body: string;
       senderEmail: string;
+      cc?: string[];
     }
   ): Promise<{ success: boolean; messageId?: string; needsFallback?: boolean; error?: string }> {
     const tokens = await googleOAuthService.getTokensForUser(userId, companyId);
@@ -191,6 +192,7 @@ export class GmailService {
       const rawMessage = [
         `From: ${data.senderEmail}`,
         `To: ${data.to}`,
+        ...(data.cc?.length ? [`Cc: ${data.cc.join(', ')}`] : []),
         `Subject: ${data.subject}`,
         `MIME-Version: 1.0`,
         `Content-Type: text/html; charset="UTF-8"`,
@@ -240,6 +242,7 @@ export class GmailService {
       subject: string;
       body: string;
       senderEmail: string;
+      cc?: string[];
     }
   ): Promise<{ success: boolean; messageId?: string; needsFallback?: boolean; error?: string }> {
     const tokens = await googleOAuthService.getTokensForUser(userId, companyId);
@@ -254,6 +257,7 @@ export class GmailService {
       const rawMessage = [
         `From: ${data.senderEmail}`,
         `To: ${data.to}`,
+        ...(data.cc?.length ? [`Cc: ${data.cc.join(', ')}`] : []),
         `Subject: ${data.subject}`,
         `In-Reply-To: <${data.messageId}>`,
         `References: <${data.messageId}>`,

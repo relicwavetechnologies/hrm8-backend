@@ -1,7 +1,8 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
-import { ApplicationStatus, ApplicationStage } from '@prisma/client';
+import { ApplicationStatus, ApplicationStage, ActorType } from '@prisma/client';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
+import { ApplicationActivityService } from '../application/application-activity.service';
 
 export class ConsultantCandidateService {
 
@@ -82,6 +83,22 @@ export class ConsultantCandidateService {
             }
         }
 
+        await ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: ActorType.CONSULTANT,
+            action: 'stage_changed',
+            subject: 'Application status updated',
+            description: stage
+                ? `Status set to ${status} and stage set to ${stage}`
+                : `Status set to ${status}`,
+            metadata: {
+                status,
+                stage: stage || null,
+                source: 'consultant_pipeline',
+            },
+        });
+
         // Notify candidate logic could go here (e.g. email or in-app notification)
 
         return updatedApp;
@@ -102,12 +119,27 @@ export class ConsultantCandidateService {
         const newNote = `[${new Date().toISOString()}] ${consultant.first_name}: ${note}\n`;
         const currentNotes = application.recruiter_notes || '';
 
-        return prisma.application.update({
+        const updated = await prisma.application.update({
             where: { id: applicationId },
             data: {
                 recruiter_notes: currentNotes + newNote
             }
         });
+
+        await ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: ActorType.CONSULTANT,
+            action: 'note_added',
+            subject: 'Application note added',
+            description: `${consultant.first_name} added a pipeline note`,
+            metadata: {
+                source: 'consultant_pipeline',
+                notePreview: note.substring(0, 160),
+            },
+        });
+
+        return updated;
     }
 
     async moveToRound(consultantId: string, applicationId: string, roundId: string) {
@@ -191,6 +223,21 @@ export class ConsultantCandidateService {
                 );
             }
         }
+
+        await ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: ActorType.CONSULTANT,
+            action: 'round_changed',
+            subject: 'Candidate moved to round',
+            description: `Moved candidate to ${round.name}`,
+            metadata: {
+                newRoundId: roundId,
+                newRoundName: round.name,
+                newStage: newStage || null,
+                source: 'consultant_pipeline',
+            },
+        });
     }
 
     async updateStage(consultantId: string, applicationId: string, stage: ApplicationStage) {
@@ -208,6 +255,19 @@ export class ConsultantCandidateService {
                 stage,
                 updated_at: new Date()
             }
+        });
+
+        await ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: ActorType.CONSULTANT,
+            action: 'stage_changed',
+            subject: 'Candidate stage changed',
+            description: `Stage changed to ${stage}`,
+            metadata: {
+                newStage: stage,
+                source: 'consultant_pipeline',
+            },
         });
 
         return updatedApp;

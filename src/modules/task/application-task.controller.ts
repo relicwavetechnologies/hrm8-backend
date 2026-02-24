@@ -73,7 +73,7 @@ export class ApplicationTaskController extends BaseController {
         type,
         assignedTo,
         dueDate: dueDate ? new Date(dueDate) : undefined,
-      });
+      }, req.user.id);
 
       return this.sendSuccess(res, { task });
     } catch (error) {
@@ -87,7 +87,7 @@ export class ApplicationTaskController extends BaseController {
       if (!req.user) throw new Error('Unauthorized');
       const { taskId } = req.params as { taskId: string };
 
-      const result = await ApplicationTaskService.deleteTask(taskId);
+      const result = await ApplicationTaskService.deleteTask(taskId, req.user.id);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);

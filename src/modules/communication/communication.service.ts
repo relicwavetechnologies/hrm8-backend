@@ -140,6 +140,7 @@ export class CommunicationService extends BaseService {
     subject: string;
     body: string;
     templateId?: string;
+    cc?: string[];
   }): Promise<{ emailLog: any; needsReconnect?: boolean }> {
     // Get application with candidate info
     const application = await prisma.application.findUnique({
@@ -178,6 +179,7 @@ export class CommunicationService extends BaseService {
         subject: data.subject,
         body: data.body,
         senderEmail: user.email,
+        cc: data.cc,
       });
 
       if (!result.success && result.needsFallback) {
@@ -229,6 +231,7 @@ export class CommunicationService extends BaseService {
         to: application.candidate.email,
         subject: data.subject,
         status: emailLog.status,
+        ...(data.cc?.length ? { cc: data.cc } : {}),
       },
     });
 
@@ -557,6 +560,7 @@ export class CommunicationService extends BaseService {
     subject: string;
     body: string;
     to: string;
+    cc?: string[];
   }) {
     // Verify application exists
     const application = await prisma.application.findUnique({
@@ -590,6 +594,7 @@ export class CommunicationService extends BaseService {
         subject: data.subject,
         body: data.body,
         senderEmail: user.email,
+        cc: data.cc,
       });
 
       if (!result.success && result.needsFallback) {
@@ -602,6 +607,7 @@ export class CommunicationService extends BaseService {
           html: data.body,
           inReplyTo: `<${data.messageId}>`,
           references: `<${data.messageId}>`,
+          ...(data.cc?.length ? { cc: data.cc } : {}),
         });
       } else if (!result.success) {
         // Other error

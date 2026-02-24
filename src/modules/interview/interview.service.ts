@@ -5,6 +5,7 @@ import { NotificationService } from '../notification/notification.service';
 import { NotificationRepository } from '../notification/notification.repository';
 import { NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { googleOAuthService } from '../integration/google-oauth.service';
+import { ApplicationActivityService } from '../application/application-activity.service';
 
 const notificationService = new NotificationService(new NotificationRepository());
 
@@ -126,6 +127,21 @@ export class InterviewService {
       actionUrl: `/candidate/applications/${params.applicationId}?tab=interviews`
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: params.applicationId,
+      actorId: params.scheduledBy,
+      action: 'interview_scheduled',
+      subject: 'Interview auto-scheduled',
+      description: `Interview auto-scheduled for ${startDate.toISOString()}`,
+      metadata: {
+        interviewId: interview.id,
+        jobRoundId: params.jobRoundId,
+        scheduledDate: startDate,
+        duration: config.default_duration,
+        autoScheduled: true,
+      },
+    });
+
     return interview;
   }
 
@@ -141,6 +157,7 @@ export class InterviewService {
     notes?: string;
     useMeetLink?: boolean;
     companyId?: string;
+    skipActivityLog?: boolean;
   }) {
     const application = await prisma.application.findUnique({
       where: { id: params.applicationId },
@@ -196,6 +213,26 @@ export class InterviewService {
         is_auto_scheduled: false
       }
     });
+
+    if (!params.skipActivityLog) {
+      await ApplicationActivityService.logSafe({
+        applicationId: params.applicationId,
+        actorId: params.scheduledBy,
+        action: 'interview_scheduled',
+        subject: 'Interview scheduled',
+        description: `${params.type} interview scheduled for ${params.scheduledDate.toISOString()}`,
+        metadata: {
+          interviewId: interview.id,
+          scheduledDate: params.scheduledDate,
+          duration: params.duration,
+          type: params.type,
+          interviewerIds: params.interviewerIds || [],
+          meetLinkCreated: !!meetingLink,
+          meetLinkError: meetLinkError || null,
+          autoScheduled: false,
+        },
+      });
+    }
 
     // Notify
     if (application.candidate) {
@@ -276,7 +313,7 @@ export class InterviewService {
     return this.mapToDTO(interview);
   }
 
-  static async updateStatus(id: string, status: any, notes?: string) {
+  static async updateStatus(id: string, status: any, notes?: string, updatedBy?: string) {
     const updated = await prisma.videoInterview.update({
       where: { id },
       data: { status, notes },
@@ -297,6 +334,19 @@ export class InterviewService {
       });
     }
 
+    await ApplicationActivityService.logSafe({
+      applicationId: updated.application_id,
+      actorId: updatedBy,
+      action: 'interview_status_updated',
+      subject: 'Interview status updated',
+      description: `Interview status changed to ${status}`,
+      metadata: {
+        interviewId: updated.id,
+        status,
+        notes,
+      },
+    });
+
     return updated;
   }
 
@@ -307,7 +357,7 @@ export class InterviewService {
     type?: string;
     meetingLink?: string;
     notes?: string;
-  }) {
+  }, updatedBy?: string) {
     const data: any = {};
     if (updates.interviewerIds !== undefined) data.interviewer_ids = updates.interviewerIds;
     if (updates.scheduledDate !== undefined) data.scheduled_date = updates.scheduledDate;
@@ -322,10 +372,22 @@ export class InterviewService {
       include: { application: { include: { candidate: true } }, job_round: true }
     });
 
+    await ApplicationActivityService.logSafe({
+      applicationId: updated.application_id,
+      actorId: updatedBy,
+      action: 'interview_updated',
+      subject: 'Interview details updated',
+      description: 'Interview details were updated',
+      metadata: {
+        interviewId: updated.id,
+        updates,
+      },
+    });
+
     return this.mapToDTO(updated);
   }
 
-  static async addFeedback(interviewId: string, feedback: any) {
+  static async addFeedback(interviewId: string, feedback: any, addedBy?: string) {
     // Save feedback logic here (simplified)
     await prisma.interviewFeedback.create({
       data: {
@@ -348,6 +410,21 @@ export class InterviewService {
 
     const updated = await prisma.videoInterview.findUnique({ where: { id: interviewId } });
     if (!updated) throw new Error('Interview not found');
+
+    await ApplicationActivityService.logSafe({
+      applicationId: updated.application_id,
+      actorId: addedBy || feedback?.interviewer_id,
+      action: 'interview_feedback_added',
+      subject: 'Interview feedback added',
+      description: 'Interview feedback was submitted',
+      metadata: {
+        interviewId,
+        interviewerId: feedback?.interviewer_id,
+        overallRating: feedback?.overall_rating,
+        averageScore,
+      },
+    });
+
     return this.mapToDTO(updated);
   }
 

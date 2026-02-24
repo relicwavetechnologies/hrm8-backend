@@ -4,6 +4,41 @@ import { OfferService } from './offer.service';
 import { AuthenticatedRequest } from '../../types';
 
 export class OfferController extends BaseController {
+  getWorkflowByApplication = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.id) return this.sendError(res, new Error('Unauthorized'), 401);
+      const applicationId = req.params.applicationId as string;
+      const data = await OfferService.getWorkflowByApplication(applicationId, req.user.id);
+      return this.sendSuccess(res, data);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateWorkflowByApplication = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.id) return this.sendError(res, new Error('Unauthorized'), 401);
+      const applicationId = req.params.applicationId as string;
+      const data = await OfferService.updateWorkflowByApplication(applicationId, req.user.id, req.body || {});
+      return this.sendSuccess(res, data);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  uploadWorkflowDocuments = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user?.id) return this.sendError(res, new Error('Unauthorized'), 401);
+      const applicationId = req.params.applicationId as string;
+      const files = (req.files as Express.Multer.File[]) || [];
+      const category = (req.body?.category as string) || 'OTHER';
+      const note = (req.body?.note as string) || undefined;
+      const data = await OfferService.uploadWorkflowDocuments(applicationId, req.user.id, files, category, note);
+      return this.sendSuccess(res, data);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
   
   create = async (req: AuthenticatedRequest, res: Response) => {
     try {

@@ -12,6 +12,42 @@ import {
   getHiringFunnelAnalyticsSchema,
   getInterviewDetails,
   getInterviewDetailsSchema,
+  getCandidateDrawerOverview,
+  getCandidateDrawerOverviewSchema,
+  getCandidateDrawerResume,
+  getCandidateDrawerResumeSchema,
+  getCandidateDrawerAiReview,
+  getCandidateDrawerAiReviewSchema,
+  getCandidateDrawerNotes,
+  getCandidateDrawerNotesSchema,
+  getCandidateDrawerQuestionnaire,
+  getCandidateDrawerQuestionnaireSchema,
+  getCandidateDrawerAnnotations,
+  getCandidateDrawerAnnotationsSchema,
+  getCandidateDrawerMeetings,
+  getCandidateDrawerMeetingsSchema,
+  getCandidateDrawerEmails,
+  getCandidateDrawerEmailsSchema,
+  getCandidateDrawerTasks,
+  getCandidateDrawerTasksSchema,
+  getCandidateDrawerActivity,
+  getCandidateDrawerActivitySchema,
+  getCandidateDrawerContext,
+  getCandidateDrawerContextSchema,
+  updateCandidateStage,
+  updateCandidateStageSchema,
+  addCandidateNote,
+  addCandidateNoteSchema,
+  scheduleCandidateInterview,
+  scheduleCandidateInterviewSchema,
+  addInterviewNote,
+  addInterviewNoteSchema,
+  sendCandidateEmailTool,
+  sendCandidateEmailToolSchema,
+  createCandidateTaskTool,
+  createCandidateTaskToolSchema,
+  addTaskNoteTool,
+  addTaskNoteToolSchema,
   getAssessmentResults,
   getAssessmentResultsSchema,
   getOfferStatus,
@@ -183,6 +219,194 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     requiresCompanyScope: true,
     dataSensitivity: 'MEDIUM',
     run: getInterviewDetails,
+  },
+
+  {
+    name: 'get_candidate_drawer_context',
+    description:
+      'Get complete candidate assessment drawer context for one application: AI analysis, resume, notes, annotations, interviews/meetings, email threads/logs, tasks, and activity.',
+    parameters: getCandidateDrawerContextSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerContext,
+  },
+
+  {
+    name: 'get_candidate_drawer_overview',
+    description: 'Get candidate drawer overview section (candidate + job + application summary) for the current application.',
+    parameters: getCandidateDrawerOverviewSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerOverview,
+  },
+
+  {
+    name: 'get_candidate_drawer_resume',
+    description: 'Get resume content and profile signals shown in candidate drawer resume section.',
+    parameters: getCandidateDrawerResumeSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerResume,
+  },
+
+  {
+    name: 'get_candidate_drawer_ai_review',
+    description: 'Get AI review/analysis data shown in candidate drawer AI section.',
+    parameters: getCandidateDrawerAiReviewSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerAiReview,
+  },
+
+  {
+    name: 'get_candidate_drawer_notes',
+    description: 'Get notes section data for candidate drawer.',
+    parameters: getCandidateDrawerNotesSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerNotes,
+  },
+
+  {
+    name: 'get_candidate_drawer_questionnaire',
+    description: 'Get questionnaire/custom answers data from candidate drawer questionnaire section.',
+    parameters: getCandidateDrawerQuestionnaireSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerQuestionnaire,
+  },
+
+  {
+    name: 'get_candidate_drawer_annotations',
+    description: 'Get resume annotations for candidate drawer annotation section.',
+    parameters: getCandidateDrawerAnnotationsSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerAnnotations,
+  },
+
+  {
+    name: 'get_candidate_drawer_meetings',
+    description: 'Get interview/meeting schedule and notes shown in candidate drawer meetings/interviews section.',
+    parameters: getCandidateDrawerMeetingsSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerMeetings,
+  },
+
+  {
+    name: 'get_candidate_drawer_emails',
+    description: 'Get email threads and email logs for candidate drawer email section.',
+    parameters: getCandidateDrawerEmailsSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerEmails,
+  },
+
+  {
+    name: 'get_candidate_drawer_tasks',
+    description: 'Get tasks and task notes for candidate drawer task section.',
+    parameters: getCandidateDrawerTasksSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerTasks,
+  },
+
+  {
+    name: 'get_candidate_drawer_activity',
+    description: 'Get activity timeline for candidate drawer activity section.',
+    parameters: getCandidateDrawerActivitySchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: getCandidateDrawerActivity,
+  },
+
+  {
+    name: 'update_candidate_stage',
+    description:
+      'Move a candidate application to a new stage. Requires applicationId and target stage. This is a write action.',
+    parameters: updateCandidateStageSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: updateCandidateStage,
+  },
+
+  {
+    name: 'add_candidate_note',
+    description:
+      'Add a structured note to candidate application notes (supports note type and mentions). This is a write action.',
+    parameters: addCandidateNoteSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: addCandidateNote,
+  },
+
+  {
+    name: 'schedule_candidate_interview',
+    description:
+      'Schedule an interview for a candidate application with date, type, duration, optional interviewers, notes, and optional Meet link.',
+    parameters: scheduleCandidateInterviewSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: scheduleCandidateInterview,
+  },
+
+  {
+    name: 'add_interview_note',
+    description:
+      'Add a note to an existing interview by interviewId. This is a write action and logs activity.',
+    parameters: addInterviewNoteSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: addInterviewNote,
+  },
+
+  {
+    name: 'send_candidate_email',
+    description:
+      'Send an email to the candidate tied to this application and log it to communication history.',
+    parameters: sendCandidateEmailToolSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: sendCandidateEmailTool,
+  },
+
+  {
+    name: 'create_candidate_task',
+    description:
+      'Create a new task for this candidate application (title, assignee, status, priority, due date, description).',
+    parameters: createCandidateTaskToolSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: createCandidateTaskTool,
+  },
+
+  {
+    name: 'add_task_note',
+    description:
+      'Add a note to a specific task within this candidate application context.',
+    parameters: addTaskNoteToolSchema,
+    allowedRoles: [ToolAccessLevel.COMPANY_ADMIN, ToolAccessLevel.COMPANY_USER],
+    requiresCompanyScope: true,
+    dataSensitivity: 'HIGH',
+    run: addTaskNoteTool,
   },
 
   // TEMPORARILY DISABLED: Schema mismatch - AssessmentResponse doesn't match expected structure

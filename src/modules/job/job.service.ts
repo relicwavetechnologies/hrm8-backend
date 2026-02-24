@@ -81,7 +81,7 @@ export class JobService extends BaseService {
       application_form: data.applicationForm ? data.applicationForm : undefined,
 
       // Logistic
-      close_date: data.closeDate,
+      close_date: data.closeDate || null,
       visibility: data.visibility || 'public',
       posting_date: publishImmediately ? new Date() : null,
 
@@ -185,7 +185,7 @@ export class JobService extends BaseService {
       responsibilities: data.responsibilities,
       promotional_tags: data.tags || data.promotionalTags,
       application_form: data.applicationForm,
-      close_date: data.closeDate,
+      close_date: data.closeDate || null,
       video_interviewing_enabled: data.videoInterviewingEnabled,
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
       management_type: data.managementType ?? undefined,
@@ -657,7 +657,7 @@ export class JobService extends BaseService {
       responsibilities: data.responsibilities ?? [],
       promotional_tags: data.tags ?? data.promotionalTags ?? data.promotional_tags ?? [],
       application_form: data.applicationForm ?? data.application_form,
-      close_date: data.closeDate ?? data.close_date,
+      close_date: (data.closeDate ?? data.close_date) || null,
       visibility: data.visibility ?? 'public',
       work_arrangement: data.workArrangement ? String(data.workArrangement).toUpperCase().replace('-', '_') : undefined,
       employment_type: data.employmentType ? String(data.employmentType).toUpperCase().replace('-', '_') : undefined,

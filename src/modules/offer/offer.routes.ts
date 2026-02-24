@@ -1,9 +1,20 @@
 import { Router } from 'express';
 import { OfferController } from './offer.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
+import multer from 'multer';
 
 const router = Router();
 const offerController = new OfferController();
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.get('/application/:applicationId/workflow', authenticate, offerController.getWorkflowByApplication);
+router.put('/application/:applicationId/workflow', authenticate, offerController.updateWorkflowByApplication);
+router.post(
+  '/application/:applicationId/workflow/documents',
+  authenticate,
+  upload.array('files'),
+  offerController.uploadWorkflowDocuments
+);
 
 router.post('/', authenticate, offerController.create);
 router.post('/:id/send', authenticate, offerController.send);

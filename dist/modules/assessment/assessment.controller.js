@@ -17,6 +17,16 @@ class AssessmentController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        this.getAssessmentsByApplication = async (req, res) => {
+            try {
+                const { applicationId } = req.params;
+                const data = await this.assessmentService.getApplicationAssessments(applicationId);
+                return this.sendSuccess(res, data);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         this.startAssessment = async (req, res) => {
             try {
                 const { token } = req.params;
@@ -116,7 +126,8 @@ class AssessmentController extends controller_1.BaseController {
         this.resendInvitation = async (req, res) => {
             try {
                 const { id } = req.params;
-                await this.assessmentService.resendInvitation(id);
+                const requestedByUserId = req.user?.id;
+                await this.assessmentService.resendInvitation(id, requestedByUserId);
                 return this.sendSuccess(res, { message: 'Invitation resent' });
             }
             catch (error) {
@@ -125,15 +136,19 @@ class AssessmentController extends controller_1.BaseController {
         };
         this.inviteCandidate = async (req, res) => {
             try {
-                const { applicationId, jobRoundId } = req.body;
-                if (!applicationId || !jobRoundId) {
-                    return this.sendError(res, new Error('applicationId and jobRoundId are required'), 400);
+                const { applicationId, deadlineDays, questions, templateId } = req.body;
+                if (!applicationId) {
+                    return this.sendError(res, new Error('applicationId is required'), 400);
                 }
                 const userId = req.user?.id;
                 if (!userId) {
                     return this.sendError(res, new Error('User not authenticated'), 401);
                 }
-                const result = await this.assessmentService.manualInviteToAssessment(applicationId, jobRoundId, userId);
+                const result = await this.assessmentService.manualInviteToAssessment(applicationId, userId, {
+                    deadlineDays,
+                    questions,
+                    templateId,
+                });
                 if (!result.success) {
                     return this.sendError(res, new Error(result.error || 'Failed to invite'), 400);
                 }

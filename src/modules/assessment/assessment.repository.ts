@@ -98,6 +98,25 @@ export class AssessmentRepository extends BaseRepository {
     });
   }
 
+  async findByApplicationIdWithDetails(applicationId: string) {
+    return this.prisma.assessment.findMany({
+      where: { application_id: applicationId },
+      include: {
+        assessment_response: {
+          include: {
+            assessment_grade: true
+          }
+        },
+        application: {
+          include: {
+            candidate: true
+          }
+        }
+      },
+      orderBy: { created_at: 'desc' }
+    });
+  }
+
   // Questions
   async createQuestion(data: Prisma.AssessmentQuestionCreateInput): Promise<AssessmentQuestion> {
     return this.prisma.assessmentQuestion.create({ data });
@@ -163,13 +182,14 @@ export class AssessmentRepository extends BaseRepository {
     return this.prisma.application.findUnique({
       where: { id: applicationId },
       select: {
+        id: true,
         candidate_id: true,
         job_id: true,
         candidate: {
           select: { first_name: true, last_name: true, email: true }
         },
         job: {
-          select: { title: true }
+          select: { title: true, company_id: true }
         }
       }
     });
