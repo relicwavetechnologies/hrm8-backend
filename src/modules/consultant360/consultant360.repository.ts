@@ -24,7 +24,38 @@ const conversionRequestSelect = {
   created_at: true,
   updated_at: true,
   temp_password: true,
+  intent_snapshot: true,
 } satisfies Prisma.LeadConversionRequestSelect;
+
+const conversionRequestSelectWithoutIntentSnapshot = {
+  id: true,
+  lead_id: true,
+  consultant_id: true,
+  region_id: true,
+  status: true,
+  company_name: true,
+  email: true,
+  phone: true,
+  website: true,
+  country: true,
+  city: true,
+  state_province: true,
+  agent_notes: true,
+  reviewed_by: true,
+  reviewed_at: true,
+  admin_notes: true,
+  decline_reason: true,
+  converted_at: true,
+  company_id: true,
+  created_at: true,
+  updated_at: true,
+  temp_password: true,
+} satisfies Prisma.LeadConversionRequestSelect;
+
+const isIntentSnapshotColumnMissing = (error: unknown): boolean => {
+  const err = error as { code?: string; meta?: { column?: string } };
+  return err?.code === 'P2022' && String(err?.meta?.column || '').includes('intent_snapshot');
+};
 
 export class Consultant360Repository extends BaseRepository {
 
@@ -48,28 +79,56 @@ export class Consultant360Repository extends BaseRepository {
 
   // --- Conversion Requests ---
   async createConversionRequest(data: any) {
-    const sanitizedData: any = { ...data };
-    // DB compatibility: omit intent_snapshot until schema is synchronized.
-    delete sanitizedData.intent_snapshot;
-    return this.prisma.leadConversionRequest.create({
-      data: sanitizedData,
-      select: conversionRequestSelect
-    });
+    const payload: any = { ...data };
+    try {
+      return await this.prisma.leadConversionRequest.create({
+        data: payload,
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+        throw error;
+      }
+
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.intent_snapshot;
+      return this.prisma.leadConversionRequest.create({
+        data: fallbackPayload,
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
   async findConversionRequests(filters: any) {
-    return this.prisma.leadConversionRequest.findMany({
-      where: filters,
-      orderBy: { created_at: 'desc' },
-      select: conversionRequestSelect
-    });
+    try {
+      return await this.prisma.leadConversionRequest.findMany({
+        where: filters,
+        orderBy: { created_at: 'desc' },
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      return this.prisma.leadConversionRequest.findMany({
+        where: filters,
+        orderBy: { created_at: 'desc' },
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
   async findConversionRequestById(id: string) {
-    return this.prisma.leadConversionRequest.findUnique({
-      where: { id },
-      select: conversionRequestSelect
-    });
+    try {
+      return await this.prisma.leadConversionRequest.findUnique({
+        where: { id },
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      return this.prisma.leadConversionRequest.findUnique({
+        where: { id },
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
   // --- Dashboard ---

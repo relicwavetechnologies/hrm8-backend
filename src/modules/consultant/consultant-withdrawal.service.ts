@@ -266,6 +266,7 @@ export class ConsultantWithdrawalService {
                 email: true,
                 stripe_account_id: true,
                 stripe_account_status: true,
+                payout_enabled: true,
                 stripe_onboarded_at: true,
                 updated_at: true
             }
@@ -273,19 +274,22 @@ export class ConsultantWithdrawalService {
 
         if (!consultant) throw new HttpException(404, 'Consultant not found');
 
+        const payoutsEnabled = !!consultant.payout_enabled || consultant.stripe_account_status === 'active';
+
         return {
-            isConnected: !!consultant.stripe_account_id && consultant.stripe_account_status === 'active',
+            provider: 'AIRWALLEX',
+            isConnected: !!consultant.stripe_account_id && payoutsEnabled,
             stripeAccountId: consultant.stripe_account_id,
             accountStatus: consultant.stripe_account_status,
             onboardedAt: consultant.stripe_onboarded_at,
             email: consultant.email,
-            lastUpdated: consultant.updated_at
+            lastUpdated: consultant.updated_at,
+            payoutEnabled: payoutsEnabled,
+            detailsSubmitted: !!consultant.stripe_account_id,
         };
     }
 
     async initiateStripeOnboarding(consultantId: string) {
-        const { StripeFactory } = await import('../stripe/stripe.factory');
-
         const consultant = await prisma.consultant.findUnique({
             where: { id: consultantId }
         });
@@ -296,46 +300,27 @@ export class ConsultantWithdrawalService {
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const returnPath = '/consultant/earnings';
 
-        // Create account if doesn't exist
+        // Create payout beneficiary if missing.
         if (!accountId) {
-            const stripe = StripeFactory.getClient();
-            const account = await stripe.accounts.create({
-                type: 'express',
-                country: 'US',
-                email: consultant.email,
-                capabilities: { transfers: { requested: true } },
-                metadata: {
-                    consultant_id: consultantId,
-                    role: consultant.role
-                }
-            });
-
-            accountId = account.id;
-
-            // Update DB - mock accounts auto-approve, real accounts stay pending
+            accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
             await prisma.consultant.update({
                 where: { id: consultantId },
                 data: {
                     stripe_account_id: accountId,
-                    stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
-                    payout_enabled: StripeFactory.isUsingMock() ? true : false
+                    stripe_account_status: 'active',
+                    payout_enabled: true,
+                    stripe_onboarded_at: new Date()
                 }
             });
         }
 
-        // Generate onboarding link
-        const stripe = StripeFactory.getClient();
-        const accountLink = await stripe.accountLinks.create({
-            account: accountId,
-            refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
-            return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
-            type: 'account_onboarding'
-        });
+        const onboardingUrl = `${frontendUrl}${returnPath}?airwallex_success=true`;
 
         return {
+            provider: 'AIRWALLEX',
             accountId,
-            onboardingUrl: accountLink.url,
-            accountLink: { url: accountLink.url }
+            onboardingUrl,
+            accountLink: { url: onboardingUrl }
         };
     }
 
@@ -346,16 +331,16 @@ export class ConsultantWithdrawalService {
 
         if (!consultant) throw new HttpException(404, 'Consultant not found');
         if (!consultant.stripe_account_id) {
-            throw new HttpException(400, 'Consultant does not have a Stripe account connected');
+            throw new HttpException(400, 'Consultant does not have an Airwallex beneficiary connected');
         }
 
-        // TODO: Implement actual Stripe login link generation using Stripe API
-        // This would use Stripe's REST API to create a login link for the connected account
-        // const loginLink = await stripe.accounts.createLoginLink(consultant.stripe_account_id);
+        const loginLink = `https://www.airwallex.com/app/login?beneficiary=${consultant.stripe_account_id}`;
 
         return {
+            provider: 'AIRWALLEX',
             message: 'Login link generated',
-            loginLink: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
+            loginLink,
+            url: loginLink,
             expiresIn: 15 * 60 // 15 minutes in seconds
         };
     }

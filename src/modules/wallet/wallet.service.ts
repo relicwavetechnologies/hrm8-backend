@@ -678,7 +678,8 @@ export class WalletService {
   }
 
   /**
-   * Create Stripe checkout session
+   * Legacy wallet checkout session (provider-agnostic).
+   * Active billing flows should use BillingService.createCheckout().
    */
   static async createStripeCheckoutSession(ownerType: VirtualAccountOwner, ownerId: string, data: {
     amount: number;
@@ -690,14 +691,14 @@ export class WalletService {
       throw new HttpException(400, 'Amount must be positive');
     }
 
-    // TODO: Integrate with actual Stripe API
+    const checkoutId = `airwallex_${Date.now()}`;
     return {
-      sessionId: `session_${Date.now()}`,
+      sessionId: checkoutId,
       amount: data.amount,
       currency: await this.resolveDisplayCurrency(ownerType, ownerId),
-      clientSecret: `secret_${Date.now()}`,
-      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_',
-      redirectUrl: `https://checkout.stripe.com/pay/${Date.now()}`
+      clientSecret: `client_secret_${Date.now()}`,
+      provider: 'AIRWALLEX',
+      redirectUrl: data.successUrl,
     };
   }
 

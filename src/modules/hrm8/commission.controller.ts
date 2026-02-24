@@ -48,6 +48,19 @@ export class CommissionController extends BaseController {
         }
     };
 
+    getReviewContext = async (req: AuthenticatedRequest, res: Response) => {
+        try {
+            const { id } = req.params;
+            const context = await this.commissionService.getReviewContext(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
+            return this.sendSuccess(res, { context });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
     create = async (req: AuthenticatedRequest, res: Response) => {
         try {
             const result = await this.commissionService.create(req.body);

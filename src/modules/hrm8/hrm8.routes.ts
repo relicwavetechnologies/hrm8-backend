@@ -74,6 +74,7 @@ router.post('/commissions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']),
 router.post('/commissions/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.processPayments);
 router.get('/commissions/regional', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getRegional);
 router.get('/commissions/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getById);
+router.get('/commissions/:id/review-context', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getReviewContext);
 router.put('/commissions/:id/confirm', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.confirm);
 router.put('/commissions/:id/pay', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.markAsPaid);
 router.put('/commissions/:id/dispute', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), commissionController.dispute);

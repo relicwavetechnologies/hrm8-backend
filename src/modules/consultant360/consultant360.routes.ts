@@ -20,8 +20,8 @@ router.post('/withdraw', authenticateConsultantStrict, controller.requestWithdra
 router.get('/withdrawals', authenticateConsultantStrict, controller.getWithdrawals);
 router.post('/withdrawals/:id/cancel', authenticateConsultantStrict, controller.cancelWithdrawal);
 router.post('/withdrawals/:id/execute', authenticateConsultantStrict, controller.executeWithdrawal);
-router.post('/stripe/onboard', authenticateConsultantStrict, controller.stripeOnboard);
-router.get('/stripe/status', authenticateConsultantStrict, controller.getStripeStatus);
-router.post('/stripe/login-link', authenticateConsultantStrict, controller.getStripeLoginLink);
+router.post('/payouts/beneficiaries', authenticateConsultantStrict, controller.stripeOnboard);
+router.get('/payouts/status', authenticateConsultantStrict, controller.getStripeStatus);
+router.post('/payouts/login-link', authenticateConsultantStrict, controller.getStripeLoginLink);
 
 export default router;

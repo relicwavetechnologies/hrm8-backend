@@ -309,8 +309,9 @@ export class SalesService extends BaseService {
       country: lead.country,
       city: lead.city || null,
       state_province: lead.state_province || null,
-      // DB compatibility: intent_snapshot column may be missing in live DB.
-      // Keep snapshot content in notes until schema is synchronized.
+      intent_snapshot: normalizedIntentSnapshot || undefined,
+      // Keep snapshot in notes as backward-compatible fallback for environments
+      // where intent_snapshot is not yet available.
       agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
       temp_password: data.tempPassword || null,
       status: 'PENDING'

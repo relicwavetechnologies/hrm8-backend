@@ -5,6 +5,7 @@ import { VirtualTransactionType, CommissionStatus, WithdrawalStatus, CommissionT
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { toCommissionRateDecimal } from './commission-rate.util';
+import { ConversionCommercialContextService } from './conversion-commercial-context.service';
 
 export interface AwardCommissionInput {
     consultantId: string;
@@ -45,8 +46,11 @@ export interface ApproveWithdrawalInput {
 }
 
 export class CommissionService extends BaseService {
+    private conversionCommercialContextService: ConversionCommercialContextService;
+
     constructor(private commissionRepository: CommissionRepository) {
         super();
+        this.conversionCommercialContextService = new ConversionCommercialContextService();
     }
 
     private mapToDTO(commission: any) {
@@ -149,6 +153,149 @@ export class CommissionService extends BaseService {
             throw new HttpException(403, 'Access denied for this region');
         }
         return this.mapToDTO(commission);
+    }
+
+    async getReviewContext(id: string, allowedRegionIds?: string[]) {
+        const commission = await prisma.commission.findUnique({
+            where: { id },
+            include: {
+                consultant: {
+                    select: {
+                        id: true,
+                        first_name: true,
+                        last_name: true,
+                        email: true,
+                        region_id: true
+                    }
+                },
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                        company_id: true,
+                        status: true,
+                        setup_type: true,
+                        management_type: true,
+                        service_package: true,
+                        hiring_mode: true,
+                        payment_status: true,
+                        payment_amount: true,
+                        payment_currency: true,
+                        posted_at: true,
+                        posting_date: true
+                    }
+                },
+                subscription: {
+                    select: {
+                        id: true,
+                        company_id: true,
+                        name: true,
+                        plan_type: true,
+                        base_price: true,
+                        currency: true,
+                        billing_cycle: true,
+                        created_at: true
+                    }
+                }
+            }
+        });
+
+        if (!commission) {
+            throw new HttpException(404, 'Commission not found');
+        }
+
+        if (allowedRegionIds && !allowedRegionIds.includes(commission.region_id)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
+
+        const companyId = commission.subscription?.company_id || commission.job?.company_id || null;
+        const commercialContext = await this.conversionCommercialContextService.buildContextForCompany(companyId, {
+            consultantId: commission.consultant_id,
+            excludeCommissionId: commission.id,
+        });
+
+        const commissionCurrency =
+            await this.resolveCommissionCurrency({
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id
+            }) ||
+            commercialContext.firstPaymentEvidence?.currency ||
+            commercialContext.subscriptionAtFirstJob?.currency ||
+            null;
+
+        return {
+            commission: {
+                id: commission.id,
+                consultantId: commission.consultant_id,
+                regionId: commission.region_id,
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id,
+                type: commission.type,
+                amount: commission.amount,
+                currency: commissionCurrency,
+                status: commission.status,
+                description: commission.description || null,
+                createdAt: commission.created_at,
+                confirmedAt: commission.confirmed_at,
+                paidAt: commission.paid_at,
+                consultant: commission.consultant ? {
+                    id: commission.consultant.id,
+                    firstName: commission.consultant.first_name,
+                    lastName: commission.consultant.last_name,
+                    email: commission.consultant.email,
+                    regionId: commission.consultant.region_id
+                } : null,
+                linkedJob: commission.job ? {
+                    id: commission.job.id,
+                    title: commission.job.title,
+                    setupType: commission.job.setup_type,
+                    managementType: commission.job.management_type,
+                    servicePackage: commission.job.service_package,
+                    hiringMode: commission.job.hiring_mode,
+                    paymentStatus: commission.job.payment_status,
+                    paymentAmount: commission.job.payment_amount,
+                    paymentCurrency: commission.job.payment_currency,
+                    postedAt: commission.job.posting_date || commission.job.posted_at || null
+                } : null,
+                linkedSubscription: commission.subscription ? {
+                    id: commission.subscription.id,
+                    name: commission.subscription.name,
+                    planType: commission.subscription.plan_type,
+                    basePrice: commission.subscription.base_price,
+                    currency: commission.subscription.currency,
+                    billingCycle: commission.subscription.billing_cycle,
+                    createdAt: commission.subscription.created_at
+                } : null
+            },
+            companyContext: commercialContext.companyContext,
+            conversionContext: {
+                request: commercialContext.request ? {
+                    id: commercialContext.request.id,
+                    status: commercialContext.request.status,
+                    company_name: commercialContext.request.company_name,
+                    email: commercialContext.request.email,
+                    phone: commercialContext.request.phone || null,
+                    website: commercialContext.request.website || null,
+                    country: commercialContext.request.country,
+                    city: commercialContext.request.city || null,
+                    region_id: commercialContext.request.region_id,
+                    created_at: commercialContext.request.created_at?.toISOString?.() || commercialContext.request.created_at,
+                    reviewed_at: commercialContext.request.reviewed_at?.toISOString?.() || commercialContext.request.reviewed_at || null,
+                    converted_at: commercialContext.request.converted_at?.toISOString?.() || commercialContext.request.converted_at || null,
+                    agent_notes: commercialContext.request.agent_notes || null,
+                    intent_snapshot: commercialContext.intentSnapshot
+                } : null,
+                leadMilestones: commercialContext.leadMilestones,
+                conversionMilestones: commercialContext.conversionMilestones,
+            },
+            commercialEvidence: {
+                firstJobEvidence: commercialContext.firstJobEvidence,
+                subscriptionAtFirstJob: commercialContext.subscriptionAtFirstJob,
+                firstPaymentEvidence: commercialContext.firstPaymentEvidence,
+                commissionReadiness: commercialContext.commissionReadiness,
+            },
+            dataCompleteness: commercialContext.dataCompleteness,
+        };
     }
 
     /**

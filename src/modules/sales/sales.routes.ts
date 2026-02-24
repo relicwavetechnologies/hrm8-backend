@@ -38,10 +38,10 @@ router.get('/commissions/withdrawals', authenticateConsultant, salesController.g
 router.post('/commissions/withdrawals/:id/cancel', authenticateConsultant, salesController.cancelWithdrawal);
 router.post('/commissions/withdrawals/:id/execute', authenticateConsultant, salesController.executeWithdrawal);
 
-// Stripe
-router.get('/stripe/status', authenticateConsultant, salesController.getStripeStatus);
-router.post('/stripe/onboard', authenticateConsultant, salesController.initiateStripeOnboarding);
-router.post('/stripe/login-link', authenticateConsultant, salesController.getStripeLoginLink);
+// Payouts (Airwallex rail)
+router.get('/payouts/status', authenticateConsultant, salesController.getStripeStatus);
+router.post('/payouts/beneficiaries', authenticateConsultant, salesController.initiateStripeOnboarding);
+router.post('/payouts/login-link', authenticateConsultant, salesController.getStripeLoginLink);
 
 // Activities
 router.get('/activities', authenticateConsultant, salesController.getActivities);

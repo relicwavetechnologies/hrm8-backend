@@ -17,6 +17,7 @@ import { passwordResetService } from '../auth/password-reset.service';
 import { AuditLogService } from './audit-log.service';
 import { AuditLogRepository } from './audit-log.repository';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
+import { ConversionCommercialContextService } from './conversion-commercial-context.service';
 
 type ConversionRequestRecord = any;
 
@@ -59,11 +60,13 @@ interface ConversionCommissionReadiness {
 export class LeadConversionService extends BaseService {
   private userRepository: UserRepository;
   private auditLogService: AuditLogService;
+  private conversionCommercialContextService: ConversionCommercialContextService;
 
   constructor(private leadConversionRepository: LeadConversionRepository) {
     super();
     this.userRepository = new UserRepository();
     this.auditLogService = new AuditLogService(new AuditLogRepository());
+    this.conversionCommercialContextService = new ConversionCommercialContextService();
   }
 
   private ensureRegionScope(request: ConversionRequestRecord, regionIds?: string[]) {
@@ -348,27 +351,7 @@ export class LeadConversionService extends BaseService {
 
   async getReviewContext(id: string, regionIds?: string[]) {
     const request = await this.getOne(id, regionIds);
-    const companyId: string | null = request.company_id || request.lead?.converted_to_company_id || null;
-
-    const firstJobEvidence = companyId
-      ? await this.resolveFirstJobEvidence(companyId)
-      : null;
-    const firstJobPostedAt = firstJobEvidence?.posted_at ? new Date(firstJobEvidence.posted_at) : null;
-    const subscriptionAtFirstJob = companyId
-      ? await this.resolveSubscriptionAtFirstJob(companyId, firstJobPostedAt)
-      : null;
-    const firstPaymentEvidence = companyId
-      ? await this.resolveFirstPaymentEvidence(companyId)
-      : null;
-    const commissionReadiness = await this.resolveCommissionReadiness(request, firstPaymentEvidence);
-
-    const preApprovalComplete = Boolean(
-      request.company_name &&
-      request.email &&
-      request.country &&
-      request.region_id &&
-      request.lead_id
-    );
+    const context = await this.conversionCommercialContextService.buildContextForConversionRequest(request);
 
     return {
       request: {
@@ -385,37 +368,16 @@ export class LeadConversionService extends BaseService {
         reviewed_at: request.reviewed_at?.toISOString?.() || request.reviewed_at || null,
         converted_at: request.converted_at?.toISOString?.() || request.converted_at || null,
         agent_notes: request.agent_notes || null,
-        intent_snapshot: request.intent_snapshot || null,
+        intent_snapshot: context.intentSnapshot,
       },
-      leadMilestones: {
-        lead_created_at: request.lead?.created_at?.toISOString?.() || request.lead?.created_at || null,
-        lead_confirmed_at: request.lead?.validated_at?.toISOString?.() || request.lead?.validated_at || null,
-        lead_status: request.lead?.status || null,
-        lead_source: request.lead?.lead_source || null,
-      },
-      conversionMilestones: {
-        request_submitted_at: request.created_at?.toISOString?.() || request.created_at,
-        reviewed_at: request.reviewed_at?.toISOString?.() || request.reviewed_at || null,
-        converted_at: request.converted_at?.toISOString?.() || request.converted_at || null,
-      },
-      firstJobEvidence,
-      subscriptionAtFirstJob,
-      firstPaymentEvidence,
-      commissionReadiness,
-      dataCompleteness: {
-        preApprovalComplete,
-        postPaymentAvailable: Boolean(firstPaymentEvidence),
-      },
-      companyContext: request.company
-        ? {
-            id: request.company.id,
-            name: request.company.name,
-            website: request.company.website,
-            billing_currency: request.company.billing_currency || null,
-            pricing_peg: request.company.pricing_peg || null,
-            created_at: request.company.created_at?.toISOString?.() || request.company.created_at || null,
-          }
-        : null,
+      leadMilestones: context.leadMilestones,
+      conversionMilestones: context.conversionMilestones,
+      firstJobEvidence: context.firstJobEvidence,
+      subscriptionAtFirstJob: context.subscriptionAtFirstJob,
+      firstPaymentEvidence: context.firstPaymentEvidence,
+      commissionReadiness: context.commissionReadiness,
+      dataCompleteness: context.dataCompleteness,
+      companyContext: context.companyContext,
     };
   }
 
