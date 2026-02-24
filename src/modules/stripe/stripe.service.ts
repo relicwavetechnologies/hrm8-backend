@@ -9,6 +9,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { prisma } from '../../utils/prisma';
 import { Logger } from '../../utils/logger';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 export class StripeService {
   private static logger = Logger.create('stripe:service');
@@ -102,6 +103,7 @@ export class StripeService {
     const paymentType = metadata.type || 'unknown';
     const companyId = metadata.companyId;
     const userId = metadata.userId;
+    const paymentCurrency = (metadata.billingCurrency || metadata.currency || session.currency || '').toUpperCase();
 
     if (!companyId) {
       throw new Error('Missing companyId in session metadata');
@@ -110,14 +112,14 @@ export class StripeService {
     // Credit wallet based on payment type
     if (paymentType === 'wallet_recharge') {
       const timer = this.logger.startTimer();
-      await this.creditWalletFromPayment(session, companyId, userId);
+      await this.creditWalletFromPayment(session, companyId, userId, paymentCurrency || undefined);
       timer.end('Wallet credited', {
         companyId,
         amount: session.amount_total / 100,
       });
     } else if (paymentType === 'subscription') {
       const timer = this.logger.startTimer();
-      await this.activateSubscriptionFromPayment(session, companyId, userId, metadata);
+      await this.activateSubscriptionFromPayment(session, companyId, userId, metadata, paymentCurrency || undefined);
       timer.end('Subscription activated', {
         companyId,
         amount: session.amount_total / 100,
@@ -135,7 +137,8 @@ export class StripeService {
     session: StripeCheckoutSession,
     companyId: string,
     _userId: string | undefined,
-    metadata: Record<string, string>
+    metadata: Record<string, string>,
+    paymentCurrency?: string
   ): Promise<void> {
     const amountInDollars = session.amount_total / 100;
     const { planType, name, billingCycle, jobQuota, salesAgentId, consultantId } = metadata;
@@ -143,6 +146,12 @@ export class StripeService {
     if (!planType || !name || !billingCycle) {
       throw new Error('Missing subscription details in metadata');
     }
+
+    if (paymentCurrency) {
+      await CurrencyAssignmentService.validateCurrencyLock(companyId, paymentCurrency);
+    }
+
+    await CurrencyAssignmentService.lockCurrency(companyId);
 
     await SubscriptionService.createSubscription({
       companyId,
@@ -164,9 +173,15 @@ export class StripeService {
   private static async creditWalletFromPayment(
     session: StripeCheckoutSession,
     companyId: string,
-    userId?: string
+    userId?: string,
+    paymentCurrency?: string
   ): Promise<void> {
     const amountInDollars = session.amount_total / 100;
+    const { pricingPeg, billingCurrency } = await CurrencyAssignmentService.getCompanyCurrencies(companyId);
+
+    if (paymentCurrency) {
+      await CurrencyAssignmentService.validateCurrencyLock(companyId, paymentCurrency);
+    }
 
     // Get or create wallet account
     const account = await WalletService.getOrCreateAccount('COMPANY', companyId);
@@ -180,6 +195,8 @@ export class StripeService {
       referenceId: session.id,
       referenceType: 'stripe_session',
       createdBy: userId,
+      pricingPeg,
+      billingCurrency: billingCurrency || paymentCurrency,
     });
   }
 

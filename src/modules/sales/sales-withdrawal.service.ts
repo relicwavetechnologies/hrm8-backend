@@ -5,6 +5,46 @@ import { WithdrawalStatus } from '@prisma/client';
 export class SalesWithdrawalService {
     private readonly LOCKED_WITHDRAWAL_STATUSES: WithdrawalStatus[] = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
 
+    private async resolveConsultantCurrency(consultantId: string): Promise<string> {
+        const account = await prisma.virtualAccount.findUnique({
+            where: {
+                owner_type_owner_id: {
+                    owner_type: 'CONSULTANT',
+                    owner_id: consultantId
+                }
+            },
+            select: { id: true }
+        });
+
+        if (account) {
+            const latestTxCurrency = await prisma.virtualTransaction.findFirst({
+                where: {
+                    virtual_account_id: account.id,
+                    billing_currency_used: { not: null }
+                },
+                orderBy: { created_at: 'desc' },
+                select: { billing_currency_used: true }
+            });
+
+            if (latestTxCurrency?.billing_currency_used) {
+                return latestTxCurrency.billing_currency_used;
+            }
+        }
+
+        const latestCommissionCurrency = await prisma.commission.findFirst({
+            where: { consultant_id: consultantId },
+            orderBy: { created_at: 'desc' },
+            select: {
+                subscription: { select: { currency: true } },
+                job: { select: { payment_currency: true } }
+            }
+        });
+
+        return latestCommissionCurrency?.subscription?.currency
+            || latestCommissionCurrency?.job?.payment_currency
+            || 'USD';
+    }
+
     async calculateBalance(consultantId: string) {
         // 1. Get all commissions
         const allCommissions = await prisma.commission.findMany({
@@ -56,7 +96,7 @@ export class SalesWithdrawalService {
             pendingBalance: pendingBalance,
             totalEarned,
             totalWithdrawn,
-            currency: 'USD',
+            currency: await this.resolveConsultantCurrency(consultantId),
             commissionCount: availableCommissions.length,
             availableCommissions: availableCommissions.map(c => ({
                 id: c.id,
@@ -235,14 +275,18 @@ export class SalesWithdrawalService {
                 });
             }
 
+            if (!debitTransaction) {
+                throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+            }
+
             return tx.commissionWithdrawal.update({
                 where: { id: withdrawalId },
                 data: {
                     status: 'PROCESSING',
                     processed_at: latest.processed_at || new Date(),
                     debited_from_wallet: true,
-                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
                 }
             });
         });

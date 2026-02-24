@@ -304,9 +304,6 @@ model Job {
   payment_failed_at                   DateTime?
   stripe_payment_intent_id            String?
   stripe_session_id                   String?
-  price_book_id                       String?                     @map("price_book_id")
-  pricing_peg                         String?                     @map("pricing_peg")
-  price_book_version                  String?                     @map("price_book_version")
   clicks_count                        Int                         @default(0)
   views_count                         Int                         @default(0)
   auto_archive_on_expiry              Boolean                     @default(true) @map("auto_archive_on_expiry")
@@ -320,6 +317,9 @@ model Job {
   hide_salary                         Boolean                     @default(false)
   salary_period                       String?
   setup_complete                      Boolean                     @default(false)
+  price_book_id                       String?                     @map("price_book_id")
+  price_book_version                  String?                     @map("price_book_version")
+  pricing_peg                         String?                     @map("pricing_peg")
   applications                        Application[]
   commissions                         Commission[]
   consultant_assignments              ConsultantJobAssignment[]
@@ -1215,9 +1215,9 @@ model RegionalRevenue {
   hrm8_share        Float             @map("hrm8_share")
   status            RevenueStatus     @default(PENDING)
   paid_at           DateTime?         @map("paid_at")
-  payment_reference String?           @map("payment_reference")
   created_at        DateTime          @default(now()) @map("created_at")
   updated_at        DateTime          @default(now()) @updatedAt @map("updated_at")
+  payment_reference String?           @map("payment_reference")
   licensee          RegionalLicensee? @relation(fields: [licensee_id], references: [id])
   region            Region            @relation(fields: [region_id], references: [id])
 
@@ -1824,7 +1824,6 @@ model LeadConversionRequest {
   city           String?
   state_province String?                 @map("state_province")
   agent_notes    String?                 @map("agent_notes")
-  intent_snapshot Json?                  @map("intent_snapshot")
   reviewed_by    String?                 @map("reviewed_by")
   reviewed_at    DateTime?               @map("reviewed_at")
   admin_notes    String?                 @map("admin_notes")
@@ -2004,8 +2003,8 @@ model Subscription {
   renewal_failed_at      DateTime?            @map("renewal_failed_at")
   renewal_failure_reason String?              @map("renewal_failure_reason")
   price_book_id          String?              @map("price_book_id")
-  pricing_peg            String?              @map("pricing_peg")
   price_book_version     String?              @map("price_book_version")
+  pricing_peg            String?              @map("pricing_peg")
   bill                   Bill[]
   commissions            Commission[]         @relation("SubscriptionCommissions")
   company                Company              @relation(fields: [company_id], references: [id], onDelete: Cascade)

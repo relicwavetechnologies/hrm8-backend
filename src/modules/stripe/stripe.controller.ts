@@ -8,6 +8,7 @@ import { BaseController } from '../../core/controller';
 import { StripeService } from './stripe.service';
 import { StripeFactory } from './stripe.factory';
 import { completeMockPayment } from './stripe-mock.client';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -42,6 +43,9 @@ export class StripeController extends BaseController {
       // Convert dollars to cents for Stripe
       const amountInCents = Math.round(amount * 100);
 
+      const { pricingPeg, billingCurrency } = await CurrencyAssignmentService.getCompanyCurrencies(user.companyId);
+      await CurrencyAssignmentService.validateCurrencyLock(user.companyId, billingCurrency);
+
       // Extract metadata from body or use provided metadata object
       const { type, planType, planName, billingCycle, jobQuota } = req.body;
       const resolvedType = type || metadata?.type || (planType ? 'subscription' : 'wallet_recharge');
@@ -54,6 +58,8 @@ export class StripeController extends BaseController {
         ...metadata,
         companyId: user.companyId,
         userId: user.id,
+        pricingPeg,
+        billingCurrency,
       };
 
       if (!mergedMetadata.companyId) {
@@ -70,7 +76,8 @@ export class StripeController extends BaseController {
 
       const session = await StripeService.createCheckoutSession({
         amount: amountInCents,
-        description: description || `Wallet recharge - $${amount.toFixed(2)}`,
+        description: description || `Wallet recharge - ${amount.toFixed(2)} ${billingCurrency}`,
+        currency: billingCurrency.toLowerCase(),
         metadata: mergedMetadata,
         customerEmail: user.email,
         successUrl: successUrl || defaultSuccessUrl,

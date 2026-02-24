@@ -293,6 +293,10 @@ export class SalesService extends BaseService {
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
     );
+    const baseAgentNotes = data.agentNotes || data.notes || null;
+    const serializedIntentSnapshot = normalizedIntentSnapshot
+      ? `\n\n[Intent Snapshot]\n${JSON.stringify(normalizedIntentSnapshot)}`
+      : '';
 
     const createPayload: any = {
       lead: { connect: { id: leadId } },
@@ -305,8 +309,9 @@ export class SalesService extends BaseService {
       country: lead.country,
       city: lead.city || null,
       state_province: lead.state_province || null,
-      agent_notes: data.agentNotes || data.notes || null,
-      intent_snapshot: normalizedIntentSnapshot ?? undefined,
+      // DB compatibility: intent_snapshot column may be missing in live DB.
+      // Keep snapshot content in notes until schema is synchronized.
+      agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
       temp_password: data.tempPassword || null,
       status: 'PENDING'
     };

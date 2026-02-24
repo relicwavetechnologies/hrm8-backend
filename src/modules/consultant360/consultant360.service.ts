@@ -9,6 +9,37 @@ export class Consultant360Service extends BaseService {
     super();
   }
 
+  private async resolveConsultantCurrency(consultantId: string): Promise<string> {
+    const account = await this.repository.getAccountBalance(consultantId);
+    if (account?.id) {
+      const latestTxCurrency = await prisma.virtualTransaction.findFirst({
+        where: {
+          virtual_account_id: account.id,
+          billing_currency_used: { not: null }
+        },
+        orderBy: { created_at: 'desc' },
+        select: { billing_currency_used: true }
+      });
+
+      if (latestTxCurrency?.billing_currency_used) {
+        return latestTxCurrency.billing_currency_used;
+      }
+    }
+
+    const latestCommissionCurrency = await prisma.commission.findFirst({
+      where: { consultant_id: consultantId },
+      orderBy: { created_at: 'desc' },
+      select: {
+        subscription: { select: { currency: true } },
+        job: { select: { payment_currency: true } }
+      }
+    });
+
+    return latestCommissionCurrency?.subscription?.currency
+      || latestCommissionCurrency?.job?.payment_currency
+      || 'USD';
+  }
+
   // --- Dashboard ---
   async getDashboard(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
@@ -164,6 +195,10 @@ export class Consultant360Service extends BaseService {
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
     );
+    const baseAgentNotes = data.agentNotes || data.notes || null;
+    const serializedIntentSnapshot = normalizedIntentSnapshot
+      ? `\n\n[Intent Snapshot]\n${JSON.stringify(normalizedIntentSnapshot)}`
+      : '';
 
     // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.repository.createConversionRequest({
@@ -177,8 +212,9 @@ export class Consultant360Service extends BaseService {
       country: lead.country,
       city: lead.city || null,
       state_province: lead.state_province || null,
-      agent_notes: data.agentNotes || data.notes || null,
-      intent_snapshot: normalizedIntentSnapshot ?? undefined,
+      // DB compatibility: intent_snapshot column may be missing in live DB.
+      // Keep snapshot content in notes until schema is synchronized.
+      agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
       temp_password: data.tempPassword || null,
       status: 'PENDING'
     });
@@ -309,7 +345,7 @@ export class Consultant360Service extends BaseService {
       balance: account.balance,
       totalCredits: account.total_credits || 0,
       totalDebits: account.total_debits || 0,
-      currency: 'USD',
+      currency: await this.resolveConsultantCurrency(consultantId),
       status: account.status
     };
   }
@@ -451,14 +487,18 @@ export class Consultant360Service extends BaseService {
         });
       }
 
+      if (!debitTransaction) {
+        throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+      }
+
       return tx.commissionWithdrawal.update({
         where: { id: withdrawalId },
         data: {
           status: 'PROCESSING',
           processed_at: latest.processed_at || new Date(),
           debited_from_wallet: true,
-          virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-          wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+          virtual_transaction_id: debitTransaction.id,
+          wallet_debit_at: debitTransaction.created_at
         }
       });
     });

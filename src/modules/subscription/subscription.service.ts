@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
+import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
 
 export interface CreateSubscriptionInput {
   companyId: string;
@@ -250,7 +251,10 @@ export class SubscriptionService {
             isEligiblePaymentEvent = !previousSubscription && !firstPaidBill && !firstManagedWalletDebit;
           }
 
-          const commissionRate = consultant.default_commission_rate ?? 0.20;
+          const commissionRate = toCommissionRateDecimal(
+            consultant.default_commission_rate,
+            0.20
+          );
           const commissionAmount = Number((resolvedBasePrice * commissionRate).toFixed(2));
 
           if (!existingCommission && isEligiblePaymentEvent && commissionAmount > 0) {

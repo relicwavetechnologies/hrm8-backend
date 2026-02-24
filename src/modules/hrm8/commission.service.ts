@@ -4,6 +4,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { VirtualTransactionType, CommissionStatus, WithdrawalStatus, CommissionType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
+import { toCommissionRateDecimal } from './commission-rate.util';
 
 export interface AwardCommissionInput {
     consultantId: string;
@@ -69,6 +70,33 @@ export class CommissionService extends BaseService {
                 email: commission.consultant.email
             } : undefined
         };
+    }
+
+    private async resolveCommissionCurrency(params: {
+        jobId?: string | null;
+        subscriptionId?: string | null;
+    }): Promise<string | undefined> {
+        if (params.jobId) {
+            const job = await prisma.job.findUnique({
+                where: { id: params.jobId },
+                select: { payment_currency: true }
+            });
+            if (job?.payment_currency) {
+                return job.payment_currency;
+            }
+        }
+
+        if (params.subscriptionId) {
+            const subscription = await prisma.subscription.findUnique({
+                where: { id: params.subscriptionId },
+                select: { currency: true }
+            });
+            if (subscription?.currency) {
+                return subscription.currency;
+            }
+        }
+
+        return undefined;
     }
 
     async getAll(params: {
@@ -159,7 +187,7 @@ export class CommissionService extends BaseService {
         // Calculate amount if needed
         let amount = providedAmount;
         let commissionCurrency = 'USD';
-        let commissionRate = rate;
+        let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
             // Fetch payment details to calculate commission
@@ -173,7 +201,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = job.payment_amount * commissionRate;
                     commissionCurrency = job.payment_currency || 'USD';
                 }
@@ -187,7 +218,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = subscription.base_price * commissionRate;
                     commissionCurrency = subscription.currency || 'USD';
                 }
@@ -249,7 +283,8 @@ export class CommissionService extends BaseService {
                     status: 'COMPLETED',
                     description: `Commission earned: ${description || type}`,
                     reference_id: commission.id,
-                    reference_type: 'COMMISSION'
+                    reference_type: 'COMMISSION',
+                    billing_currency_used: commissionCurrency
                 }
             });
 
@@ -279,7 +314,7 @@ export class CommissionService extends BaseService {
         } = input;
 
         let amount = providedAmount;
-        let commissionRate = rate;
+        let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
             if (jobId) {
@@ -292,7 +327,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = job.payment_amount * commissionRate;
                 }
             } else if (subscriptionId) {
@@ -305,7 +343,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = subscription.base_price * commissionRate;
                 }
             }
@@ -354,6 +395,10 @@ export class CommissionService extends BaseService {
             const consultantId = commission.consultant_id;
             const amount = Number(commission.amount);
             const description = commission.description || `Commission ${commission.type}`;
+            const commissionCurrency = await this.resolveCommissionCurrency({
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id
+            });
 
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
@@ -382,7 +427,8 @@ export class CommissionService extends BaseService {
                     status: 'COMPLETED',
                     description: `Commission approved: ${description}`,
                     reference_id: commission.id,
-                    reference_type: 'COMMISSION'
+                    reference_type: 'COMMISSION',
+                    billing_currency_used: commissionCurrency
                 }
             });
 

@@ -189,8 +189,8 @@ export class WithdrawalService extends BaseService {
                 });
             }
 
-            if (!debitTransaction && !latest.debited_from_wallet) {
-                throw new HttpException(500, 'Withdrawal debit transaction was not created');
+            if (!debitTransaction) {
+                throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot complete payout without wallet debit.');
             }
 
             return tx.commissionWithdrawal.update({
@@ -201,8 +201,8 @@ export class WithdrawalService extends BaseService {
                     processed_by: adminId || w.processed_by,
                     notes: notes ? `${latest.notes || ''}\n${notes}` : latest.notes,
                     debited_from_wallet: true,
-                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
                 }
             });
         });

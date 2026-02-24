@@ -1,7 +1,29 @@
 import { prisma } from '../../utils/prisma';
 import { Prisma } from '@prisma/client';
 
-const conversionRequestInclude = {
+const conversionRequestSelect = {
+    id: true,
+    lead_id: true,
+    consultant_id: true,
+    region_id: true,
+    status: true,
+    company_name: true,
+    email: true,
+    phone: true,
+    website: true,
+    country: true,
+    city: true,
+    state_province: true,
+    agent_notes: true,
+    reviewed_by: true,
+    reviewed_at: true,
+    admin_notes: true,
+    decline_reason: true,
+    converted_at: true,
+    company_id: true,
+    created_at: true,
+    updated_at: true,
+    temp_password: true,
     lead: {
         select: {
             id: true,
@@ -38,7 +60,7 @@ const conversionRequestInclude = {
             sales_agent_id: true,
         },
     },
-} satisfies Prisma.LeadConversionRequestInclude;
+} satisfies Prisma.LeadConversionRequestSelect;
 
 export class LeadConversionRepository {
     async findMany(params: {
@@ -49,19 +71,23 @@ export class LeadConversionRepository {
     }): Promise<any[]> {
         return prisma.leadConversionRequest.findMany({
             ...params,
-            include: conversionRequestInclude
+            select: conversionRequestSelect
         });
     }
 
     async findUnique(id: string): Promise<any | null> {
         return prisma.leadConversionRequest.findUnique({
             where: { id },
-            include: conversionRequestInclude
+            select: conversionRequestSelect
         });
     }
 
     async update(id: string, data: Prisma.LeadConversionRequestUpdateInput): Promise<any> {
-        return prisma.leadConversionRequest.update({ where: { id }, data });
+        return prisma.leadConversionRequest.update({
+            where: { id },
+            data,
+            select: conversionRequestSelect
+        });
     }
 
     async count(where?: Prisma.LeadConversionRequestWhereInput): Promise<number> {

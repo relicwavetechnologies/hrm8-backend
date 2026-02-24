@@ -1,6 +1,31 @@
 import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
+const conversionRequestSelect = {
+  id: true,
+  lead_id: true,
+  consultant_id: true,
+  region_id: true,
+  status: true,
+  company_name: true,
+  email: true,
+  phone: true,
+  website: true,
+  country: true,
+  city: true,
+  state_province: true,
+  agent_notes: true,
+  reviewed_by: true,
+  reviewed_at: true,
+  admin_notes: true,
+  decline_reason: true,
+  converted_at: true,
+  company_id: true,
+  created_at: true,
+  updated_at: true,
+  temp_password: true,
+} satisfies Prisma.LeadConversionRequestSelect;
+
 export class SalesRepository extends BaseRepository {
 
   // --- Leads ---
@@ -25,23 +50,40 @@ export class SalesRepository extends BaseRepository {
   }
 
   // --- Conversion Requests ---
-  async createConversionRequest(data: Prisma.LeadConversionRequestCreateInput): Promise<LeadConversionRequest> {
-    return this.prisma.leadConversionRequest.create({ data });
-  }
-
-  async updateConversionRequest(id: string, data: Prisma.LeadConversionRequestUpdateInput): Promise<LeadConversionRequest> {
-    return this.prisma.leadConversionRequest.update({ where: { id }, data });
-  }
-
-  async findConversionRequests(filters: any): Promise<LeadConversionRequest[]> {
-    return this.prisma.leadConversionRequest.findMany({
-      where: filters,
-      orderBy: { created_at: 'desc' }
+  async createConversionRequest(data: Prisma.LeadConversionRequestCreateInput): Promise<any> {
+    const sanitizedData: any = { ...(data as any) };
+    // DB compatibility: omit intent_snapshot until schema is synchronized.
+    delete sanitizedData.intent_snapshot;
+    return this.prisma.leadConversionRequest.create({
+      data: sanitizedData,
+      select: conversionRequestSelect
     });
   }
 
-  async findConversionRequestById(id: string): Promise<LeadConversionRequest | null> {
-    return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+  async updateConversionRequest(id: string, data: Prisma.LeadConversionRequestUpdateInput): Promise<any> {
+    const sanitizedData: any = { ...(data as any) };
+    // DB compatibility: omit intent_snapshot until schema is synchronized.
+    delete sanitizedData.intent_snapshot;
+    return this.prisma.leadConversionRequest.update({
+      where: { id },
+      data: sanitizedData,
+      select: conversionRequestSelect
+    });
+  }
+
+  async findConversionRequests(filters: any): Promise<any[]> {
+    return this.prisma.leadConversionRequest.findMany({
+      where: filters,
+      orderBy: { created_at: 'desc' },
+      select: conversionRequestSelect
+    });
+  }
+
+  async findConversionRequestById(id: string): Promise<any | null> {
+    return this.prisma.leadConversionRequest.findUnique({
+      where: { id },
+      select: conversionRequestSelect
+    });
   }
 
   // --- Opportunities ---

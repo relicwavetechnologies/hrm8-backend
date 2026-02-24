@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { toCommissionRateDecimal } from './commission-rate.util';
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -124,7 +125,10 @@ export class PlacementCommissionService {
       return { created: false, reason: 'Assigned consultant has no region configured' };
     }
 
-    const commissionRate = consultant.default_commission_rate ?? this.DEFAULT_COMMISSION_RATE;
+    const commissionRate = toCommissionRateDecimal(
+      consultant.default_commission_rate,
+      this.DEFAULT_COMMISSION_RATE
+    );
     const commissionAmount = Number((job.payment_amount * commissionRate).toFixed(2));
     if (commissionAmount <= 0) {
       return { created: false, reason: 'Calculated commission amount is zero' };

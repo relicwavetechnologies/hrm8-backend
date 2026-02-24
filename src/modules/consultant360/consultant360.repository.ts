@@ -1,6 +1,31 @@
 import type { Prisma } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
+const conversionRequestSelect = {
+  id: true,
+  lead_id: true,
+  consultant_id: true,
+  region_id: true,
+  status: true,
+  company_name: true,
+  email: true,
+  phone: true,
+  website: true,
+  country: true,
+  city: true,
+  state_province: true,
+  agent_notes: true,
+  reviewed_by: true,
+  reviewed_at: true,
+  admin_notes: true,
+  decline_reason: true,
+  converted_at: true,
+  company_id: true,
+  created_at: true,
+  updated_at: true,
+  temp_password: true,
+} satisfies Prisma.LeadConversionRequestSelect;
+
 export class Consultant360Repository extends BaseRepository {
 
   // --- Leads ---
@@ -23,18 +48,28 @@ export class Consultant360Repository extends BaseRepository {
 
   // --- Conversion Requests ---
   async createConversionRequest(data: any) {
-    return this.prisma.leadConversionRequest.create({ data });
+    const sanitizedData: any = { ...data };
+    // DB compatibility: omit intent_snapshot until schema is synchronized.
+    delete sanitizedData.intent_snapshot;
+    return this.prisma.leadConversionRequest.create({
+      data: sanitizedData,
+      select: conversionRequestSelect
+    });
   }
 
   async findConversionRequests(filters: any) {
     return this.prisma.leadConversionRequest.findMany({
       where: filters,
-      orderBy: { created_at: 'desc' }
+      orderBy: { created_at: 'desc' },
+      select: conversionRequestSelect
     });
   }
 
   async findConversionRequestById(id: string) {
-    return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+    return this.prisma.leadConversionRequest.findUnique({
+      where: { id },
+      select: conversionRequestSelect
+    });
   }
 
   // --- Dashboard ---

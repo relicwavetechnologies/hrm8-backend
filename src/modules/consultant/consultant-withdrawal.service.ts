@@ -236,14 +236,18 @@ export class ConsultantWithdrawalService {
                 });
             }
 
+            if (!debitTransaction) {
+                throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+            }
+
             await tx.commissionWithdrawal.update({
                 where: { id: withdrawalId },
                 data: {
                     status: 'PROCESSING',
                     processed_at: latest.processed_at || new Date(),
                     debited_from_wallet: true,
-                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
                 }
             });
 
