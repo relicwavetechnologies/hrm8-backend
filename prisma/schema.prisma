@@ -1811,33 +1811,34 @@ model Lead {
 }
 
 model LeadConversionRequest {
-  id             String                  @id @default(uuid())
-  lead_id        String                  @map("lead_id")
-  consultant_id  String                  @map("consultant_id")
-  region_id      String                  @map("region_id")
-  status         ConversionRequestStatus @default(PENDING)
-  company_name   String                  @map("company_name")
-  email          String
-  phone          String?
-  website        String?
-  country        String
-  city           String?
-  state_province String?                 @map("state_province")
-  agent_notes    String?                 @map("agent_notes")
-  reviewed_by    String?                 @map("reviewed_by")
-  reviewed_at    DateTime?               @map("reviewed_at")
-  admin_notes    String?                 @map("admin_notes")
-  decline_reason String?                 @map("decline_reason")
-  converted_at   DateTime?               @map("converted_at")
-  company_id     String?                 @map("company_id")
-  created_at     DateTime                @default(now()) @map("created_at")
-  updated_at     DateTime                @updatedAt @map("updated_at")
-  temp_password  String?                 @map("temp_password")
-  company        Company?                @relation(fields: [company_id], references: [id])
-  consultant     Consultant              @relation("ConversionRequests", fields: [consultant_id], references: [id])
-  lead           Lead                    @relation(fields: [lead_id], references: [id], onDelete: Cascade)
-  region         Region                  @relation(fields: [region_id], references: [id])
-  reviewer       HRM8User?               @relation("ReviewedRequests", fields: [reviewed_by], references: [id])
+  id              String                  @id @default(uuid())
+  lead_id         String                  @map("lead_id")
+  consultant_id   String                  @map("consultant_id")
+  region_id       String                  @map("region_id")
+  status          ConversionRequestStatus @default(PENDING)
+  company_name    String                  @map("company_name")
+  email           String
+  phone           String?
+  website         String?
+  country         String
+  city            String?
+  state_province  String?                 @map("state_province")
+  agent_notes     String?                 @map("agent_notes")
+  reviewed_by     String?                 @map("reviewed_by")
+  reviewed_at     DateTime?               @map("reviewed_at")
+  admin_notes     String?                 @map("admin_notes")
+  decline_reason  String?                 @map("decline_reason")
+  converted_at    DateTime?               @map("converted_at")
+  company_id      String?                 @map("company_id")
+  created_at      DateTime                @default(now()) @map("created_at")
+  updated_at      DateTime                @updatedAt @map("updated_at")
+  temp_password   String?                 @map("temp_password")
+  intent_snapshot Json?                   @map("intent_snapshot")
+  company         Company?                @relation(fields: [company_id], references: [id])
+  consultant      Consultant              @relation("ConversionRequests", fields: [consultant_id], references: [id])
+  lead            Lead                    @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  region          Region                  @relation(fields: [region_id], references: [id])
+  reviewer        HRM8User?               @relation("ReviewedRequests", fields: [reviewed_by], references: [id])
 
   @@index([lead_id])
   @@index([consultant_id])
