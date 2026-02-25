@@ -2,10 +2,42 @@ import { BaseService } from '../../core/service';
 import { Consultant360Repository } from './consultant360.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
+import { normalizeConversionIntentSnapshot } from '../sales/conversion-intent.util';
 
 export class Consultant360Service extends BaseService {
   constructor(private repository: Consultant360Repository) {
     super();
+  }
+
+  private async resolveConsultantCurrency(consultantId: string): Promise<string> {
+    const account = await this.repository.getAccountBalance(consultantId);
+    if (account?.id) {
+      const latestTxCurrency = await prisma.virtualTransaction.findFirst({
+        where: {
+          virtual_account_id: account.id,
+          billing_currency_used: { not: null }
+        },
+        orderBy: { created_at: 'desc' },
+        select: { billing_currency_used: true }
+      });
+
+      if (latestTxCurrency?.billing_currency_used) {
+        return latestTxCurrency.billing_currency_used;
+      }
+    }
+
+    const latestCommissionCurrency = await prisma.commission.findFirst({
+      where: { consultant_id: consultantId },
+      orderBy: { created_at: 'desc' },
+      select: {
+        subscription: { select: { currency: true } },
+        job: { select: { payment_currency: true } }
+      }
+    });
+
+    return latestCommissionCurrency?.subscription?.currency
+      || latestCommissionCurrency?.job?.payment_currency
+      || 'USD';
   }
 
   // --- Dashboard ---
@@ -160,6 +192,14 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Consultant does not have an assigned region');
     }
 
+    const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
+      data?.intentSnapshot ?? data?.intent_snapshot
+    );
+    const baseAgentNotes = data.agentNotes || data.notes || null;
+    const serializedIntentSnapshot = normalizedIntentSnapshot
+      ? `\n\n[Intent Snapshot]\n${JSON.stringify(normalizedIntentSnapshot)}`
+      : '';
+
     // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.repository.createConversionRequest({
       lead: { connect: { id: leadId } },
@@ -172,7 +212,10 @@ export class Consultant360Service extends BaseService {
       country: lead.country,
       city: lead.city || null,
       state_province: lead.state_province || null,
-      agent_notes: data.agentNotes || data.notes || null,
+      intent_snapshot: normalizedIntentSnapshot || undefined,
+      // Keep snapshot in notes as backward-compatible fallback for environments
+      // where intent_snapshot is not yet available.
+      agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
       temp_password: data.tempPassword || null,
       status: 'PENDING'
     });
@@ -303,7 +346,7 @@ export class Consultant360Service extends BaseService {
       balance: account.balance,
       totalCredits: account.total_credits || 0,
       totalDebits: account.total_debits || 0,
-      currency: 'USD',
+      currency: await this.resolveConsultantCurrency(consultantId),
       status: account.status
     };
   }
@@ -445,14 +488,18 @@ export class Consultant360Service extends BaseService {
         });
       }
 
+      if (!debitTransaction) {
+        throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+      }
+
       return tx.commissionWithdrawal.update({
         where: { id: withdrawalId },
         data: {
           status: 'PROCESSING',
           processed_at: latest.processed_at || new Date(),
           debited_from_wallet: true,
-          virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-          wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+          virtual_transaction_id: debitTransaction.id,
+          wallet_debit_at: debitTransaction.created_at
         }
       });
     });
@@ -460,8 +507,6 @@ export class Consultant360Service extends BaseService {
 
   // --- Stripe ---
   async initiateStripeOnboarding(consultantId: string) {
-    const { StripeFactory } = await import('../stripe/stripe.factory');
-
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
@@ -469,43 +514,24 @@ export class Consultant360Service extends BaseService {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     const returnPath = '/consultant360/earnings';
 
-    // Create account if doesn't exist
+    // Create payout beneficiary if missing.
     if (!accountId) {
-      const stripe = StripeFactory.getClient();
-      const account = await stripe.accounts.create({
-        type: 'express',
-        country: 'US',
-        email: consultant.email,
-        capabilities: { transfers: { requested: true } },
-        metadata: {
-          consultant_id: consultantId,
-          role: consultant.role
-        }
-      });
-
-      accountId = account.id;
-
-      // Update DB - mock accounts auto-approve, real accounts stay pending
+      accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
       await this.repository.updateConsultant(consultantId, {
         stripe_account_id: accountId,
-        stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
-        payout_enabled: StripeFactory.isUsingMock() ? true : false
+        stripe_account_status: 'active',
+        payout_enabled: true,
+        stripe_onboarded_at: new Date()
       });
     }
 
-    // Generate onboarding link
-    const stripe = StripeFactory.getClient();
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
-      return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
-      type: 'account_onboarding'
-    });
+    const onboardingUrl = `${frontendUrl}${returnPath}?airwallex_success=true`;
 
     return {
+      provider: 'AIRWALLEX',
       accountId,
-      onboardingUrl: accountLink.url,
-      accountLink: { url: accountLink.url }
+      onboardingUrl,
+      accountLink: { url: onboardingUrl }
     };
   }
 
@@ -514,9 +540,6 @@ export class Consultant360Service extends BaseService {
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
     const hasAccount = !!consultant.stripe_account_id;
-    // For mock/simple logic, we assume if status is 'active' or 'completed', it's good.
-    // In production this might need a live fetch to Stripe.
-    const isMock = process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') || !process.env.STRIPE_SECRET_KEY;
 
     // If we have an account and it's marked active/payout_enabled in DB
     const isEnabled = hasAccount && (
@@ -525,6 +548,7 @@ export class Consultant360Service extends BaseService {
     );
 
     return {
+      provider: 'AIRWALLEX',
       hasAccount,
       accountId: consultant.stripe_account_id || undefined,
       payoutsEnabled: isEnabled,
@@ -539,14 +563,15 @@ export class Consultant360Service extends BaseService {
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
     if (!consultant.stripe_account_id) {
-      throw new HttpException(400, 'Stripe account not connected');
+      throw new HttpException(400, 'Airwallex beneficiary not connected');
     }
 
-    // Generate Stripe dashboard login link
-    const loginLink = `https://dashboard.stripe.com/account`;
+    const loginLink = `https://www.airwallex.com/app/login?beneficiary=${consultant.stripe_account_id}`;
 
     return {
+      provider: 'AIRWALLEX',
       dashboardUrl: loginLink,
+      url: loginLink,
       accountId: consultant.stripe_account_id
     };
   }

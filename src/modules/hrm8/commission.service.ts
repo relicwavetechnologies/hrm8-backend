@@ -4,6 +4,8 @@ import { WalletService } from '../wallet/wallet.service';
 import { VirtualTransactionType, CommissionStatus, WithdrawalStatus, CommissionType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
+import { toCommissionRateDecimal } from './commission-rate.util';
+import { ConversionCommercialContextService } from './conversion-commercial-context.service';
 
 export interface AwardCommissionInput {
     consultantId: string;
@@ -44,8 +46,11 @@ export interface ApproveWithdrawalInput {
 }
 
 export class CommissionService extends BaseService {
+    private conversionCommercialContextService: ConversionCommercialContextService;
+
     constructor(private commissionRepository: CommissionRepository) {
         super();
+        this.conversionCommercialContextService = new ConversionCommercialContextService();
     }
 
     private mapToDTO(commission: any) {
@@ -69,6 +74,33 @@ export class CommissionService extends BaseService {
                 email: commission.consultant.email
             } : undefined
         };
+    }
+
+    private async resolveCommissionCurrency(params: {
+        jobId?: string | null;
+        subscriptionId?: string | null;
+    }): Promise<string | undefined> {
+        if (params.jobId) {
+            const job = await prisma.job.findUnique({
+                where: { id: params.jobId },
+                select: { payment_currency: true }
+            });
+            if (job?.payment_currency) {
+                return job.payment_currency;
+            }
+        }
+
+        if (params.subscriptionId) {
+            const subscription = await prisma.subscription.findUnique({
+                where: { id: params.subscriptionId },
+                select: { currency: true }
+            });
+            if (subscription?.currency) {
+                return subscription.currency;
+            }
+        }
+
+        return undefined;
     }
 
     async getAll(params: {
@@ -123,6 +155,149 @@ export class CommissionService extends BaseService {
         return this.mapToDTO(commission);
     }
 
+    async getReviewContext(id: string, allowedRegionIds?: string[]) {
+        const commission = await prisma.commission.findUnique({
+            where: { id },
+            include: {
+                consultant: {
+                    select: {
+                        id: true,
+                        first_name: true,
+                        last_name: true,
+                        email: true,
+                        region_id: true
+                    }
+                },
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                        company_id: true,
+                        status: true,
+                        setup_type: true,
+                        management_type: true,
+                        service_package: true,
+                        hiring_mode: true,
+                        payment_status: true,
+                        payment_amount: true,
+                        payment_currency: true,
+                        posted_at: true,
+                        posting_date: true
+                    }
+                },
+                subscription: {
+                    select: {
+                        id: true,
+                        company_id: true,
+                        name: true,
+                        plan_type: true,
+                        base_price: true,
+                        currency: true,
+                        billing_cycle: true,
+                        created_at: true
+                    }
+                }
+            }
+        });
+
+        if (!commission) {
+            throw new HttpException(404, 'Commission not found');
+        }
+
+        if (allowedRegionIds && !allowedRegionIds.includes(commission.region_id)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
+
+        const companyId = commission.subscription?.company_id || commission.job?.company_id || null;
+        const commercialContext = await this.conversionCommercialContextService.buildContextForCompany(companyId, {
+            consultantId: commission.consultant_id,
+            excludeCommissionId: commission.id,
+        });
+
+        const commissionCurrency =
+            await this.resolveCommissionCurrency({
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id
+            }) ||
+            commercialContext.firstPaymentEvidence?.currency ||
+            commercialContext.subscriptionAtFirstJob?.currency ||
+            null;
+
+        return {
+            commission: {
+                id: commission.id,
+                consultantId: commission.consultant_id,
+                regionId: commission.region_id,
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id,
+                type: commission.type,
+                amount: commission.amount,
+                currency: commissionCurrency,
+                status: commission.status,
+                description: commission.description || null,
+                createdAt: commission.created_at,
+                confirmedAt: commission.confirmed_at,
+                paidAt: commission.paid_at,
+                consultant: commission.consultant ? {
+                    id: commission.consultant.id,
+                    firstName: commission.consultant.first_name,
+                    lastName: commission.consultant.last_name,
+                    email: commission.consultant.email,
+                    regionId: commission.consultant.region_id
+                } : null,
+                linkedJob: commission.job ? {
+                    id: commission.job.id,
+                    title: commission.job.title,
+                    setupType: commission.job.setup_type,
+                    managementType: commission.job.management_type,
+                    servicePackage: commission.job.service_package,
+                    hiringMode: commission.job.hiring_mode,
+                    paymentStatus: commission.job.payment_status,
+                    paymentAmount: commission.job.payment_amount,
+                    paymentCurrency: commission.job.payment_currency,
+                    postedAt: commission.job.posting_date || commission.job.posted_at || null
+                } : null,
+                linkedSubscription: commission.subscription ? {
+                    id: commission.subscription.id,
+                    name: commission.subscription.name,
+                    planType: commission.subscription.plan_type,
+                    basePrice: commission.subscription.base_price,
+                    currency: commission.subscription.currency,
+                    billingCycle: commission.subscription.billing_cycle,
+                    createdAt: commission.subscription.created_at
+                } : null
+            },
+            companyContext: commercialContext.companyContext,
+            conversionContext: {
+                request: commercialContext.request ? {
+                    id: commercialContext.request.id,
+                    status: commercialContext.request.status,
+                    company_name: commercialContext.request.company_name,
+                    email: commercialContext.request.email,
+                    phone: commercialContext.request.phone || null,
+                    website: commercialContext.request.website || null,
+                    country: commercialContext.request.country,
+                    city: commercialContext.request.city || null,
+                    region_id: commercialContext.request.region_id,
+                    created_at: commercialContext.request.created_at?.toISOString?.() || commercialContext.request.created_at,
+                    reviewed_at: commercialContext.request.reviewed_at?.toISOString?.() || commercialContext.request.reviewed_at || null,
+                    converted_at: commercialContext.request.converted_at?.toISOString?.() || commercialContext.request.converted_at || null,
+                    agent_notes: commercialContext.request.agent_notes || null,
+                    intent_snapshot: commercialContext.intentSnapshot
+                } : null,
+                leadMilestones: commercialContext.leadMilestones,
+                conversionMilestones: commercialContext.conversionMilestones,
+            },
+            commercialEvidence: {
+                firstJobEvidence: commercialContext.firstJobEvidence,
+                subscriptionAtFirstJob: commercialContext.subscriptionAtFirstJob,
+                firstPaymentEvidence: commercialContext.firstPaymentEvidence,
+                commissionReadiness: commercialContext.commissionReadiness,
+            },
+            dataCompleteness: commercialContext.dataCompleteness,
+        };
+    }
+
     /**
      * Award commission based on regional pricing
      * Calculates commission from job/subscription payment amount
@@ -159,7 +334,7 @@ export class CommissionService extends BaseService {
         // Calculate amount if needed
         let amount = providedAmount;
         let commissionCurrency = 'USD';
-        let commissionRate = rate;
+        let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
             // Fetch payment details to calculate commission
@@ -173,7 +348,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = job.payment_amount * commissionRate;
                     commissionCurrency = job.payment_currency || 'USD';
                 }
@@ -187,7 +365,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate || consultant?.default_commission_rate || 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = subscription.base_price * commissionRate;
                     commissionCurrency = subscription.currency || 'USD';
                 }
@@ -249,7 +430,8 @@ export class CommissionService extends BaseService {
                     status: 'COMPLETED',
                     description: `Commission earned: ${description || type}`,
                     reference_id: commission.id,
-                    reference_type: 'COMMISSION'
+                    reference_type: 'COMMISSION',
+                    billing_currency_used: commissionCurrency
                 }
             });
 
@@ -279,7 +461,7 @@ export class CommissionService extends BaseService {
         } = input;
 
         let amount = providedAmount;
-        let commissionRate = rate;
+        let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
             if (jobId) {
@@ -292,7 +474,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = job.payment_amount * commissionRate;
                 }
             } else if (subscriptionId) {
@@ -305,7 +490,10 @@ export class CommissionService extends BaseService {
                         where: { id: consultantId },
                         select: { default_commission_rate: true }
                     });
-                    commissionRate = rate ?? consultant?.default_commission_rate ?? 0.20;
+                    commissionRate = toCommissionRateDecimal(
+                        rate ?? consultant?.default_commission_rate,
+                        0.20
+                    );
                     amount = subscription.base_price * commissionRate;
                 }
             }
@@ -354,6 +542,10 @@ export class CommissionService extends BaseService {
             const consultantId = commission.consultant_id;
             const amount = Number(commission.amount);
             const description = commission.description || `Commission ${commission.type}`;
+            const commissionCurrency = await this.resolveCommissionCurrency({
+                jobId: commission.job_id,
+                subscriptionId: commission.subscription_id
+            });
 
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
@@ -382,7 +574,8 @@ export class CommissionService extends BaseService {
                     status: 'COMPLETED',
                     description: `Commission approved: ${description}`,
                     reference_id: commission.id,
-                    reference_type: 'COMMISSION'
+                    reference_type: 'COMMISSION',
+                    billing_currency_used: commissionCurrency
                 }
             });
 

@@ -10,6 +10,7 @@ import { prisma } from '../../utils/prisma';
 import { emailService } from '../email/email.service';
 import { NotificationService } from '../notification/notification.service';
 import { InterviewService } from '../interview/interview.service';
+import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from './application-activity.service';
 
 export class ApplicationService extends BaseService {
@@ -846,19 +847,42 @@ export class ApplicationService extends BaseService {
 
     // Map Round to Stage
     let mappedStage: ApplicationStage = 'NEW_APPLICATION';
+    let mappedStatus: ApplicationStatus | undefined;
     if (targetRound.is_fixed && targetRound.fixed_key) {
       const key = targetRound.fixed_key;
       if (key === 'NEW') mappedStage = 'NEW_APPLICATION';
       else if (key === 'OFFER') mappedStage = 'OFFER_EXTENDED';
-      else if (key === 'HIRED') mappedStage = 'OFFER_ACCEPTED';
+      else if (key === 'HIRED') {
+        mappedStage = 'OFFER_ACCEPTED';
+        mappedStatus = 'HIRED';
+      }
       else if (key === 'REJECTED') mappedStage = 'REJECTED';
     } else {
       if (targetRound.type === 'ASSESSMENT') mappedStage = 'RESUME_REVIEW';
       else if (targetRound.type === 'INTERVIEW') mappedStage = 'TECHNICAL_INTERVIEW';
     }
 
-    // Update Application Stage
-    const updatedApp = await this.applicationRepository.updateStage(applicationId, mappedStage);
+    // Update application stage/status in one write so HIRED round persists the hire event.
+    const wasHired = (application as any).status === 'HIRED';
+    const updatedApp = await this.applicationRepository.update(applicationId, {
+      stage: mappedStage,
+      ...(mappedStatus ? { status: mappedStatus } : {}),
+    });
+
+    if (!wasHired && mappedStatus === 'HIRED') {
+      try {
+        const commissionResult = await PlacementCommissionService.createForHiredApplication(applicationId);
+        if (commissionResult.created) {
+          console.log(`[ApplicationService] Placement commission created for hired application ${applicationId}`);
+        } else {
+          console.log(
+            `[ApplicationService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`
+          );
+        }
+      } catch (error) {
+        console.error(`[ApplicationService] Failed to create placement commission for application ${applicationId}:`, error);
+      }
+    }
 
     await ApplicationActivityService.logSafe({
       applicationId,

@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 import { ApplicationStatus, ApplicationStage, ActorType } from '@prisma/client';
+import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from '../application/application-activity.service';
 
 export class ConsultantCandidateService {
@@ -51,6 +52,7 @@ export class ConsultantCandidateService {
         if (!application) throw new HttpException(404, 'Application not found');
 
         await this.verifyJobAccess(consultantId, application.job_id);
+        const wasHired = application.status === 'HIRED';
 
         const updatedApp = await prisma.application.update({
             where: { id: applicationId },
@@ -60,6 +62,26 @@ export class ConsultantCandidateService {
                 updated_at: new Date()
             }
         });
+
+        if (!wasHired && status === 'HIRED') {
+            try {
+                const commissionResult = await PlacementCommissionService.createForHiredApplication(applicationId);
+                if (commissionResult.created) {
+                    console.log(
+                        `[ConsultantCandidateService] Placement commission created for hired application ${applicationId}`
+                    );
+                } else {
+                    console.log(
+                        `[ConsultantCandidateService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`
+                    );
+                }
+            } catch (error) {
+                console.error(
+                    `[ConsultantCandidateService] Failed to create placement commission for application ${applicationId}:`,
+                    error
+                );
+            }
+        }
 
         await ApplicationActivityService.logSafe({
             applicationId,
@@ -137,11 +159,16 @@ export class ConsultantCandidateService {
 
         // Logic to determine new stage based on fixed round keys
         let newStage: ApplicationStage | undefined;
+        let newStatus: ApplicationStatus | undefined;
+        const wasHired = application.status === 'HIRED';
         if (round.is_fixed) {
             switch (round.fixed_key) {
                 case 'NEW': newStage = 'NEW_APPLICATION'; break;
                 case 'OFFER': newStage = 'OFFER_EXTENDED'; break;
-                case 'HIRED': newStage = 'OFFER_ACCEPTED'; break;
+                case 'HIRED':
+                    newStage = 'OFFER_ACCEPTED';
+                    newStatus = 'HIRED';
+                    break;
                 case 'REJECTED': newStage = 'REJECTED'; break;
             }
         }
@@ -166,11 +193,35 @@ export class ConsultantCandidateService {
         });
 
         // Update application stage if needed
-        if (newStage) {
+        if (newStage || newStatus) {
             await prisma.application.update({
                 where: { id: applicationId },
-                data: { stage: newStage, updated_at: new Date() }
+                data: {
+                    stage: newStage || undefined,
+                    status: newStatus || undefined,
+                    updated_at: new Date()
+                }
             });
+        }
+
+        if (!wasHired && newStatus === 'HIRED') {
+            try {
+                const commissionResult = await PlacementCommissionService.createForHiredApplication(applicationId);
+                if (commissionResult.created) {
+                    console.log(
+                        `[ConsultantCandidateService] Placement commission created for hired application ${applicationId}`
+                    );
+                } else {
+                    console.log(
+                        `[ConsultantCandidateService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`
+                    );
+                }
+            } catch (error) {
+                console.error(
+                    `[ConsultantCandidateService] Failed to create placement commission for application ${applicationId}:`,
+                    error
+                );
+            }
         }
 
         await ApplicationActivityService.logSafe({

@@ -47,6 +47,117 @@ export class CompanyRepository extends BaseRepository {
     });
   }
 
+  async findPublicCompanies(params: {
+    search?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ companies: Array<{
+    id: string;
+    name: string;
+    website: string;
+    domain: string;
+    careers_page_logo: string | null;
+    careers_page_banner: string | null;
+    careers_page_about: string | null;
+    careers_page_social: Prisma.JsonValue | null;
+    careers_page_images: Prisma.JsonValue | null;
+  }>; total: number }> {
+    const where: Prisma.CompanyWhereInput = {
+      OR: [
+        { careers_page_status: 'APPROVED' },
+        {
+          jobs: {
+            some: {
+              status: 'OPEN',
+              visibility: 'public',
+              archived: false,
+              posting_date: { not: null },
+              OR: [{ expires_at: null }, { expires_at: { gte: new Date() } }],
+            },
+          },
+        },
+      ],
+    };
+
+    if (params.search?.trim()) {
+      const search = params.search.trim();
+      where.AND = [
+        {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { domain: { contains: search, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
+
+    const [companies, total] = await Promise.all([
+      this.prisma.company.findMany({
+        where,
+        orderBy: [{ name: 'asc' }],
+        take: params.limit,
+        skip: params.offset,
+        select: {
+          id: true,
+          name: true,
+          website: true,
+          domain: true,
+          careers_page_logo: true,
+          careers_page_banner: true,
+          careers_page_about: true,
+          careers_page_social: true,
+          careers_page_images: true,
+        },
+      }),
+      this.prisma.company.count({ where }),
+    ]);
+
+    return { companies, total };
+  }
+
+  async findPublicCompanyById(id: string): Promise<{
+    id: string;
+    name: string;
+    website: string;
+    domain: string;
+    careers_page_logo: string | null;
+    careers_page_banner: string | null;
+    careers_page_about: string | null;
+    careers_page_social: Prisma.JsonValue | null;
+    careers_page_images: Prisma.JsonValue | null;
+  } | null> {
+    return this.prisma.company.findFirst({
+      where: {
+        id,
+        OR: [
+          { careers_page_status: 'APPROVED' },
+          {
+            jobs: {
+              some: {
+                status: 'OPEN',
+                visibility: 'public',
+                archived: false,
+                posting_date: { not: null },
+                OR: [{ expires_at: null }, { expires_at: { gte: new Date() } }],
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        website: true,
+        domain: true,
+        careers_page_logo: true,
+        careers_page_banner: true,
+        careers_page_about: true,
+        careers_page_social: true,
+        careers_page_images: true,
+      },
+    });
+  }
+
   // --- Company Profile ---
 
   async createProfile(data: Prisma.CompanyProfileCreateInput): Promise<CompanyProfile> {

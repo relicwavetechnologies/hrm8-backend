@@ -1,12 +1,16 @@
 import { BaseService } from '../../core/service';
 import { AssessmentRepository } from './assessment.repository';
-import { Assessment, AssessmentStatus, ActorType } from '@prisma/client';
+import { Assessment, AssessmentStatus, ActorType, NotificationRecipientType, UniversalNotificationType } from '@prisma/client';
 import { HttpException } from '../../core/http-exception';
 import { env } from '../../config/env';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationRepository } from '../notification/notification.repository';
 import { gmailService } from '../integration/gmail.service';
 import { prisma } from '../../utils/prisma';
 import { EmailTemplateService } from '../email/email-template.service';
 import { ApplicationActivityService } from '../application/application-activity.service';
+
+const notificationService = new NotificationService(new NotificationRepository());
 
 export class AssessmentService extends BaseService {
   constructor(private assessmentRepository: AssessmentRepository) {
@@ -18,16 +22,16 @@ export class AssessmentService extends BaseService {
     actorId?: string;
     actorType?: ActorType;
     action:
-      | 'assessment_invited'
-      | 'assessment_started'
-      | 'assessment_response_saved'
-      | 'assessment_submitted'
-      | 'assessment_resend'
-      | 'assessment_graded'
-      | 'assessment_vote_added'
-      | 'assessment_comment_added'
-      | 'assessment_finalized'
-      | 'email_sent';
+    | 'assessment_invited'
+    | 'assessment_started'
+    | 'assessment_response_saved'
+    | 'assessment_submitted'
+    | 'assessment_resend'
+    | 'assessment_graded'
+    | 'assessment_vote_added'
+    | 'assessment_comment_added'
+    | 'assessment_finalized'
+    | 'email_sent';
     subject: string;
     description: string;
     metadata?: Record<string, unknown>;
@@ -367,6 +371,14 @@ export class AssessmentService extends BaseService {
       invitation_token: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
     });
 
+    await this.notifyCandidateAssessmentInvitation({
+      assessmentId: assessment.id,
+      candidateId: application.candidate_id,
+      applicationId,
+      jobId: application.job_id,
+      expiryDate
+    });
+
     // Link to progress
     await this.assessmentRepository.linkToRoundProgress(applicationId, jobRoundId, assessment.id);
 
@@ -531,6 +543,35 @@ export class AssessmentService extends BaseService {
     return { success: true, assessmentId: assessment.id };
   }
 
+  private async notifyCandidateAssessmentInvitation(params: {
+    assessmentId: string;
+    candidateId: string;
+    applicationId: string;
+    jobId: string;
+    expiryDate?: Date;
+  }): Promise<void> {
+    try {
+      await notificationService.createNotification({
+        recipientType: NotificationRecipientType.CANDIDATE,
+        recipientId: params.candidateId,
+        type: UniversalNotificationType.SYSTEM_ANNOUNCEMENT,
+        title: 'New Assessment Assigned',
+        message: 'A new assessment has been assigned to your application. Complete it to continue in the hiring process.',
+        data: {
+          assessmentId: params.assessmentId,
+          applicationId: params.applicationId,
+          jobId: params.jobId,
+          notificationSubtype: 'ASSESSMENT_INVITED',
+          expiryDate: params.expiryDate?.toISOString() || null
+        },
+        actionUrl: `/candidate/assessments/${params.assessmentId}`,
+        skipEmail: true
+      });
+    } catch (error) {
+      console.error('[AssessmentService] Failed to create in-app assessment notification', error);
+    }
+  }
+
   async createQuestions(assessmentId: string, questions: any[]): Promise<void> {
     for (let i = 0; i < questions.length; i++) {
       const question = questions[i];
@@ -604,9 +645,9 @@ export class AssessmentService extends BaseService {
     const roundIds = Array.from(new Set(assessments.map((a: any) => a.job_round_id).filter(Boolean)));
     const rounds = roundIds.length
       ? await prisma.jobRound.findMany({
-          where: { id: { in: roundIds as string[] } },
-          select: { id: true, name: true },
-        })
+        where: { id: { in: roundIds as string[] } },
+        select: { id: true, name: true },
+      })
       : [];
     const roundNameById = new Map(rounds.map((r) => [r.id, r.name]));
 

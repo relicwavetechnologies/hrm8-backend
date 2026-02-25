@@ -18,7 +18,6 @@ import communicationRoutes from '../modules/communication/communication.routes';
 import publicRoutes from '../modules/public/public.routes';
 import integrationRoutes from '../modules/integration/integration.routes';
 import googleOAuthRoutes from '../modules/integration/google-oauth.routes';
-import stripeRoutes from '../modules/stripe/stripe.routes';
 import notificationRoutes from '../modules/notification/notification.routes';
 import interviewRoutes from '../modules/interview/interview.routes';
 import offerRoutes from '../modules/offer/offer.routes';
@@ -33,6 +32,8 @@ import emailTemplateRoutes from '../modules/email/email-template.routes';
 import messagingRoutes from '../modules/messaging/messaging.routes';
 import pricingRoutes from '../modules/pricing/pricing.routes';
 import taskRoutes from '../modules/task/task.routes';
+import billingRoutes from '../modules/billing/billing.routes';
+import payoutsRoutes from '../modules/payouts/payouts.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
@@ -76,12 +77,13 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/communication', communicationRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/integration', integrationRoutes);
-  app.use('/api/integrations/stripe', stripeRoutes);
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/interviews', interviewRoutes);
   app.use('/api/video-interviews', interviewRoutes); // Alias for legacy frontend support
   app.use('/api/offers', offerRoutes);
   app.use('/api/wallet', walletRoutes);
+  app.use('/api/billing', billingRoutes);
+  app.use('/api/payouts', payoutsRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
   app.use('/api/subscription', subscriptionRoutes); // Alias for singular access
   app.use('/api/candidate', candidateRoutes);

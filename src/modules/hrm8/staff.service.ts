@@ -4,6 +4,7 @@ import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { ConsultantRole, ConsultantStatus } from '@prisma/client';
 import { hashPassword } from '../../utils/password';
+import { toCommissionRateDecimal, toCommissionRatePercent } from './commission-rate.util';
 
 export class StaffService extends BaseService {
     constructor(private staffRepository: StaffRepository) {
@@ -19,7 +20,9 @@ export class StaffService extends BaseService {
             firstName: consultant.first_name,
             lastName: consultant.last_name,
             regionId: consultant.region_id,
-            defaultCommissionRate: consultant.default_commission_rate,
+            defaultCommissionRate: consultant.default_commission_rate === null || consultant.default_commission_rate === undefined
+                ? undefined
+                : toCommissionRatePercent(consultant.default_commission_rate),
             createdAt: consultant.created_at,
             updatedAt: consultant.updated_at,
 
@@ -68,6 +71,16 @@ export class StaffService extends BaseService {
         keysToDelete.forEach(key => delete mapped[key]);
 
         return mapped;
+    }
+
+    private assertRegionScope(consultantRegionId: string | null | undefined, allowedRegionIds?: string[]) {
+        if (!allowedRegionIds) {
+            return;
+        }
+
+        if (!consultantRegionId || !allowedRegionIds.includes(consultantRegionId)) {
+            throw new HttpException(403, 'Access denied for this region');
+        }
     }
 
     async getAll(filters: any) {
@@ -206,15 +219,16 @@ export class StaffService extends BaseService {
         };
     }
 
-    async getById(id: string) {
+    async getById(id: string, allowedRegionIds?: string[]) {
         const consultant = await this.staffRepository.findById(id);
         if (!consultant) {
             throw new HttpException(404, 'Consultant not found');
         }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.mapToFrontend(consultant);
     }
 
-    async create(data: any) {
+    async create(data: any, allowedRegionIds?: string[]) {
         // Validation
         const requiredFields = ['email', 'firstName', 'lastName', 'role', 'regionId', 'password'];
         const missingFields = requiredFields.filter(f => !data[f]);
@@ -236,14 +250,19 @@ export class StaffService extends BaseService {
             ...rest
         } = data;
 
+        this.assertRegionScope(regionId, allowedRegionIds);
+
         const passwordHash = await hashPassword(password);
+        const normalizedRate = defaultCommissionRate === undefined
+            ? undefined
+            : toCommissionRateDecimal(defaultCommissionRate, 0);
 
         const created = await this.staffRepository.create({
             ...rest,
             first_name: firstName,
             last_name: lastName,
             region_id: regionId,
-            default_commission_rate: defaultCommissionRate,
+            default_commission_rate: normalizedRate,
             password_hash: passwordHash,
             status: 'ACTIVE',
         });
@@ -251,7 +270,13 @@ export class StaffService extends BaseService {
         return this.mapToFrontend(created);
     }
 
-    async update(id: string, data: any) {
+    async update(id: string, data: any, allowedRegionIds?: string[]) {
+        const existing = await this.staffRepository.findById(id);
+        if (!existing) {
+            throw new HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(existing.region_id, allowedRegionIds);
+
         // Prevent password update via this method
         delete data.password;
         delete data.password_hash;
@@ -270,8 +295,11 @@ export class StaffService extends BaseService {
             mappedData.region_id = data.regionId;
             delete mappedData.regionId;
         }
-        if (data.defaultCommissionRate) {
-            mappedData.default_commission_rate = data.defaultCommissionRate;
+        if (Object.prototype.hasOwnProperty.call(data, 'defaultCommissionRate')) {
+            const rawRate = data.defaultCommissionRate;
+            mappedData.default_commission_rate = rawRate === null || rawRate === undefined
+                ? null
+                : toCommissionRateDecimal(rawRate, 0);
             delete mappedData.defaultCommissionRate;
         }
 
@@ -279,11 +307,21 @@ export class StaffService extends BaseService {
         return this.mapToFrontend(updated);
     }
 
-    async suspend(id: string) {
+    async suspend(id: string, allowedRegionIds?: string[]) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.staffRepository.update(id, { status: 'SUSPENDED' });
     }
 
-    async reactivate(id: string) {
+    async reactivate(id: string, allowedRegionIds?: string[]) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.staffRepository.update(id, { status: 'ACTIVE' });
     }
 
@@ -310,7 +348,13 @@ export class StaffService extends BaseService {
         return { email };
     }
 
-    async getPendingTasks(id: string) {
+    async getPendingTasks(id: string, allowedRegionIds?: string[]) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
+
         const activeAssignments = await prisma.consultantJobAssignment.findMany({
             where: { consultant_id: id, status: 'ACTIVE' },
             include: { job: true }
@@ -322,7 +366,8 @@ export class StaffService extends BaseService {
         };
     }
 
-    async getConsultantsForReassignment(id: string, role: ConsultantRole, regionId: string) {
+    async getConsultantsForReassignment(id: string, role: ConsultantRole, regionId: string, allowedRegionIds?: string[]) {
+        this.assertRegionScope(regionId, allowedRegionIds);
         return this.staffRepository.findMany({
             where: {
                 id: { not: id },
@@ -333,7 +378,23 @@ export class StaffService extends BaseService {
         });
     }
 
-    async reassignJobs(id: string, targetConsultantId: string) {
+    async reassignJobs(id: string, targetConsultantId: string, allowedRegionIds?: string[]) {
+        const [sourceConsultant, targetConsultant] = await Promise.all([
+            this.staffRepository.findById(id),
+            this.staffRepository.findById(targetConsultantId),
+        ]);
+
+        if (!sourceConsultant) {
+            throw new HttpException(404, 'Source consultant not found');
+        }
+
+        if (!targetConsultant) {
+            throw new HttpException(404, 'Target consultant not found');
+        }
+
+        this.assertRegionScope(sourceConsultant.region_id, allowedRegionIds);
+        this.assertRegionScope(targetConsultant.region_id, allowedRegionIds);
+
         return prisma.$transaction(async (tx) => {
             const assignments = await tx.consultantJobAssignment.findMany({
                 where: { consultant_id: id, status: 'ACTIVE' }

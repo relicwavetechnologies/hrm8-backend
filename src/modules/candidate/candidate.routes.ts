@@ -147,6 +147,7 @@ router.put('/notifications/preferences', authenticateCandidate, candidateControl
 
 // Notifications
 router.get('/notifications', authenticateCandidate, notificationController.list);
+router.get('/notifications/count', authenticateCandidate, notificationController.count);
 router.patch('/notifications/:id/read', authenticateCandidate, notificationController.markRead);
 router.patch('/notifications/read-all', authenticateCandidate, notificationController.markAllRead);
 

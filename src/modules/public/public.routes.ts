@@ -4,6 +4,11 @@ import { PublicController } from './public.controller';
 const router = Router();
 const publicController = new PublicController();
 
+// Public Careers/Company Endpoints
+router.get('/companies', publicController.getCompanies);
+router.get('/companies/:id', publicController.getCompanyDetails);
+router.get('/companies/:id/jobs', publicController.getCompanyJobs);
+
 // Public Job Board Endpoints
 router.get('/jobs/filters', publicController.getFilters);
 router.get('/jobs/aggregations', publicController.getAggregations);

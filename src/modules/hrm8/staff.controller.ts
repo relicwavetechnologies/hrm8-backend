@@ -15,6 +15,14 @@ export class StaffController extends BaseController {
         this.staffService = new StaffService(new StaffRepository());
     }
 
+    private getScopedRegionIds(req: Hrm8AuthenticatedRequest): string[] | undefined {
+        if (req.hrm8User?.role !== 'REGIONAL_LICENSEE') {
+            return undefined;
+        }
+
+        return req.assignedRegionIds || [];
+    }
+
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { regionId, role, status } = req.query;
@@ -46,7 +54,10 @@ export class StaffController extends BaseController {
     getById = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.staffService.getById(id as string);
+            const result = await this.staffService.getById(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
@@ -55,7 +66,10 @@ export class StaffController extends BaseController {
 
     create = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.staffService.create(req.body);
+            const result = await this.staffService.create(
+                req.body,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
@@ -65,7 +79,11 @@ export class StaffController extends BaseController {
     update = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.staffService.update(id as string, req.body);
+            const result = await this.staffService.update(
+                id as string,
+                req.body,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, { consultant: result });
         } catch (error) {
             return this.sendError(res, error);
@@ -86,7 +104,10 @@ export class StaffController extends BaseController {
     suspend = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.staffService.suspend(id as string);
+            const result = await this.staffService.suspend(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -96,7 +117,10 @@ export class StaffController extends BaseController {
     reactivate = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.staffService.reactivate(id as string);
+            const result = await this.staffService.reactivate(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -127,7 +151,11 @@ export class StaffController extends BaseController {
         try {
             const { id } = req.params;
             const { targetConsultantId } = req.body;
-            const result = await this.staffService.reassignJobs(id as string, targetConsultantId as string);
+            const result = await this.staffService.reassignJobs(
+                id as string,
+                targetConsultantId as string,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -137,7 +165,10 @@ export class StaffController extends BaseController {
     getPendingTasks = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const result = await this.staffService.getPendingTasks(id as string);
+            const result = await this.staffService.getPendingTasks(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
             return this.sendSuccess(res, result);
         } catch (error) {
             return this.sendError(res, error);
@@ -147,11 +178,15 @@ export class StaffController extends BaseController {
     getReassignmentOptions = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
             const { id } = req.params;
-            const consultant = await this.staffService.getById(id as string);
+            const consultant = await this.staffService.getById(
+                id as string,
+                this.getScopedRegionIds(req)
+            );
             const result = await this.staffService.getConsultantsForReassignment(
                 id as string,
                 consultant.role,
-                consultant.regionId as string
+                consultant.regionId as string,
+                this.getScopedRegionIds(req)
             );
             return this.sendSuccess(res, { consultants: result });
         } catch (error) {

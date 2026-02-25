@@ -121,6 +121,9 @@ export class InterviewService {
       type: UniversalNotificationType.INTERVIEW_SCHEDULED,
       title: 'Interview Scheduled',
       message: `Interview for ${application.job.title} scheduled.`,
+      data: {
+        applicationId: params.applicationId
+      },
       actionUrl: `/candidate/applications/${params.applicationId}?tab=interviews`
     });
 
@@ -249,6 +252,9 @@ export class InterviewService {
         type: UniversalNotificationType.INTERVIEW_SCHEDULED,
         title: 'Interview Scheduled',
         message: `Interview for ${application.job.title} scheduled.`,
+        data: {
+          applicationId: params.applicationId
+        },
         actionUrl: `/candidate/applications/${params.applicationId}?tab=interviews`
       });
     }
@@ -321,6 +327,9 @@ export class InterviewService {
         type: UniversalNotificationType.INTERVIEW_SCHEDULED,
         title: 'Interview Update',
         message: `Your interview status has been updated to ${status}.`,
+        data: {
+          applicationId: updated.application_id
+        },
         actionUrl: `/candidate/applications/${updated.application_id}?tab=interviews`
       });
     }

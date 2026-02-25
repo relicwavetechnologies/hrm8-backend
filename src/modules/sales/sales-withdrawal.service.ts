@@ -5,6 +5,46 @@ import { WithdrawalStatus } from '@prisma/client';
 export class SalesWithdrawalService {
     private readonly LOCKED_WITHDRAWAL_STATUSES: WithdrawalStatus[] = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
 
+    private async resolveConsultantCurrency(consultantId: string): Promise<string> {
+        const account = await prisma.virtualAccount.findUnique({
+            where: {
+                owner_type_owner_id: {
+                    owner_type: 'CONSULTANT',
+                    owner_id: consultantId
+                }
+            },
+            select: { id: true }
+        });
+
+        if (account) {
+            const latestTxCurrency = await prisma.virtualTransaction.findFirst({
+                where: {
+                    virtual_account_id: account.id,
+                    billing_currency_used: { not: null }
+                },
+                orderBy: { created_at: 'desc' },
+                select: { billing_currency_used: true }
+            });
+
+            if (latestTxCurrency?.billing_currency_used) {
+                return latestTxCurrency.billing_currency_used;
+            }
+        }
+
+        const latestCommissionCurrency = await prisma.commission.findFirst({
+            where: { consultant_id: consultantId },
+            orderBy: { created_at: 'desc' },
+            select: {
+                subscription: { select: { currency: true } },
+                job: { select: { payment_currency: true } }
+            }
+        });
+
+        return latestCommissionCurrency?.subscription?.currency
+            || latestCommissionCurrency?.job?.payment_currency
+            || 'USD';
+    }
+
     async calculateBalance(consultantId: string) {
         // 1. Get all commissions
         const allCommissions = await prisma.commission.findMany({
@@ -56,7 +96,7 @@ export class SalesWithdrawalService {
             pendingBalance: pendingBalance,
             totalEarned,
             totalWithdrawn,
-            currency: 'USD',
+            currency: await this.resolveConsultantCurrency(consultantId),
             commissionCount: availableCommissions.length,
             availableCommissions: availableCommissions.map(c => ({
                 id: c.id,
@@ -235,14 +275,18 @@ export class SalesWithdrawalService {
                 });
             }
 
+            if (!debitTransaction) {
+                throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+            }
+
             return tx.commissionWithdrawal.update({
                 where: { id: withdrawalId },
                 data: {
                     status: 'PROCESSING',
                     processed_at: latest.processed_at || new Date(),
                     debited_from_wallet: true,
-                    virtual_transaction_id: latest.virtual_transaction_id || debitTransaction?.id,
-                    wallet_debit_at: latest.wallet_debit_at || debitTransaction?.created_at || new Date()
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
                 }
             });
         });
@@ -269,6 +313,7 @@ export class SalesWithdrawalService {
         const isConnected = detailsSubmitted && payoutEnabled;
 
         return {
+            provider: 'AIRWALLEX',
             payoutEnabled,
             detailsSubmitted,
             isConnected,
@@ -281,8 +326,6 @@ export class SalesWithdrawalService {
     }
 
     async initiateStripeOnboarding(consultantId: string) {
-        const { StripeFactory } = await import('../stripe/stripe.factory');
-
         const consultant = await prisma.consultant.findUnique({
             where: { id: consultantId }
         });
@@ -295,44 +338,25 @@ export class SalesWithdrawalService {
 
         // Create account if doesn't exist
         if (!accountId) {
-            const stripe = StripeFactory.getClient();
-            const account = await stripe.accounts.create({
-                type: 'express',
-                country: 'US',
-                email: consultant.email,
-                capabilities: { transfers: { requested: true } },
-                metadata: {
-                    consultant_id: consultantId,
-                    role: consultant.role
-                }
-            });
-
-            accountId = account.id;
-
-            // Update DB - mock accounts auto-approve, real accounts stay pending
+            accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
             await prisma.consultant.update({
                 where: { id: consultantId },
                 data: {
                     stripe_account_id: accountId,
-                    stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
-                    payout_enabled: StripeFactory.isUsingMock() ? true : false
+                    stripe_account_status: 'active',
+                    payout_enabled: true,
+                    stripe_onboarded_at: new Date()
                 }
             });
         }
 
-        // Generate onboarding link
-        const stripe = StripeFactory.getClient();
-        const accountLink = await stripe.accountLinks.create({
-            account: accountId,
-            refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
-            return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
-            type: 'account_onboarding'
-        });
+        const onboardingUrl = `${frontendUrl}${returnPath}?airwallex_success=true`;
 
         return {
+            provider: 'AIRWALLEX',
             accountId,
-            onboardingUrl: accountLink.url,
-            accountLink: { url: accountLink.url }
+            onboardingUrl,
+            accountLink: { url: onboardingUrl }
         };
     }
 
@@ -343,15 +367,16 @@ export class SalesWithdrawalService {
 
         if (!consultant) throw new HttpException(404, 'Consultant not found');
         if (!consultant.stripe_account_id) {
-            throw new HttpException(400, 'Consultant does not have a Stripe account connected');
+            throw new HttpException(400, 'Consultant does not have an Airwallex beneficiary connected');
         }
 
-        // TODO: Implement actual Stripe login link generation using Stripe API
+        const url = `https://www.airwallex.com/app/login?beneficiary=${consultant.stripe_account_id}`;
 
         return {
+            provider: 'AIRWALLEX',
             message: 'Login link generated',
-            loginLink: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
-            url: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
+            loginLink: url,
+            url,
             expiresIn: 15 * 60 // 15 minutes in seconds
         };
     }

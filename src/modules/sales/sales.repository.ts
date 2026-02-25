@@ -1,6 +1,62 @@
 import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
 
+const conversionRequestSelect = {
+  id: true,
+  lead_id: true,
+  consultant_id: true,
+  region_id: true,
+  status: true,
+  company_name: true,
+  email: true,
+  phone: true,
+  website: true,
+  country: true,
+  city: true,
+  state_province: true,
+  agent_notes: true,
+  reviewed_by: true,
+  reviewed_at: true,
+  admin_notes: true,
+  decline_reason: true,
+  converted_at: true,
+  company_id: true,
+  created_at: true,
+  updated_at: true,
+  temp_password: true,
+  intent_snapshot: true,
+} satisfies Prisma.LeadConversionRequestSelect;
+
+const conversionRequestSelectWithoutIntentSnapshot = {
+  id: true,
+  lead_id: true,
+  consultant_id: true,
+  region_id: true,
+  status: true,
+  company_name: true,
+  email: true,
+  phone: true,
+  website: true,
+  country: true,
+  city: true,
+  state_province: true,
+  agent_notes: true,
+  reviewed_by: true,
+  reviewed_at: true,
+  admin_notes: true,
+  decline_reason: true,
+  converted_at: true,
+  company_id: true,
+  created_at: true,
+  updated_at: true,
+  temp_password: true,
+} satisfies Prisma.LeadConversionRequestSelect;
+
+const isIntentSnapshotColumnMissing = (error: unknown): boolean => {
+  const err = error as { code?: string; meta?: { column?: string } };
+  return err?.code === 'P2022' && String(err?.meta?.column || '').includes('intent_snapshot');
+};
+
 export class SalesRepository extends BaseRepository {
 
   // --- Leads ---
@@ -25,23 +81,80 @@ export class SalesRepository extends BaseRepository {
   }
 
   // --- Conversion Requests ---
-  async createConversionRequest(data: Prisma.LeadConversionRequestCreateInput): Promise<LeadConversionRequest> {
-    return this.prisma.leadConversionRequest.create({ data });
+  async createConversionRequest(data: Prisma.LeadConversionRequestCreateInput): Promise<any> {
+    const payload: any = { ...(data as any) };
+    try {
+      return await this.prisma.leadConversionRequest.create({
+        data: payload,
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+        throw error;
+      }
+
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.intent_snapshot;
+      return this.prisma.leadConversionRequest.create({
+        data: fallbackPayload,
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
-  async updateConversionRequest(id: string, data: Prisma.LeadConversionRequestUpdateInput): Promise<LeadConversionRequest> {
-    return this.prisma.leadConversionRequest.update({ where: { id }, data });
+  async updateConversionRequest(id: string, data: Prisma.LeadConversionRequestUpdateInput): Promise<any> {
+    const payload: any = { ...(data as any) };
+    try {
+      return await this.prisma.leadConversionRequest.update({
+        where: { id },
+        data: payload,
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+        throw error;
+      }
+
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.intent_snapshot;
+      return this.prisma.leadConversionRequest.update({
+        where: { id },
+        data: fallbackPayload,
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
-  async findConversionRequests(filters: any): Promise<LeadConversionRequest[]> {
-    return this.prisma.leadConversionRequest.findMany({
-      where: filters,
-      orderBy: { created_at: 'desc' }
-    });
+  async findConversionRequests(filters: any): Promise<any[]> {
+    try {
+      return await this.prisma.leadConversionRequest.findMany({
+        where: filters,
+        orderBy: { created_at: 'desc' },
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      return this.prisma.leadConversionRequest.findMany({
+        where: filters,
+        orderBy: { created_at: 'desc' },
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
-  async findConversionRequestById(id: string): Promise<LeadConversionRequest | null> {
-    return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+  async findConversionRequestById(id: string): Promise<any | null> {
+    try {
+      return await this.prisma.leadConversionRequest.findUnique({
+        where: { id },
+        select: conversionRequestSelect
+      });
+    } catch (error) {
+      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      return this.prisma.leadConversionRequest.findUnique({
+        where: { id },
+        select: conversionRequestSelectWithoutIntentSnapshot
+      });
+    }
   }
 
   // --- Opportunities ---

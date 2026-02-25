@@ -254,7 +254,7 @@ export class JobAlertService extends BaseService {
                     matchScore,
                     companyId: job.company_id,
                 },
-                actionUrl: `/candidate/jobs/${job.id}`,
+                actionUrl: `/jobs/${job.id}/apply`,
             });
 
             // Send email notification if email channel is enabled

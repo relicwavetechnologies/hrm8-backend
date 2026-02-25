@@ -35,9 +35,6 @@ router.post('/subscriptions/:subscriptionId/cancel', authenticate, walletControl
 // Add-ons
 router.post('/addons', authenticate, walletController.purchaseAddonService);
 
-// Stripe
-router.post('/stripe/checkout', authenticate, walletController.createStripeCheckoutSession);
-
 // Admin Routes - Withdrawals
 router.get('/admin/withdrawals/pending', authenticate, walletController.getPendingWithdrawals);
 router.post('/admin/withdrawals/:withdrawalId/approve', authenticate, walletController.approveWithdrawal);
