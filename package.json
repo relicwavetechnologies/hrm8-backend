@@ -5,8 +5,9 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc --noEmit",
-    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "echo \"Blocked: do not run prisma migrate dev. Use pnpm prisma:dev:push on dev and pnpm prisma:main:deploy on main.\" && exit 1",
