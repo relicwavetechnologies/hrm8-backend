@@ -72,6 +72,7 @@ model Company {
   conversion_requests     LeadConversionRequest[]
   screening_templates     screening_templates[]
   refund_requests         TransactionRefundRequest[]
+  company_documents       CompanyDocument[]
 
   @@index([domain])
   @@index([verification_status])
@@ -3370,4 +3371,25 @@ enum TaskPriority {
   MEDIUM
   HIGH
   URGENT
+}
+
+model CompanyDocument {
+  id          String   @id @default(uuid())
+  company_id  String
+  name        String
+  description String?
+  category    String   @default("OTHER")
+  file_url    String
+  file_name   String
+  file_size   Int?
+  mime_type   String?
+  uploaded_by String?
+  tags        String[] @default([])
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now()) @updatedAt
+
+  company Company @relation(fields: [company_id], references: [id])
+
+  @@index([company_id])
+  @@map("company_documents")
 }

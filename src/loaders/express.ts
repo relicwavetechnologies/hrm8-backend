@@ -32,6 +32,8 @@ import emailTemplateRoutes from '../modules/email/email-template.routes';
 import messagingRoutes from '../modules/messaging/messaging.routes';
 import pricingRoutes from '../modules/pricing/pricing.routes';
 import taskRoutes from '../modules/task/task.routes';
+import talentPoolRoutes from '../modules/talent-pool/talent-pool.routes';
+import documentHubRoutes from '../modules/document-hub/document-hub.routes';
 import billingRoutes from '../modules/billing/billing.routes';
 import payoutsRoutes from '../modules/payouts/payouts.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
@@ -99,6 +101,12 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/messaging', messagingRoutes);
   app.use('/api/pricing', pricingRoutes);
   app.use('/api/tasks', taskRoutes);
+  app.use('/api/talent-pool', talentPoolRoutes);
+  app.use('/api/document-hub', documentHubRoutes);
+
+  // Serve uploaded files statically
+  const pathModule = require('path');
+  app.use('/uploads', require('express').static(pathModule.join(process.cwd(), 'uploads')));
 
   // Error middleware must be registered last
   app.use(errorMiddleware);
