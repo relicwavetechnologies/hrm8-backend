@@ -23,7 +23,6 @@ const communication_routes_1 = __importDefault(require("../modules/communication
 const public_routes_1 = __importDefault(require("../modules/public/public.routes"));
 const integration_routes_1 = __importDefault(require("../modules/integration/integration.routes"));
 const google_oauth_routes_1 = __importDefault(require("../modules/integration/google-oauth.routes"));
-const stripe_routes_1 = __importDefault(require("../modules/stripe/stripe.routes"));
 const notification_routes_1 = __importDefault(require("../modules/notification/notification.routes"));
 const interview_routes_1 = __importDefault(require("../modules/interview/interview.routes"));
 const offer_routes_1 = __importDefault(require("../modules/offer/offer.routes"));
@@ -37,6 +36,9 @@ const assistant_routes_1 = __importDefault(require("../modules/assistant/assista
 const email_template_routes_1 = __importDefault(require("../modules/email/email-template.routes"));
 const messaging_routes_1 = __importDefault(require("../modules/messaging/messaging.routes"));
 const pricing_routes_1 = __importDefault(require("../modules/pricing/pricing.routes"));
+const task_routes_1 = __importDefault(require("../modules/task/task.routes"));
+const billing_routes_1 = __importDefault(require("../modules/billing/billing.routes"));
+const payouts_routes_1 = __importDefault(require("../modules/payouts/payouts.routes"));
 const error_middleware_1 = require("../middlewares/error.middleware");
 const logging_middleware_1 = require("../middleware/logging.middleware");
 const expressLoader = async (app) => {
@@ -45,7 +47,7 @@ const expressLoader = async (app) => {
     // HTTP request logging
     app.use(logging_middleware_1.loggingMiddleware);
     // CORS setup
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173,https://hrm8-ats-frontend.vercel.app,https://hrm8-candidate-frontend.vercel.app,https://hrm8-admin-and-staff-frontend2.vercel.app';
     const allowedOrigins = frontendUrl.includes(',')
         ? frontendUrl.split(',').map(u => u.trim())
         : [frontendUrl]; // Ensure it's always an array for cors middleware
@@ -57,9 +59,10 @@ const expressLoader = async (app) => {
     };
     app.use((0, cors_1.default)(corsOptions));
     // Register module routers
+    // Mount more-specific /api/auth/google BEFORE the generic /api/auth
+    app.use('/api/auth/google', google_oauth_routes_1.default);
     app.use('/api/auth', auth_routes_1.default);
     app.use('/api/signup-requests', signup_request_routes_1.default);
-    app.use('/api/auth/google', google_oauth_routes_1.default);
     app.use('/api/companies', company_routes_1.default);
     app.use('/api/users', user_routes_1.default);
     app.use('/api/employees', user_routes_1.default); // Alias for frontend compatibility
@@ -67,17 +70,19 @@ const expressLoader = async (app) => {
     app.use('/api/job-templates', job_template_routes_1.default);
     app.use('/api/screening-templates', screening_template_routes_1.default);
     app.use('/api/applications', application_routes_1.default);
+    app.use('/api/application', application_routes_1.default); // Compatibility alias
     app.use('/api/assessment', assessment_routes_1.default);
     app.use('/api/assessments', assessment_routes_1.default); // Plural alias for consistency
     app.use('/api/communication', communication_routes_1.default);
     app.use('/api/public', public_routes_1.default);
     app.use('/api/integration', integration_routes_1.default);
-    app.use('/api/integrations/stripe', stripe_routes_1.default);
     app.use('/api/notifications', notification_routes_1.default);
     app.use('/api/interviews', interview_routes_1.default);
     app.use('/api/video-interviews', interview_routes_1.default); // Alias for legacy frontend support
     app.use('/api/offers', offer_routes_1.default);
     app.use('/api/wallet', wallet_routes_1.default);
+    app.use('/api/billing', billing_routes_1.default);
+    app.use('/api/payouts', payouts_routes_1.default);
     app.use('/api/subscriptions', subscription_routes_1.default);
     app.use('/api/subscription', subscription_routes_1.default); // Alias for singular access
     app.use('/api/candidate', candidate_routes_1.default);
@@ -92,6 +97,7 @@ const expressLoader = async (app) => {
     app.use('/api/email-templates', email_template_routes_1.default);
     app.use('/api/messaging', messaging_routes_1.default);
     app.use('/api/pricing', pricing_routes_1.default);
+    app.use('/api/tasks', task_routes_1.default);
     // Error middleware must be registered last
     app.use(error_middleware_1.errorMiddleware);
 };

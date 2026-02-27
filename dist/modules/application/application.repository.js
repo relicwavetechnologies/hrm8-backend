@@ -106,6 +106,51 @@ class ApplicationRepository extends repository_1.BaseRepository {
             orderBy: { created_at: 'desc' },
         });
     }
+    async findByCompanyId(companyId) {
+        return this.prisma.application.findMany({
+            where: {
+                job: { company_id: companyId },
+            },
+            include: {
+                candidate: {
+                    select: {
+                        id: true,
+                        email: true,
+                        first_name: true,
+                        last_name: true,
+                        phone: true,
+                        photo: true,
+                        linked_in_url: true,
+                        city: true,
+                        state: true,
+                        country: true,
+                        email_verified: true,
+                        status: true,
+                        skills: true,
+                        work_experience: true,
+                        education: true,
+                    },
+                },
+                job: {
+                    select: {
+                        id: true,
+                        title: true,
+                    },
+                },
+                application_round_progress: {
+                    include: { job_round: true },
+                    orderBy: { updated_at: 'desc' },
+                    take: 1,
+                },
+                screening_result: true,
+            },
+            orderBy: [
+                { shortlisted: 'desc' },
+                { score: 'desc' },
+                { created_at: 'desc' },
+            ],
+        });
+    }
     async findByJobId(jobId, filters) {
         const where = { job_id: jobId };
         if (filters) {

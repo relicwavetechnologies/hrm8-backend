@@ -9,6 +9,7 @@ const unified_auth_middleware_1 = require("../../middlewares/unified-auth.middle
 const router = (0, express_1.Router)();
 const notificationController = new notification_controller_1.NotificationController();
 router.get('/', unified_auth_middleware_1.authenticateUnified, notificationController.list);
+router.get('/count', unified_auth_middleware_1.authenticateUnified, notificationController.count);
 router.get('/:id', unified_auth_middleware_1.authenticateUnified, notificationController.getOne);
 router.patch('/:id/read', unified_auth_middleware_1.authenticateUnified, notificationController.markRead);
 router.patch('/read-all', unified_auth_middleware_1.authenticateUnified, notificationController.markAllRead);

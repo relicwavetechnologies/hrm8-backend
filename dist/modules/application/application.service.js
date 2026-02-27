@@ -41,6 +41,8 @@ const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const email_service_1 = require("../email/email.service");
 const interview_service_1 = require("../interview/interview.service");
+const placement_commission_service_1 = require("../hrm8/placement-commission.service");
+const application_activity_service_1 = require("./application-activity.service");
 class ApplicationService extends service_1.BaseService {
     constructor(applicationRepository, candidateRepository, notificationService) {
         super();
@@ -74,11 +76,19 @@ class ApplicationService extends service_1.BaseService {
             shortlisted: false,
             manually_added: false,
         });
-        // Trigger AI Scoring asynchronously
-        candidate_scoring_service_1.CandidateScoringService.scoreCandidate({
+        await application_activity_service_1.ApplicationActivityService.logSafe({
             applicationId: application.id,
-            jobId: data.jobId
-        }).catch((err) => {
+            action: 'application_submitted',
+            actorType: client_1.ActorType.SYSTEM,
+            subject: 'Application submitted',
+            description: 'Candidate submitted a new application',
+            metadata: {
+                candidateId: data.candidateId,
+                jobId: data.jobId,
+            },
+        });
+        // Trigger persisted AI analysis asynchronously
+        this.triggerAiAnalysis(application.id, data.jobId).catch((err) => {
             console.error('Failed to trigger AI analysis:', err);
         });
         // Handle Auto-Email for NEW round
@@ -136,6 +146,10 @@ class ApplicationService extends service_1.BaseService {
         const applications = await this.applicationRepository.findByCandidateId(candidateId);
         return applications.map(app => this.mapApplication(app));
     }
+    async getCompanyApplications(companyId) {
+        const applications = await this.applicationRepository.findByCompanyId(companyId);
+        return { applications: applications.map(app => this.mapApplication(app)) };
+    }
     async getJobApplications(jobId, filters) {
         let applications = await this.applicationRepository.findByJobId(jobId, filters);
         if (applications.length === 0) {
@@ -177,7 +191,7 @@ class ApplicationService extends service_1.BaseService {
         });
         return { applications: mappedApplications, roundProgress };
     }
-    async triggerAiAnalysis(applicationId, jobId) {
+    async triggerAiAnalysis(applicationId, jobId, actorId) {
         try {
             const result = await candidate_scoring_service_1.CandidateScoringService.scoreCandidate({ applicationId, jobId });
             await this.applicationRepository.saveScreeningResult({
@@ -189,18 +203,40 @@ class ApplicationService extends service_1.BaseService {
             });
             // Update application score
             await this.applicationRepository.updateScore(applicationId, result.scores.overall);
+            await application_activity_service_1.ApplicationActivityService.logSafe({
+                applicationId,
+                actorId,
+                action: 'ai_analysis_completed',
+                subject: 'AI analysis completed',
+                description: `AI screening completed with overall score ${result.scores.overall}`,
+                metadata: {
+                    recommendation: result.recommendation,
+                    scores: result.scores,
+                },
+            });
         }
         catch (error) {
             console.error('Error in triggerAiAnalysis:', error);
+            await application_activity_service_1.ApplicationActivityService.logSafe({
+                applicationId,
+                actorId,
+                action: 'ai_analysis_failed',
+                subject: 'AI analysis failed',
+                description: error instanceof Error ? error.message : 'AI screening failed',
+                metadata: {
+                    jobId,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            });
             // Log but don't fail the request
         }
     }
-    async bulkAiAnalysis(applicationIds, jobId) {
+    async bulkAiAnalysis(applicationIds, jobId, actorId) {
         let success = 0;
         let failed = 0;
         await Promise.all(applicationIds.map(async (id) => {
             try {
-                await this.triggerAiAnalysis(id, jobId);
+                await this.triggerAiAnalysis(id, jobId, actorId);
                 success++;
             }
             catch (error) {
@@ -220,16 +256,23 @@ class ApplicationService extends service_1.BaseService {
         const analysisData = aiResult?.criteria_matched || app.ai_analysis || {};
         const hasAnalysis = !!aiResult || !!app.ai_analysis;
         const aiAnalysis = hasAnalysis ? {
-            summary: analysisData.summary || aiResult?.summary, // Support both new execution JSON and potential legacy fields
-            detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis,
-            behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits,
-            concerns: analysisData.concerns,
-            strengths: analysisData.strengths,
-            careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory,
-            flightRisk: analysisData.flightRisk || analysisData.flight_risk,
-            culturalFit: analysisData.culturalFit || analysisData.cultural_fit,
-            salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark,
-            technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment,
+            summary: analysisData.summary || aiResult?.summary,
+            scores: analysisData.scores || null,
+            overallScore: analysisData?.scores?.overall ?? aiResult?.score ?? app.score ?? null,
+            recommendation: analysisData.recommendation || null,
+            justification: analysisData.justification || null,
+            improvementAreas: analysisData.improvementAreas || analysisData.improvement_areas || [],
+            detailedAnalysis: analysisData.detailedAnalysis || analysisData.detailed_analysis || null,
+            behavioralTraits: analysisData.behavioralTraits || analysisData.behavioral_traits || [],
+            communicationStyle: analysisData.communicationStyle || analysisData.communication_style || null,
+            concerns: analysisData.concerns || [],
+            strengths: analysisData.strengths || [],
+            careerTrajectory: analysisData.careerTrajectory || analysisData.career_trajectory || null,
+            flightRisk: analysisData.flightRisk || analysisData.flight_risk || null,
+            culturalFit: analysisData.culturalFit || analysisData.cultural_fit || null,
+            salaryBenchmark: analysisData.salaryBenchmark || analysisData.salary_benchmark || null,
+            technicalAssessment: analysisData.technicalAssessment || analysisData.technical_assessment || null,
+            analyzedAt: analysisData.analyzedAt || analysisData.analyzed_at || aiResult?.created_at || null,
         } : null;
         // Map candidate data to parsedResume format
         const parsedResume = app.candidate ? {
@@ -254,53 +297,137 @@ class ApplicationService extends service_1.BaseService {
         } : null;
         return {
             ...app,
+            // Manual camelCase mapping for frontend compatibility
+            jobId: app.job_id,
+            candidateId: app.candidate_id,
+            appliedDate: app.applied_date,
+            createdAt: app.created_at,
+            updatedAt: app.updated_at,
+            isRead: app.is_read,
+            isNew: app.is_new,
+            resumeUrl: app.resume_url,
+            coverLetterUrl: app.cover_letter_url,
+            portfolioUrl: app.portfolio_url,
+            linkedInUrl: app.linked_in_url,
+            websiteUrl: app.website_url,
+            customAnswers: app.custom_answers,
+            questionnaireData: app.questionnaire_data,
+            manuallyAdded: app.manually_added,
+            addedBy: app.added_by,
+            addedAt: app.added_at,
+            shortlistedAt: app.shortlisted_at,
+            shortlistedBy: app.shortlisted_by,
             recruiterNotes: app.recruiter_notes,
-            // Map screening_result to aiAnalysis property expected by frontend
+            screeningNotes: app.screening_notes,
+            // Extended fields
             aiAnalysis,
-            // Map candidate details to parsedResume property expected by frontend
             parsedResume,
         };
     }
-    async updateScore(id, score) {
+    async updateScore(id, score, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.updateScore(id, score);
+        const previousScore = application.score ?? null;
+        const updated = await this.applicationRepository.updateScore(id, score);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'score_updated',
+            subject: 'Candidate score updated',
+            description: `Score updated from ${previousScore ?? 'N/A'} to ${score}`,
+            metadata: {
+                previousScore,
+                newScore: score,
+            },
+        });
+        return updated;
     }
-    async updateRank(id, rank) {
+    async updateRank(id, rank, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.updateRank(id, rank);
+        const previousRank = application.rank ?? null;
+        const updated = await this.applicationRepository.updateRank(id, rank);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'rank_updated',
+            subject: 'Candidate rank updated',
+            description: `Rank updated from ${previousRank ?? 'N/A'} to ${rank}`,
+            metadata: {
+                previousRank,
+                newRank: rank,
+            },
+        });
+        return updated;
     }
-    async updateTags(id, tags) {
+    async updateTags(id, tags, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.updateTags(id, tags);
+        const previousTags = Array.isArray(application.tags) ? application.tags : [];
+        const updated = await this.applicationRepository.updateTags(id, tags);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'tags_updated',
+            subject: 'Candidate tags updated',
+            description: `Updated tags (${previousTags.length} -> ${tags.length})`,
+            metadata: {
+                previousTags,
+                newTags: tags,
+            },
+        });
+        return updated;
     }
     async shortlistCandidate(id, userId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.shortlist(id, userId);
+        const updated = await this.applicationRepository.shortlist(id, userId);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId: userId,
+            action: 'application_shortlisted',
+            subject: 'Candidate shortlisted',
+            description: 'Candidate was shortlisted',
+            metadata: {
+                previousShortlisted: application.shortlisted ?? false,
+                shortlisted: true,
+            },
+        });
+        return updated;
     }
-    async unshortlistCandidate(id) {
+    async unshortlistCandidate(id, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.unshortlist(id);
+        const updated = await this.applicationRepository.unshortlist(id);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'application_unshortlisted',
+            subject: 'Candidate unshortlisted',
+            description: 'Candidate was removed from shortlist',
+            metadata: {
+                previousShortlisted: application.shortlisted ?? false,
+                shortlisted: false,
+            },
+        });
+        return updated;
     }
-    async updateStage(id, stage) {
+    async updateStage(id, stage, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
+        const previousStage = application.stage;
         const updatedApp = await this.applicationRepository.updateStage(id, stage);
         // Notify Candidate of status change
         await this.notificationService.createNotification({
@@ -312,14 +439,33 @@ class ApplicationService extends service_1.BaseService {
             data: { applicationId: id, stage },
             actionUrl: `/candidate/applications/${id}`,
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            action: 'stage_changed',
+            subject: 'Candidate stage changed',
+            description: `Stage changed from ${previousStage} to ${stage}`,
+            actorId,
+            metadata: {
+                previousStage,
+                newStage: stage,
+            },
+        });
         return updatedApp;
     }
-    async updateNotes(id, notes) {
+    async updateNotes(id, notes, actorId) {
         const application = await this.getApplication(id);
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return this.applicationRepository.updateNotes(id, notes);
+        const updated = await this.applicationRepository.updateNotes(id, notes);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'notes_updated',
+            subject: 'Application notes updated',
+            description: 'Application notes were updated',
+        });
+        return updated;
     }
     async withdrawApplication(id, candidateId) {
         const application = await this.getApplication(id);
@@ -330,9 +476,20 @@ class ApplicationService extends service_1.BaseService {
         if (application.candidate_id !== candidateId) {
             throw new http_exception_1.HttpException(403, 'Unauthorized to withdraw this application');
         }
-        return this.applicationRepository.update(id, {
+        const updated = await this.applicationRepository.update(id, {
             status: 'WITHDRAWN',
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorType: client_1.ActorType.SYSTEM,
+            action: 'application_withdrawn',
+            subject: 'Application withdrawn',
+            description: 'Candidate withdrew the application',
+            metadata: {
+                candidateId,
+            },
+        });
+        return updated;
     }
     async deleteApplication(id, candidateId) {
         const application = await this.getApplication(id);
@@ -343,13 +500,45 @@ class ApplicationService extends service_1.BaseService {
         if (application.candidate_id !== candidateId) {
             throw new http_exception_1.HttpException(403, 'Unauthorized to delete this application');
         }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorType: client_1.ActorType.SYSTEM,
+            action: 'application_deleted',
+            subject: 'Application deleted',
+            description: 'Application was deleted by candidate request',
+            metadata: {
+                candidateId,
+                stage: application.stage,
+                status: application.status,
+            },
+        });
         await this.applicationRepository.delete(id);
     }
-    async markAsRead(id) {
-        return this.applicationRepository.markAsRead(id);
+    async markAsRead(id, actorId) {
+        const updated = await this.applicationRepository.markAsRead(id);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'application_marked_read',
+            subject: 'Application marked as read',
+            description: 'Application marked as read',
+        });
+        return updated;
     }
-    async bulkScoreCandidates(applicationIds, scores) {
-        return this.applicationRepository.bulkUpdateScore(applicationIds, scores);
+    async bulkScoreCandidates(applicationIds, scores, actorId) {
+        const updatedCount = await this.applicationRepository.bulkUpdateScore(applicationIds, scores);
+        await Promise.all(applicationIds.map((applicationId) => application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId,
+            action: 'score_updated',
+            subject: 'Candidate score updated in bulk',
+            description: 'Score updated via bulk action',
+            metadata: {
+                newScore: scores[applicationId],
+                bulk: true,
+            },
+        })));
+        return updatedCount;
     }
     async getApplicationCountForJob(jobId) {
         const [total, unread] = await Promise.all([
@@ -419,16 +608,43 @@ class ApplicationService extends service_1.BaseService {
             recruiter_notes: data.notes,
             tags: data.tags || []
         });
+        // Trigger persisted AI analysis asynchronously for manually added applicants
+        this.triggerAiAnalysis(app.id, data.jobId, recruiterId).catch((err) => {
+            console.error('Failed to trigger AI analysis for manual application:', err);
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: app.id,
+            actorId: recruiterId,
+            action: 'application_created_manual',
+            subject: 'Application added manually',
+            description: 'Recruiter added candidate manually',
+            metadata: {
+                source: 'MANUAL',
+                tags: data.tags || [],
+            },
+        });
         return app;
     }
-    async updateManualScreening(id, data) {
-        return this.applicationRepository.update(id, {
+    async updateManualScreening(id, data, actorId) {
+        const updated = await this.applicationRepository.update(id, {
             manual_screening_status: data.status,
             manual_screening_score: data.score,
             screening_notes: data.notes,
             manual_screening_date: data.date || new Date(),
             manual_screening_completed: true
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: id,
+            actorId,
+            action: 'manual_screening_updated',
+            subject: 'Manual screening updated',
+            description: `Manual screening set to ${data.status}`,
+            metadata: {
+                status: data.status,
+                score: data.score,
+            },
+        });
+        return updated;
     }
     async createFromTalentPool(candidateId, jobId, recruiterId) {
         const hasApplied = await this.applicationRepository.checkExistingApplication(candidateId, jobId);
@@ -438,7 +654,7 @@ class ApplicationService extends service_1.BaseService {
         const candidate = await this.candidateRepository.findById(candidateId);
         if (!candidate)
             throw new http_exception_1.HttpException(404, 'Candidate not found');
-        return this.applicationRepository.create({
+        const app = await this.applicationRepository.create({
             candidate: { connect: { id: candidateId } },
             job: { connect: { id: jobId } },
             status: 'NEW',
@@ -448,6 +664,21 @@ class ApplicationService extends service_1.BaseService {
             source: 'TALENT_POOL',
             resume_url: candidate.resume_url // Copy resume from candidate profile if exists
         });
+        // Trigger persisted AI analysis asynchronously for talent-pool applications
+        this.triggerAiAnalysis(app.id, jobId, recruiterId).catch((err) => {
+            console.error('Failed to trigger AI analysis for talent-pool application:', err);
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: app.id,
+            actorId: recruiterId,
+            action: 'application_created_talent_pool',
+            subject: 'Application added from talent pool',
+            description: 'Candidate was added to job from talent pool',
+            metadata: {
+                source: 'TALENT_POOL',
+            },
+        });
+        return app;
     }
     async getResume(id) {
         const app = await this.applicationRepository.findById(id);
@@ -524,6 +755,8 @@ class ApplicationService extends service_1.BaseService {
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
+        const previousRoundId = application.application_round_progress?.[0]?.job_round_id || null;
+        const previousStage = application.stage || null;
         // Handle fallback round IDs (e.g., "fixed-OFFER-{jobId}")
         let actualRoundId = jobRoundId;
         // We need to access JobRoundService/Repository to resolve rounds.
@@ -559,14 +792,17 @@ class ApplicationService extends service_1.BaseService {
         await this.applicationRepository.upsertRoundProgress(applicationId, actualRoundId);
         // Map Round to Stage
         let mappedStage = 'NEW_APPLICATION';
+        let mappedStatus;
         if (targetRound.is_fixed && targetRound.fixed_key) {
             const key = targetRound.fixed_key;
             if (key === 'NEW')
                 mappedStage = 'NEW_APPLICATION';
             else if (key === 'OFFER')
                 mappedStage = 'OFFER_EXTENDED';
-            else if (key === 'HIRED')
+            else if (key === 'HIRED') {
                 mappedStage = 'OFFER_ACCEPTED';
+                mappedStatus = 'HIRED';
+            }
             else if (key === 'REJECTED')
                 mappedStage = 'REJECTED';
         }
@@ -576,8 +812,41 @@ class ApplicationService extends service_1.BaseService {
             else if (targetRound.type === 'INTERVIEW')
                 mappedStage = 'TECHNICAL_INTERVIEW';
         }
-        // Update Application Stage
-        const updatedApp = await this.applicationRepository.updateStage(applicationId, mappedStage);
+        // Update application stage/status in one write so HIRED round persists the hire event.
+        const wasHired = application.status === 'HIRED';
+        const updatedApp = await this.applicationRepository.update(applicationId, {
+            stage: mappedStage,
+            ...(mappedStatus ? { status: mappedStatus } : {}),
+        });
+        if (!wasHired && mappedStatus === 'HIRED') {
+            try {
+                const commissionResult = await placement_commission_service_1.PlacementCommissionService.createForHiredApplication(applicationId);
+                if (commissionResult.created) {
+                    console.log(`[ApplicationService] Placement commission created for hired application ${applicationId}`);
+                }
+                else {
+                    console.log(`[ApplicationService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`);
+                }
+            }
+            catch (error) {
+                console.error(`[ApplicationService] Failed to create placement commission for application ${applicationId}:`, error);
+            }
+        }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: userId,
+            action: 'round_changed',
+            subject: 'Candidate moved to round',
+            description: `Moved to round ${targetRound.name} (${targetRound.type})`,
+            metadata: {
+                previousRoundId,
+                newRoundId: actualRoundId,
+                previousStage,
+                newStage: mappedStage,
+                roundName: targetRound.name,
+                roundType: targetRound.type,
+            },
+        });
         // Auto-assign Assessment
         if (targetRound.type === 'ASSESSMENT') {
             // Need to dynamic import or use a service locator to avoid circular dependency if possible
@@ -672,6 +941,19 @@ class ApplicationService extends service_1.BaseService {
     }
     async addEvaluation(data) {
         const evaluation = await this.applicationRepository.addEvaluation(data);
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'evaluation_added',
+            subject: 'Evaluation added',
+            description: data.decision
+                ? `Evaluation saved with decision ${data.decision}`
+                : 'Evaluation saved',
+            metadata: {
+                score: data.score,
+                decision: data.decision,
+            },
+        });
         // If decision provided, handle application status update
         // Only 'APPROVE' or 'REJECT' should trigger status changes AND only if user has permission (handled in Controller/Middleware)
         // Assuming Permission Check is done before calling this service or within the controller.
@@ -743,6 +1025,17 @@ class ApplicationService extends service_1.BaseService {
         notes.push(newNote);
         // Save updated notes
         await this.applicationRepository.updateNotes(applicationId, JSON.stringify(notes));
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: userId,
+            action: 'note_added',
+            subject: 'Application note added',
+            description: mentions.length > 0 ? `Added note with ${mentions.length} mention(s)` : 'Added note',
+            metadata: {
+                noteId: newNote.id,
+                mentions,
+            },
+        });
         // Send notifications to mentioned users
         if (mentions.length > 0) {
             await this.sendMentionNotifications(applicationId, userId, content, mentions);
@@ -802,6 +1095,23 @@ class ApplicationService extends service_1.BaseService {
             type: params.type,
             interviewerIds: params.interviewerIds,
             notes: params.notes,
+            useMeetLink: params.useMeetLink,
+            companyId: params.companyId,
+            skipActivityLog: true,
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: params.applicationId,
+            actorId: params.scheduledBy,
+            action: 'interview_scheduled',
+            subject: 'Interview scheduled',
+            description: `${params.type} interview scheduled for ${params.scheduledDate.toISOString()}`,
+            metadata: {
+                interviewId: interview.id,
+                type: params.type,
+                duration: params.duration,
+                scheduledDate: params.scheduledDate,
+                interviewerIds: params.interviewerIds || [],
+            },
         });
         // Send email notifications to interviewers for IN_PERSON and PANEL types
         if (['IN_PERSON', 'PANEL'].includes(params.type) && params.interviewerIds?.length) {
@@ -857,7 +1167,7 @@ class ApplicationService extends service_1.BaseService {
         return interviews;
     }
     // Update an interview
-    async updateInterview(interviewId, updates) {
+    async updateInterview(interviewId, updates, actorId) {
         const interview = await prisma_1.prisma.videoInterview.update({
             where: { id: interviewId },
             data: {
@@ -865,16 +1175,38 @@ class ApplicationService extends service_1.BaseService {
                 updated_at: new Date(),
             },
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: interview.application_id,
+            actorId,
+            action: 'interview_updated',
+            subject: 'Interview updated',
+            description: 'Interview details were updated',
+            metadata: {
+                interviewId,
+                updates,
+            },
+        });
         return interview;
     }
     // Cancel an interview
-    async cancelInterview(interviewId, cancellationReason) {
+    async cancelInterview(interviewId, cancellationReason, actorId) {
         const interview = await prisma_1.prisma.videoInterview.update({
             where: { id: interviewId },
             data: {
                 status: 'CANCELLED',
                 cancellation_reason: cancellationReason,
                 updated_at: new Date(),
+            },
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: interview.application_id,
+            actorId,
+            action: 'interview_cancelled',
+            subject: 'Interview cancelled',
+            description: cancellationReason || 'Interview was cancelled',
+            metadata: {
+                interviewId,
+                cancellationReason,
             },
         });
         return interview;
@@ -890,6 +1222,17 @@ class ApplicationService extends service_1.BaseService {
                 author_id: authorId,
                 author_name: authorName,
                 content,
+            },
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: interview.application_id,
+            actorId: authorId,
+            action: 'interview_note_added',
+            subject: 'Interview note added',
+            description: `${authorName} added an interview note`,
+            metadata: {
+                interviewId,
+                noteId: note.id,
             },
         });
         return note;
@@ -908,7 +1251,36 @@ class ApplicationService extends service_1.BaseService {
             throw new http_exception_1.HttpException(404, 'Note not found');
         if (note.author_id !== authorId)
             throw new http_exception_1.HttpException(403, 'Forbidden: You can only delete your own notes');
+        const interview = await prisma_1.prisma.videoInterview.findUnique({
+            where: { id: note.interview_id },
+            select: { application_id: true },
+        });
         await prisma_1.prisma.interviewNote.delete({ where: { id: noteId } });
+        if (interview?.application_id) {
+            await application_activity_service_1.ApplicationActivityService.logSafe({
+                applicationId: interview.application_id,
+                actorId: authorId,
+                action: 'interview_note_deleted',
+                subject: 'Interview note deleted',
+                description: 'Interview note was deleted',
+                metadata: {
+                    noteId,
+                    interviewId: note.interview_id,
+                },
+            });
+        }
+    }
+    async getActivities(applicationId, limit = 200) {
+        return application_activity_service_1.ApplicationActivityService.list(applicationId, limit);
+    }
+    async logGenericActivity(applicationId, actorId, eventName, payload) {
+        await application_activity_service_1.ApplicationActivityService.logGeneric({
+            applicationId,
+            actorId,
+            eventName,
+            payload,
+        });
+        return { success: true };
     }
 }
 exports.ApplicationService = ApplicationService;

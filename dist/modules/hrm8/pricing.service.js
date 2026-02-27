@@ -2,10 +2,35 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PricingService = void 0;
 const service_1 = require("../../core/service");
+const http_exception_1 = require("../../core/http-exception");
 class PricingService extends service_1.BaseService {
     constructor(pricingRepository) {
         super();
         this.pricingRepository = pricingRepository;
+    }
+    normalizeBoolean(value, defaultValue) {
+        if (typeof value === 'boolean')
+            return value;
+        if (typeof value === 'string')
+            return value.toLowerCase() === 'true';
+        if (typeof value === 'number')
+            return value !== 0;
+        return defaultValue;
+    }
+    parseOptionalDate(value, fieldName) {
+        if (value === undefined)
+            return undefined;
+        if (value === null || value === '')
+            return null;
+        const parsed = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            throw new http_exception_1.HttpException(400, `Invalid ${fieldName} date value`);
+        }
+        return parsed;
+    }
+    normalizeCode(value, fallback) {
+        const resolved = typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
+        return resolved.toUpperCase();
     }
     // Products
     async upsertProduct(data) {
@@ -28,13 +53,28 @@ class PricingService extends service_1.BaseService {
         const isGlobal = data.isGlobal ?? data.is_global ?? false;
         const regionId = data.regionId ?? data.region_id;
         const isActive = data.isActive ?? data.is_active ?? true;
+        const currency = this.normalizeCode(data.currency ?? data.billing_currency, 'USD');
+        const billingCurrency = this.normalizeCode(data.billingCurrency ?? data.billing_currency, currency);
+        const pricingPeg = this.normalizeCode(data.pricingPeg ?? data.pricing_peg, billingCurrency);
+        const effectiveFrom = this.parseOptionalDate(data.effectiveFrom ?? data.effective_from, 'effective_from') ?? new Date();
+        const isApproved = this.normalizeBoolean(data.isApproved ?? data.is_approved, true);
+        const approvedAt = this.parseOptionalDate(data.approvedAt ?? data.approved_at, 'approved_at') ?? (isApproved ? new Date() : null);
+        const approvedBy = data.approvedBy ?? data.approved_by ?? null;
+        const version = data.version ?? 'v1';
         return this.pricingRepository.createPriceBook({
             name: data.name,
             description: data.description,
             is_global: isGlobal,
             region: regionId ? { connect: { id: regionId } } : undefined,
-            currency: data.currency || 'USD',
+            currency,
             is_active: isActive,
+            billing_currency: billingCurrency,
+            pricing_peg: pricingPeg,
+            effective_from: effectiveFrom,
+            is_approved: isApproved,
+            approved_at: isApproved ? approvedAt : null,
+            approved_by: isApproved ? approvedBy : null,
+            version,
         });
     }
     async updatePriceBook(id, data) {
@@ -45,9 +85,34 @@ class PricingService extends service_1.BaseService {
             name: data.name,
             description: data.description,
             is_global: isGlobal,
-            currency: data.currency,
             is_active: isActive,
         };
+        const requestedCurrency = data.currency;
+        if (requestedCurrency !== undefined) {
+            updateData.currency = this.normalizeCode(requestedCurrency, 'USD');
+        }
+        const requestedBillingCurrency = data.billingCurrency ?? data.billing_currency;
+        if (requestedBillingCurrency !== undefined) {
+            updateData.billing_currency = this.normalizeCode(requestedBillingCurrency, updateData.currency || 'USD');
+        }
+        const requestedPricingPeg = data.pricingPeg ?? data.pricing_peg;
+        if (requestedPricingPeg !== undefined) {
+            updateData.pricing_peg = this.normalizeCode(requestedPricingPeg, updateData.billing_currency || updateData.currency || 'USD');
+        }
+        if (data.effectiveFrom !== undefined || data.effective_from !== undefined) {
+            updateData.effective_from = this.parseOptionalDate(data.effectiveFrom ?? data.effective_from, 'effective_from');
+        }
+        if (data.version !== undefined) {
+            updateData.version = data.version;
+        }
+        if (data.isApproved !== undefined || data.is_approved !== undefined) {
+            const isApproved = this.normalizeBoolean(data.isApproved ?? data.is_approved, false);
+            updateData.is_approved = isApproved;
+            updateData.approved_at = isApproved
+                ? (this.parseOptionalDate(data.approvedAt ?? data.approved_at, 'approved_at') ?? new Date())
+                : null;
+            updateData.approved_by = isApproved ? (data.approvedBy ?? data.approved_by ?? null) : null;
+        }
         if (regionId) {
             updateData.region = { connect: { id: regionId } };
         }
@@ -140,6 +205,65 @@ class PricingService extends service_1.BaseService {
             code: promo.code,
             id: promo.id
         };
+    }
+    async getCountryPricingMap() {
+        return this.pricingRepository.findCountryPricingMap();
+    }
+    async createCountryPricingMap(data) {
+        const countryCode = this.normalizeCode(data.countryCode ?? data.country_code, '');
+        if (!countryCode) {
+            throw new http_exception_1.HttpException(400, 'countryCode is required');
+        }
+        const countryName = (data.countryName ?? data.country_name ?? '').trim();
+        if (!countryName) {
+            throw new http_exception_1.HttpException(400, 'countryName is required');
+        }
+        const pricingPeg = this.normalizeCode(data.pricingPeg ?? data.pricing_peg, '');
+        if (!pricingPeg) {
+            throw new http_exception_1.HttpException(400, 'pricingPeg is required');
+        }
+        const billingCurrency = this.normalizeCode(data.billingCurrency ?? data.billing_currency, pricingPeg);
+        const isActive = this.normalizeBoolean(data.isActive ?? data.is_active, true);
+        return this.pricingRepository.createCountryPricingMap({
+            country_code: countryCode,
+            country_name: countryName,
+            pricing_peg: pricingPeg,
+            billing_currency: billingCurrency,
+            is_active: isActive,
+        });
+    }
+    async updateCountryPricingMap(id, data) {
+        const existing = await this.pricingRepository.findCountryPricingMapById(id);
+        if (!existing) {
+            throw new http_exception_1.HttpException(404, 'Country pricing map not found');
+        }
+        const updateData = {};
+        if (data.countryCode !== undefined || data.country_code !== undefined) {
+            updateData.country_code = this.normalizeCode(data.countryCode ?? data.country_code, existing.country_code);
+        }
+        if (data.countryName !== undefined || data.country_name !== undefined) {
+            const name = (data.countryName ?? data.country_name ?? '').trim();
+            if (!name)
+                throw new http_exception_1.HttpException(400, 'countryName cannot be empty');
+            updateData.country_name = name;
+        }
+        if (data.pricingPeg !== undefined || data.pricing_peg !== undefined) {
+            updateData.pricing_peg = this.normalizeCode(data.pricingPeg ?? data.pricing_peg, existing.pricing_peg);
+        }
+        if (data.billingCurrency !== undefined || data.billing_currency !== undefined) {
+            updateData.billing_currency = this.normalizeCode(data.billingCurrency ?? data.billing_currency, updateData.pricing_peg || existing.pricing_peg);
+        }
+        if (data.isActive !== undefined || data.is_active !== undefined) {
+            updateData.is_active = this.normalizeBoolean(data.isActive ?? data.is_active, existing.is_active);
+        }
+        return this.pricingRepository.updateCountryPricingMap(id, updateData);
+    }
+    async toggleCountryPricingMap(id, isActive) {
+        const existing = await this.pricingRepository.findCountryPricingMapById(id);
+        if (!existing) {
+            throw new http_exception_1.HttpException(404, 'Country pricing map not found');
+        }
+        return this.pricingRepository.toggleCountryPricingMap(id, isActive);
     }
 }
 exports.PricingService = PricingService;

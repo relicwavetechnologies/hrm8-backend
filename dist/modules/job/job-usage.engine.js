@@ -22,10 +22,9 @@ class UsageEngine {
             subscription.jobs_used >= subscription.job_quota) {
             return 'QUOTA_EXHAUSTED';
         }
-        // HRM8-managed jobs additionally run consultant assignment + wallet service payment.
-        if (hiringMode !== 'SELF_MANAGED') {
-            return 'HRM8_MANAGED';
-        }
+        // All jobs (self-managed and HRM8-managed) consume subscription quota for publishing.
+        // Managed-service payment is handled via upgradeToManagedService either post-publish
+        // or as a separate step.
         return 'USE_QUOTA';
     }
 }

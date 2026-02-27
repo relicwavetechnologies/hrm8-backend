@@ -43,6 +43,16 @@ class NotificationRepository extends repository_1.BaseRepository {
         */
         return { notifications, total };
     }
+    async countUnreadByRecipient(recipientType, recipientId) {
+        return this.prisma.universalNotification.count({
+            where: {
+                recipient_type: recipientType,
+                recipient_id: recipientId,
+                read: false,
+                expires_at: { gte: new Date() }
+            }
+        });
+    }
     async markAsRead(id, recipientType, recipientId) {
         // Verify ownership implicitly via where clause if possible, but updateMany returns count.
         // For single update with verification, use findFirst then update, or updateMany.

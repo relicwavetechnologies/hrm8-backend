@@ -9,8 +9,10 @@ const client_1 = require("@prisma/client");
 const email_service_1 = require("../email/email.service");
 const http_exception_1 = require("../../core/http-exception");
 const email_template_ai_service_1 = require("../ai/email-template-ai.service");
+const gmail_service_1 = require("../integration/gmail.service");
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const env_1 = require("../../config/env");
+const application_activity_service_1 = require("../application/application-activity.service");
 const prisma = new client_1.PrismaClient();
 const prismaAny = prisma;
 class CommunicationService extends service_1.BaseService {
@@ -70,8 +72,9 @@ class CommunicationService extends service_1.BaseService {
         if (!application) {
             throw new http_exception_1.HttpException(404, 'Application not found');
         }
-        return prismaAny.callLog.create({
+        const callLog = await prismaAny.callLog.create({
             data: {
+                id: crypto.randomUUID(),
                 application_id: data.applicationId,
                 user_id: data.userId,
                 call_date: data.callDate,
@@ -81,15 +84,28 @@ class CommunicationService extends service_1.BaseService {
                 notes: data.notes,
             },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             }
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'call_logged',
+            subject: 'Call logged',
+            description: `Call outcome: ${data.outcome}`,
+            metadata: {
+                callLogId: callLog.id,
+                outcome: data.outcome,
+                duration: data.duration,
+            },
+        });
+        return callLog;
     }
     async getCallLogs(applicationId) {
         return prismaAny.callLog.findMany({
             where: { application_id: applicationId },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             },
             orderBy: { call_date: 'desc' }
         });
@@ -110,47 +126,81 @@ class CommunicationService extends service_1.BaseService {
         if (!application.candidate.email) {
             throw new http_exception_1.HttpException(400, 'Candidate has no email address');
         }
-        // Send the email
-        try {
-            await this.emailService.sendNotificationEmail(application.candidate.email, data.subject, data.body);
-            // Log the email
-            return prismaAny.emailLog.create({
-                data: {
-                    application_id: data.applicationId,
-                    user_id: data.userId,
-                    to_email: application.candidate.email,
-                    subject: data.subject,
-                    body: data.body,
-                    template_id: data.templateId,
-                    status: client_1.EmailStatus.SENT,
-                },
-                include: {
-                    user: { select: { id: true, name: true, email: true } }
-                }
-            });
+        // Get user info for sender email
+        const user = await prisma.user.findUnique({
+            where: { id: data.userId },
+            select: { email: true, name: true }
+        });
+        if (!user?.email) {
+            throw new http_exception_1.HttpException(400, 'User email not available');
         }
-        catch (error) {
-            // Log failed email attempt
-            await prismaAny.emailLog.create({
-                data: {
-                    application_id: data.applicationId,
-                    user_id: data.userId,
-                    to_email: application.candidate.email,
-                    subject: data.subject,
-                    body: data.body,
-                    template_id: data.templateId,
-                    status: client_1.EmailStatus.FAILED,
-                }
+        let status = client_1.EmailStatus.SENT;
+        let needsReconnect = false;
+        // Try to send via Gmail API first, fall back to SMTP if needed
+        try {
+            const result = await gmail_service_1.gmailService.sendEmail(data.userId, application.job.company_id, {
+                to: application.candidate.email,
+                subject: data.subject,
+                body: data.body,
+                senderEmail: user.email,
+                cc: data.cc,
             });
+            if (!result.success && result.needsFallback) {
+                // Fall back to SMTP
+                console.log('[CommunicationService] Gmail API scope unavailable, sending via SMTP');
+                await this.emailService.sendNotificationEmail(application.candidate.email, data.subject, data.body);
+                needsReconnect = true;
+            }
+            else if (!result.success) {
+                // Other error
+                status = client_1.EmailStatus.FAILED;
+                throw new Error(result.error || 'Failed to send email via Gmail API');
+            }
+            // If success, email was sent via Gmail
+        }
+        catch (err) {
+            console.error('[CommunicationService] Error sending email:', err);
+            status = client_1.EmailStatus.FAILED;
             throw new http_exception_1.HttpException(500, 'Failed to send email');
         }
+        // Log the email
+        const emailLog = await prismaAny.emailLog.create({
+            data: {
+                id: crypto.randomUUID(),
+                application_id: data.applicationId,
+                user_id: data.userId,
+                to_email: application.candidate.email,
+                subject: data.subject,
+                body: data.body,
+                template_id: data.templateId,
+                status,
+            },
+            include: {
+                User: { select: { id: true, name: true, email: true } }
+            }
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'email_sent',
+            subject: 'Email sent',
+            description: `Email sent to ${application.candidate.email}: ${data.subject}`,
+            metadata: {
+                emailLogId: emailLog.id,
+                to: application.candidate.email,
+                subject: data.subject,
+                status: emailLog.status,
+                ...(data.cc?.length ? { cc: data.cc } : {}),
+            },
+        });
+        return { emailLog, needsReconnect: needsReconnect || undefined };
     }
     async getEmailLogs(applicationId) {
         return prismaAny.emailLog.findMany({
             where: { application_id: applicationId },
             include: {
-                user: { select: { id: true, name: true, email: true } },
-                template: { select: { id: true, name: true, type: true } }
+                User: { select: { id: true, name: true, email: true } },
+                EmailTemplate: { select: { id: true, name: true, type: true } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -219,6 +269,7 @@ class CommunicationService extends service_1.BaseService {
         // Create log entry
         const smsLog = await prismaAny.smsLog.create({
             data: {
+                id: crypto.randomUUID(),
                 application_id: data.applicationId,
                 user_id: data.userId,
                 to_number: application.candidate.phone,
@@ -228,7 +279,7 @@ class CommunicationService extends service_1.BaseService {
                 error_message: twilioConfigured ? null : 'Twilio not configured. SMS will be logged but not sent.',
             },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             }
         });
         // If Twilio is configured, attempt to send
@@ -243,16 +294,28 @@ class CommunicationService extends service_1.BaseService {
                     to: application.candidate.phone
                 });
                 // Update status to SENT
-                return prismaAny.smsLog.update({
+                const sentLog = await prismaAny.smsLog.update({
                     where: { id: smsLog.id },
                     data: {
                         status: 'SENT',
                         twilio_sid: result.sid
                     },
                     include: {
-                        user: { select: { id: true, name: true, email: true } }
+                        User: { select: { id: true, name: true, email: true } }
                     }
                 });
+                await application_activity_service_1.ApplicationActivityService.logSafe({
+                    applicationId: data.applicationId,
+                    actorId: data.userId,
+                    action: 'sms_sent',
+                    subject: 'SMS sent',
+                    description: `SMS sent to ${application.candidate.phone}`,
+                    metadata: {
+                        smsLogId: sentLog.id,
+                        status: sentLog.status,
+                    },
+                });
+                return sentLog;
             }
             catch (error) {
                 await prismaAny.smsLog.update({
@@ -265,13 +328,24 @@ class CommunicationService extends service_1.BaseService {
                 throw new http_exception_1.HttpException(500, `Failed to send SMS: ${error.message}`);
             }
         }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'sms_sent',
+            subject: 'SMS logged',
+            description: `SMS logged for ${application.candidate.phone}`,
+            metadata: {
+                smsLogId: smsLog.id,
+                status: smsLog.status,
+            },
+        });
         return smsLog;
     }
     async getSmsLogs(applicationId) {
         return prismaAny.smsLog.findMany({
             where: { application_id: applicationId },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -292,13 +366,14 @@ class CommunicationService extends service_1.BaseService {
         // Log the Slack message
         const slackLog = await prismaAny.slackLog.create({
             data: {
+                id: crypto.randomUUID(),
                 application_id: data.applicationId,
                 user_id: data.userId,
                 recipient_ids: data.recipientIds,
                 message: data.message,
             },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             }
         });
         // If Slack is configured, send the message
@@ -336,13 +411,24 @@ class CommunicationService extends service_1.BaseService {
                 // Don't throw - we still logged the attempt
             }
         }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'slack_message_sent',
+            subject: 'Slack message sent',
+            description: `Slack message sent to ${data.recipientIds.length} recipient(s)`,
+            metadata: {
+                slackLogId: slackLog.id,
+                recipientCount: data.recipientIds.length,
+            },
+        });
         return slackLog;
     }
     async getSlackLogs(applicationId) {
         return prismaAny.slackLog.findMany({
             where: { application_id: applicationId },
             include: {
-                user: { select: { id: true, name: true, email: true } }
+                User: { select: { id: true, name: true, email: true } }
             },
             orderBy: { created_at: 'desc' }
         });
@@ -380,6 +466,120 @@ class CommunicationService extends service_1.BaseService {
             role: member.user.role,
             hiringRole: member.member_roles?.[0]?.job_role?.name || 'Member',
         }));
+    }
+    // ==================== EMAIL THREAD REPLIES ====================
+    async replyToEmail(data) {
+        // Verify application exists
+        const application = await prisma.application.findUnique({
+            where: { id: data.applicationId },
+            include: { candidate: true, job: { include: { company: true } } }
+        });
+        if (!application) {
+            throw new http_exception_1.HttpException(404, 'Application not found');
+        }
+        // Get user info for sender email
+        const user = await prisma.user.findUnique({
+            where: { id: data.userId },
+            select: { email: true, name: true }
+        });
+        if (!user?.email) {
+            throw new http_exception_1.HttpException(400, 'User email not available');
+        }
+        let status = client_1.EmailStatus.SENT;
+        let error = null;
+        // Try to send via Gmail API first, fall back to SMTP if needed
+        try {
+            const result = await gmail_service_1.gmailService.sendReply(data.userId, application.job.company_id, {
+                threadId: data.threadId,
+                messageId: data.messageId,
+                to: data.to,
+                subject: data.subject,
+                body: data.body,
+                senderEmail: user.email,
+                cc: data.cc,
+            });
+            if (!result.success && result.needsFallback) {
+                // Fall back to SMTP with threading headers
+                console.log('[CommunicationService] Gmail API scope unavailable, sending via SMTP with threading headers');
+                await this.transporter.sendMail({
+                    from: user.email,
+                    to: data.to,
+                    subject: data.subject,
+                    html: data.body,
+                    inReplyTo: `<${data.messageId}>`,
+                    references: `<${data.messageId}>`,
+                    ...(data.cc?.length ? { cc: data.cc } : {}),
+                });
+            }
+            else if (!result.success) {
+                // Other error
+                status = client_1.EmailStatus.FAILED;
+                error = result.error || 'Failed to send reply';
+            }
+        }
+        catch (err) {
+            console.error('[CommunicationService] Error sending reply:', err);
+            status = client_1.EmailStatus.FAILED;
+            error = err.message;
+        }
+        // Log the email
+        const emailLog = await prismaAny.emailLog.create({
+            data: {
+                id: crypto.randomUUID(),
+                application_id: data.applicationId,
+                user_id: data.userId,
+                to_email: data.to,
+                subject: data.subject,
+                body: data.body,
+                status,
+            },
+            include: {
+                User: { select: { id: true, name: true, email: true } }
+            }
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: data.applicationId,
+            actorId: data.userId,
+            action: 'email_reply_sent',
+            subject: 'Email reply sent',
+            description: `Reply sent to ${data.to}: ${data.subject}`,
+            metadata: {
+                emailLogId: emailLog.id,
+                to: data.to,
+                subject: data.subject,
+                status: emailLog.status,
+            },
+        });
+        return emailLog;
+    }
+    async rewriteEmailReply(data) {
+        // Get application context
+        const application = await prisma.application.findUnique({
+            where: { id: data.applicationId },
+            include: {
+                candidate: true,
+                job: { include: { company: true } }
+            }
+        });
+        if (!application) {
+            throw new http_exception_1.HttpException(404, 'Application not found');
+        }
+        try {
+            // Use EmailTemplateAIService to generate a reply
+            const result = await email_template_ai_service_1.EmailTemplateAIService.generateTemplate({
+                type: 'reply',
+                jobTitle: application.job.title,
+                companyName: application.job.company.name,
+                candidateName: `${application.candidate.first_name} ${application.candidate.last_name}`,
+                context: `Original message: ${data.originalMessage.substring(0, 500)}...`,
+                tone: data.tone || 'professional',
+            });
+            return result;
+        }
+        catch (error) {
+            console.error('Error rewriting email reply:', error);
+            throw new http_exception_1.HttpException(500, 'Failed to rewrite email reply');
+        }
     }
 }
 exports.CommunicationService = CommunicationService;

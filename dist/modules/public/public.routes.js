@@ -4,6 +4,10 @@ const express_1 = require("express");
 const public_controller_1 = require("./public.controller");
 const router = (0, express_1.Router)();
 const publicController = new public_controller_1.PublicController();
+// Public Careers/Company Endpoints
+router.get('/companies', publicController.getCompanies);
+router.get('/companies/:id', publicController.getCompanyDetails);
+router.get('/companies/:id/jobs', publicController.getCompanyJobs);
 // Public Job Board Endpoints
 router.get('/jobs/filters', publicController.getFilters);
 router.get('/jobs/aggregations', publicController.getAggregations);

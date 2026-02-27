@@ -152,7 +152,10 @@ class AssessmentController extends controller_1.BaseController {
                 if (!result.success) {
                     return this.sendError(res, new Error(result.error || 'Failed to invite'), 400);
                 }
-                return this.sendSuccess(res, { message: 'Invitation sent successfully', assessmentId: result.assessmentId });
+                return this.sendSuccess(res, {
+                    message: 'Invitation sent successfully',
+                    assessmentId: result.assessmentId,
+                });
             }
             catch (error) {
                 return this.sendError(res, error);

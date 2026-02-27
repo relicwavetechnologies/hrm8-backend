@@ -7,11 +7,22 @@ function getUserIntegrationName(userId) {
     return `user-calendar-${userId}`;
 }
 class GoogleOAuthService {
+    async getCompanyTimezone(companyId) {
+        const settings = await prisma_1.prisma.companySettings.findUnique({
+            where: { company_id: companyId },
+        });
+        return {
+            timezone: settings?.timezone || 'UTC',
+            work_days: settings?.work_days || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+            start_time: settings?.start_time || '09:00',
+            end_time: settings?.end_time || '17:00',
+        };
+    }
     getAuthUrl(userId, companyId) {
         const clientId = env_1.env.GOOGLE_CLIENT_ID;
         const redirectUri = env_1.env.GOOGLE_REDIRECT_URI;
         const state = Buffer.from(JSON.stringify({ userId, companyId })).toString('base64');
-        const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email');
+        const scope = encodeURIComponent('https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send');
         return (`https://accounts.google.com/o/oauth2/v2/auth` +
             `?client_id=${clientId}` +
             `&redirect_uri=${encodeURIComponent(redirectUri)}` +
@@ -77,15 +88,17 @@ class GoogleOAuthService {
     }
     async createMeetingEvent(userId, companyId, details) {
         const tokens = await this.getTokensForUser(userId, companyId);
-        if (!tokens)
-            return null;
+        if (!tokens) {
+            return { link: null, error: 'Google Calendar not connected. Please connect your calendar in Settings.' };
+        }
         try {
             const accessToken = await this.ensureValidToken(tokens, userId, companyId);
+            const { timezone } = await this.getCompanyTimezone(companyId);
             const eventBody = {
                 summary: details.summary,
                 description: details.description || '',
-                start: { dateTime: details.start.toISOString(), timeZone: 'UTC' },
-                end: { dateTime: details.end.toISOString(), timeZone: 'UTC' },
+                start: { dateTime: details.start.toISOString(), timeZone: timezone },
+                end: { dateTime: details.end.toISOString(), timeZone: timezone },
                 attendees: details.attendees || [],
                 conferenceData: {
                     createRequest: {
@@ -103,19 +116,25 @@ class GoogleOAuthService {
                 body: JSON.stringify(eventBody),
             });
             if (!response.ok) {
-                console.error('[GoogleOAuthService] Failed to create event:', await response.text());
-                return null;
+                const errorText = await response.text();
+                console.error('[GoogleOAuthService] Failed to create event:', errorText);
+                return { link: null, error: `Google Calendar API error (${response.status}). Try reconnecting your calendar.` };
             }
             const data = await response.json();
-            return data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri || null;
+            const hangoutLink = data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri || null;
+            if (!hangoutLink) {
+                return { link: null, error: 'Google Calendar event created but no Meet link was generated.' };
+            }
+            return { link: hangoutLink };
         }
         catch (err) {
             console.error('[GoogleOAuthService] Error creating meeting event:', err);
-            return null;
+            return { link: null, error: `Failed to create calendar event: ${err.message || 'Unknown error'}` };
         }
     }
-    async getFreeBusy(userIds, companyId, timeMin, timeMax) {
+    async getFreeBusy(userIds, companyId, timeMin, timeMax, timezone) {
         const result = {};
+        const tz = timezone || (await this.getCompanyTimezone(companyId)).timezone;
         for (const userId of userIds) {
             const tokens = await this.getTokensForUser(userId, companyId);
             if (!tokens || !tokens.calendar_email) {
@@ -127,6 +146,7 @@ class GoogleOAuthService {
                 const body = {
                     timeMin: timeMin.toISOString(),
                     timeMax: timeMax.toISOString(),
+                    timeZone: tz,
                     items: [{ id: tokens.calendar_email }],
                 };
                 const response = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
@@ -232,6 +252,15 @@ class GoogleOAuthService {
         catch {
             return undefined;
         }
+    }
+    async disconnect(userId, companyId) {
+        await prisma_1.prisma.integration.deleteMany({
+            where: {
+                company_id: companyId,
+                type: 'CALENDAR',
+                name: getUserIntegrationName(userId),
+            },
+        });
     }
 }
 exports.GoogleOAuthService = GoogleOAuthService;

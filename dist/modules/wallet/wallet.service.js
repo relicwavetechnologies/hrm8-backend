@@ -5,6 +5,50 @@ const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
 const currency_assignment_service_1 = require("../pricing/currency-assignment.service");
 class WalletService {
+    static async resolveDisplayCurrencyByAccountId(accountId) {
+        const account = await prisma_1.prisma.virtualAccount.findUnique({
+            where: { id: accountId },
+            select: { owner_type: true, owner_id: true }
+        });
+        if (!account) {
+            return 'USD';
+        }
+        return this.resolveDisplayCurrency(account.owner_type, account.owner_id);
+    }
+    static async resolveDisplayCurrency(ownerType, ownerId) {
+        if (ownerType === 'COMPANY') {
+            try {
+                const { billingCurrency } = await currency_assignment_service_1.CurrencyAssignmentService.getCompanyCurrencies(ownerId);
+                return billingCurrency || 'USD';
+            }
+            catch {
+                return 'USD';
+            }
+        }
+        const account = await prisma_1.prisma.virtualAccount.findUnique({
+            where: {
+                owner_type_owner_id: {
+                    owner_type: ownerType,
+                    owner_id: ownerId
+                }
+            },
+            select: { id: true }
+        });
+        if (account?.id) {
+            const txCurrency = await prisma_1.prisma.virtualTransaction.findFirst({
+                where: {
+                    virtual_account_id: account.id,
+                    billing_currency_used: { not: null }
+                },
+                orderBy: { created_at: 'desc' },
+                select: { billing_currency_used: true }
+            });
+            if (txCurrency?.billing_currency_used) {
+                return txCurrency.billing_currency_used;
+            }
+        }
+        return 'USD';
+    }
     /**
      * Get or create a wallet account for an owner
      */
@@ -34,6 +78,7 @@ class WalletService {
      */
     static async getAccount(ownerType, ownerId) {
         const account = await this.getOrCreateAccount(ownerType, ownerId);
+        const currency = await this.resolveDisplayCurrency(ownerType, ownerId);
         return {
             id: account.id,
             ownerType: account.owner_type,
@@ -41,7 +86,7 @@ class WalletService {
             balance: account.balance,
             totalCredits: account.total_credits || 0,
             totalDebits: account.total_debits || 0,
-            currency: 'USD',
+            currency,
             status: account.status,
             createdAt: account.created_at,
             updatedAt: account.updated_at
@@ -74,11 +119,12 @@ class WalletService {
      */
     static async getBalance(ownerType, ownerId) {
         const account = await this.getOrCreateAccount(ownerType, ownerId);
+        const currency = await this.resolveDisplayCurrency(ownerType, ownerId);
         return {
             balance: account.balance,
             totalCredits: account.total_credits || 0,
             totalDebits: account.total_debits || 0,
-            currency: 'USD',
+            currency,
             status: account.status
         };
     }
@@ -502,20 +548,21 @@ class WalletService {
         };
     }
     /**
-     * Create Stripe checkout session
+     * Legacy wallet checkout session (provider-agnostic).
+     * Active billing flows should use BillingService.createCheckout().
      */
     static async createStripeCheckoutSession(ownerType, ownerId, data) {
         if (data.amount <= 0) {
             throw new http_exception_1.HttpException(400, 'Amount must be positive');
         }
-        // TODO: Integrate with actual Stripe API
+        const checkoutId = `airwallex_${Date.now()}`;
         return {
-            sessionId: `session_${Date.now()}`,
+            sessionId: checkoutId,
             amount: data.amount,
-            currency: 'USD',
-            clientSecret: `secret_${Date.now()}`,
-            publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_',
-            redirectUrl: `https://checkout.stripe.com/pay/${Date.now()}`
+            currency: await this.resolveDisplayCurrency(ownerType, ownerId),
+            clientSecret: `client_secret_${Date.now()}`,
+            provider: 'AIRWALLEX',
+            redirectUrl: data.successUrl,
         };
     }
     /**
@@ -615,7 +662,7 @@ class WalletService {
             totalBalance: totalBalance._sum.balance || 0,
             totalCredits: totalCredits._sum.total_credits || 0,
             totalDebits: totalDebits._sum.total_debits || 0,
-            currency: 'USD'
+            currency: 'MULTI'
         };
     }
     /**
@@ -629,18 +676,19 @@ class WalletService {
             },
             orderBy: { created_at: 'desc' }
         });
-        return refunds.map(refund => ({
+        return Promise.all(refunds.map(async (refund) => ({
             id: refund.id,
             accountId: refund.virtual_account_id,
             ownerType: refund.counterparty_type,
             ownerId: refund.counterparty_id,
             amount: refund.amount,
-            currency: 'USD',
+            currency: refund.billing_currency_used
+                || await this.resolveDisplayCurrencyByAccountId(refund.virtual_account_id),
             reason: refund.description,
             status: refund.status,
             createdAt: refund.created_at,
             referenceId: refund.reference_id
-        }));
+        })));
     }
     /**
      * Admin: Approve a refund request
@@ -675,7 +723,8 @@ class WalletService {
             id: updated.refund.id,
             accountId: updated.refund.virtual_account_id,
             amount: updated.refund.amount,
-            currency: 'USD',
+            currency: updated.refund.billing_currency_used
+                || await this.resolveDisplayCurrencyByAccountId(updated.refund.virtual_account_id),
             status: updated.refund.status,
             newBalance: updated.account.balance
         };
@@ -704,7 +753,8 @@ class WalletService {
             id: updated.id,
             accountId: updated.virtual_account_id,
             amount: updated.amount,
-            currency: 'USD',
+            currency: updated.billing_currency_used
+                || await this.resolveDisplayCurrencyByAccountId(updated.virtual_account_id),
             status: updated.status,
             rejectionReason: reason
         };

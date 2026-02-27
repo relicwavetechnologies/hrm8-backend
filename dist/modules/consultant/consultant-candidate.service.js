@@ -3,6 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConsultantCandidateService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
+const client_1 = require("@prisma/client");
+const placement_commission_service_1 = require("../hrm8/placement-commission.service");
+const application_activity_service_1 = require("../application/application-activity.service");
 class ConsultantCandidateService {
     async getPipeline(consultantId, jobId) {
         // 1. Verify Job Assignment
@@ -46,6 +49,7 @@ class ConsultantCandidateService {
         if (!application)
             throw new http_exception_1.HttpException(404, 'Application not found');
         await this.verifyJobAccess(consultantId, application.job_id);
+        const wasHired = application.status === 'HIRED';
         const updatedApp = await prisma_1.prisma.application.update({
             where: { id: applicationId },
             data: {
@@ -53,6 +57,35 @@ class ConsultantCandidateService {
                 stage: stage || undefined,
                 updated_at: new Date()
             }
+        });
+        if (!wasHired && status === 'HIRED') {
+            try {
+                const commissionResult = await placement_commission_service_1.PlacementCommissionService.createForHiredApplication(applicationId);
+                if (commissionResult.created) {
+                    console.log(`[ConsultantCandidateService] Placement commission created for hired application ${applicationId}`);
+                }
+                else {
+                    console.log(`[ConsultantCandidateService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`);
+                }
+            }
+            catch (error) {
+                console.error(`[ConsultantCandidateService] Failed to create placement commission for application ${applicationId}:`, error);
+            }
+        }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: client_1.ActorType.CONSULTANT,
+            action: 'stage_changed',
+            subject: 'Application status updated',
+            description: stage
+                ? `Status set to ${status} and stage set to ${stage}`
+                : `Status set to ${status}`,
+            metadata: {
+                status,
+                stage: stage || null,
+                source: 'consultant_pipeline',
+            },
         });
         // Notify candidate logic could go here (e.g. email or in-app notification)
         return updatedApp;
@@ -70,12 +103,25 @@ class ConsultantCandidateService {
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         const newNote = `[${new Date().toISOString()}] ${consultant.first_name}: ${note}\n`;
         const currentNotes = application.recruiter_notes || '';
-        return prisma_1.prisma.application.update({
+        const updated = await prisma_1.prisma.application.update({
             where: { id: applicationId },
             data: {
                 recruiter_notes: currentNotes + newNote
             }
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: client_1.ActorType.CONSULTANT,
+            action: 'note_added',
+            subject: 'Application note added',
+            description: `${consultant.first_name} added a pipeline note`,
+            metadata: {
+                source: 'consultant_pipeline',
+                notePreview: note.substring(0, 160),
+            },
+        });
+        return updated;
     }
     async moveToRound(consultantId, applicationId, roundId) {
         const application = await prisma_1.prisma.application.findUnique({
@@ -92,6 +138,8 @@ class ConsultantCandidateService {
             throw new http_exception_1.HttpException(400, 'Invalid round for this job');
         // Logic to determine new stage based on fixed round keys
         let newStage;
+        let newStatus;
+        const wasHired = application.status === 'HIRED';
         if (round.is_fixed) {
             switch (round.fixed_key) {
                 case 'NEW':
@@ -102,6 +150,7 @@ class ConsultantCandidateService {
                     break;
                 case 'HIRED':
                     newStage = 'OFFER_ACCEPTED';
+                    newStatus = 'HIRED';
                     break;
                 case 'REJECTED':
                     newStage = 'REJECTED';
@@ -127,12 +176,44 @@ class ConsultantCandidateService {
             }
         });
         // Update application stage if needed
-        if (newStage) {
+        if (newStage || newStatus) {
             await prisma_1.prisma.application.update({
                 where: { id: applicationId },
-                data: { stage: newStage, updated_at: new Date() }
+                data: {
+                    stage: newStage || undefined,
+                    status: newStatus || undefined,
+                    updated_at: new Date()
+                }
             });
         }
+        if (!wasHired && newStatus === 'HIRED') {
+            try {
+                const commissionResult = await placement_commission_service_1.PlacementCommissionService.createForHiredApplication(applicationId);
+                if (commissionResult.created) {
+                    console.log(`[ConsultantCandidateService] Placement commission created for hired application ${applicationId}`);
+                }
+                else {
+                    console.log(`[ConsultantCandidateService] Placement commission skipped for application ${applicationId}: ${commissionResult.reason}`);
+                }
+            }
+            catch (error) {
+                console.error(`[ConsultantCandidateService] Failed to create placement commission for application ${applicationId}:`, error);
+            }
+        }
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: client_1.ActorType.CONSULTANT,
+            action: 'round_changed',
+            subject: 'Candidate moved to round',
+            description: `Moved candidate to ${round.name}`,
+            metadata: {
+                newRoundId: roundId,
+                newRoundName: round.name,
+                newStage: newStage || null,
+                source: 'consultant_pipeline',
+            },
+        });
     }
     async updateStage(consultantId, applicationId, stage) {
         const application = await prisma_1.prisma.application.findUnique({
@@ -148,6 +229,18 @@ class ConsultantCandidateService {
                 stage,
                 updated_at: new Date()
             }
+        });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId,
+            actorId: consultantId,
+            actorType: client_1.ActorType.CONSULTANT,
+            action: 'stage_changed',
+            subject: 'Candidate stage changed',
+            description: `Stage changed to ${stage}`,
+            metadata: {
+                newStage: stage,
+                source: 'consultant_pipeline',
+            },
         });
         return updatedApp;
     }

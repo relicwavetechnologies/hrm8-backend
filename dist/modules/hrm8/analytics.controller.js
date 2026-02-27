@@ -71,8 +71,10 @@ class AnalyticsController extends controller_1.BaseController {
                 const region = req.query.region;
                 const page = req.query.page ? parseInt(req.query.page, 10) : 1;
                 const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
+                const search = req.query.search;
                 const result = await this.analyticsService.getJobBoardStats({
                     regionId: region,
+                    search,
                     assignedRegionIds: req.assignedRegionIds,
                     page: Number.isFinite(page) && page > 0 ? page : 1,
                     limit: Number.isFinite(limit) && limit > 0 ? limit : 10,

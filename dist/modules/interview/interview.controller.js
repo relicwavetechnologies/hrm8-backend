@@ -8,7 +8,7 @@ class InterviewController extends controller_1.BaseController {
         super(...arguments);
         this.create = async (req, res) => {
             try {
-                const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes } = req.body;
+                const { applicationId, scheduledDate, duration, type, meetingLink, interviewerIds, notes, useMeetLink } = req.body;
                 const interview = await interview_service_1.InterviewService.createInterview({
                     applicationId,
                     scheduledDate: new Date(scheduledDate),
@@ -17,7 +17,9 @@ class InterviewController extends controller_1.BaseController {
                     meetingLink,
                     interviewerIds,
                     notes,
-                    scheduledBy: req.user?.id || 'system'
+                    scheduledBy: req.user?.id || 'system',
+                    useMeetLink,
+                    companyId: req.user?.companyId,
                 });
                 return this.sendSuccess(res, { interview });
             }
@@ -84,7 +86,7 @@ class InterviewController extends controller_1.BaseController {
                     type,
                     meetingLink,
                     notes,
-                });
+                }, req.user?.id || 'system');
                 return this.sendSuccess(res, { interview, message: 'Interview updated successfully' });
             }
             catch (error) {
@@ -95,7 +97,7 @@ class InterviewController extends controller_1.BaseController {
             try {
                 const id = req.params.id;
                 const { status, notes } = req.body;
-                const interview = await interview_service_1.InterviewService.updateStatus(id, status, notes);
+                const interview = await interview_service_1.InterviewService.updateStatus(id, status, notes, req.user?.id || 'system');
                 return this.sendSuccess(res, { interview });
             }
             catch (error) {
@@ -106,8 +108,31 @@ class InterviewController extends controller_1.BaseController {
             try {
                 const id = req.params.id;
                 const feedback = req.body; // Expects interviewer_id, overall_rating, etc.
-                const interview = await interview_service_1.InterviewService.addFeedback(id, feedback);
+                const interview = await interview_service_1.InterviewService.addFeedback(id, feedback, req.user?.id || feedback?.interviewer_id || 'system');
                 return this.sendSuccess(res, { interview });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.suggestTime = async (req, res) => {
+            try {
+                const { interviewerIds, duration, preferredDays, preferredTimeStart, preferredTimeEnd, dateRangeStart, dateRangeEnd, timezone, } = req.body;
+                if (!Array.isArray(interviewerIds) || interviewerIds.length === 0) {
+                    return this.sendError(res, new Error('At least one interviewer is required'));
+                }
+                const result = await interview_service_1.InterviewService.suggestTime({
+                    interviewerIds,
+                    duration: duration || 45,
+                    preferredDays: preferredDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+                    preferredTimeStart: preferredTimeStart || '09:00',
+                    preferredTimeEnd: preferredTimeEnd || '17:00',
+                    dateRangeStart: dateRangeStart || new Date().toISOString().split('T')[0],
+                    dateRangeEnd: dateRangeEnd || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+                    timezone: timezone || 'UTC',
+                    companyId: req.user?.companyId || '',
+                });
+                return this.sendSuccess(res, result);
             }
             catch (error) {
                 return this.sendError(res, error);

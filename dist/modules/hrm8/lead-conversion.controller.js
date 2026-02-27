@@ -23,8 +23,18 @@ class LeadConversionController extends controller_1.BaseController {
         this.getOne = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.leadConversionService.getOne(id);
-                return this.sendSuccess(res, result);
+                const result = await this.leadConversionService.getOne(id, req.assignedRegionIds);
+                return this.sendSuccess(res, { request: result });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getReviewContext = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const context = await this.leadConversionService.getReviewContext(id, req.assignedRegionIds);
+                return this.sendSuccess(res, { context });
             }
             catch (error) {
                 return this.sendError(res, error);
@@ -41,7 +51,7 @@ class LeadConversionController extends controller_1.BaseController {
                 }, adminNotes, {
                     ip: req.ip,
                     userAgent: req.get('user-agent') || undefined
-                });
+                }, req.assignedRegionIds);
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -59,7 +69,7 @@ class LeadConversionController extends controller_1.BaseController {
                 }, declineReason, {
                     ip: req.ip,
                     userAgent: req.get('user-agent') || undefined
-                });
+                }, req.assignedRegionIds);
                 return this.sendSuccess(res, result);
             }
             catch (error) {

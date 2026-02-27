@@ -8,7 +8,7 @@ class WithdrawalController extends controller_1.BaseController {
         super();
         this.getPendingWithdrawals = async (req, res) => {
             try {
-                const result = await this.withdrawalService.getPendingWithdrawals();
+                const result = await this.withdrawalService.getPendingWithdrawals(this.getScopedRegionIds(req));
                 return this.sendSuccess(res, { withdrawals: result });
             }
             catch (error) {
@@ -18,7 +18,7 @@ class WithdrawalController extends controller_1.BaseController {
         this.approve = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.withdrawalService.approveWithdrawal(id);
+                const result = await this.withdrawalService.approveWithdrawal(id, this.getScopedRegionIds(req), req.hrm8User?.id);
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -28,7 +28,8 @@ class WithdrawalController extends controller_1.BaseController {
         this.reject = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.withdrawalService.rejectWithdrawal(id);
+                const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+                const result = await this.withdrawalService.rejectWithdrawal(id, this.getScopedRegionIds(req), req.hrm8User?.id, reason);
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -39,7 +40,7 @@ class WithdrawalController extends controller_1.BaseController {
             try {
                 const { id } = req.params;
                 const { notes } = req.body;
-                const result = await this.withdrawalService.processPayment(id, notes);
+                const result = await this.withdrawalService.processPayment(id, notes, this.getScopedRegionIds(req), req.hrm8User?.id);
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -47,6 +48,12 @@ class WithdrawalController extends controller_1.BaseController {
             }
         };
         this.withdrawalService = new withdrawal_service_1.WithdrawalService();
+    }
+    getScopedRegionIds(req) {
+        if (req.hrm8User?.role !== 'REGIONAL_LICENSEE') {
+            return undefined;
+        }
+        return req.assignedRegionIds || [];
     }
 }
 exports.WithdrawalController = WithdrawalController;

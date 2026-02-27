@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const consultant_auth_middleware_1 = require("../../middlewares/consultant-auth.middleware");
+const payouts_controller_1 = require("./payouts.controller");
+const router = (0, express_1.Router)();
+const controller = new payouts_controller_1.PayoutsController();
+router.post('/beneficiaries', consultant_auth_middleware_1.authenticateConsultant, controller.createBeneficiary);
+router.get('/status', consultant_auth_middleware_1.authenticateConsultant, controller.getStatus);
+router.post('/login-link', consultant_auth_middleware_1.authenticateConsultant, controller.getLoginLink);
+router.post('/withdrawals/:id/execute', consultant_auth_middleware_1.authenticateConsultant, controller.executeWithdrawal);
+exports.default = router;

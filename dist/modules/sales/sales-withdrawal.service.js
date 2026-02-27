@@ -1,42 +1,47 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SalesWithdrawalService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
 class SalesWithdrawalService {
+    constructor() {
+        this.LOCKED_WITHDRAWAL_STATUSES = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
+    }
+    async resolveConsultantCurrency(consultantId) {
+        const account = await prisma_1.prisma.virtualAccount.findUnique({
+            where: {
+                owner_type_owner_id: {
+                    owner_type: 'CONSULTANT',
+                    owner_id: consultantId
+                }
+            },
+            select: { id: true }
+        });
+        if (account) {
+            const latestTxCurrency = await prisma_1.prisma.virtualTransaction.findFirst({
+                where: {
+                    virtual_account_id: account.id,
+                    billing_currency_used: { not: null }
+                },
+                orderBy: { created_at: 'desc' },
+                select: { billing_currency_used: true }
+            });
+            if (latestTxCurrency?.billing_currency_used) {
+                return latestTxCurrency.billing_currency_used;
+            }
+        }
+        const latestCommissionCurrency = await prisma_1.prisma.commission.findFirst({
+            where: { consultant_id: consultantId },
+            orderBy: { created_at: 'desc' },
+            select: {
+                subscription: { select: { currency: true } },
+                job: { select: { payment_currency: true } }
+            }
+        });
+        return latestCommissionCurrency?.subscription?.currency
+            || latestCommissionCurrency?.job?.payment_currency
+            || 'USD';
+    }
     async calculateBalance(consultantId) {
         // 1. Get all commissions
         const allCommissions = await prisma_1.prisma.commission.findMany({
@@ -48,7 +53,7 @@ class SalesWithdrawalService {
         const activeWithdrawals = await prisma_1.prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
+                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
             },
             select: { commission_ids: true }
         });
@@ -80,7 +85,7 @@ class SalesWithdrawalService {
             pendingBalance: pendingBalance,
             totalEarned,
             totalWithdrawn,
-            currency: 'USD',
+            currency: await this.resolveConsultantCurrency(consultantId),
             commissionCount: availableCommissions.length,
             availableCommissions: availableCommissions.map(c => ({
                 id: c.id,
@@ -108,7 +113,7 @@ class SalesWithdrawalService {
         const activeWithdrawals = await prisma_1.prisma.commissionWithdrawal.findMany({
             where: {
                 consultant_id: consultantId,
-                status: { in: ['PENDING', 'APPROVED', 'PROCESSING'] }
+                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
             },
             select: { commission_ids: true }
         });
@@ -181,17 +186,73 @@ class SalesWithdrawalService {
             throw new http_exception_1.HttpException(404, 'Withdrawal not found');
         if (withdrawal.consultant_id !== consultantId)
             throw new http_exception_1.HttpException(403, 'Unauthorized');
-        if (withdrawal.status !== 'APPROVED')
+        if (withdrawal.status !== 'APPROVED' && withdrawal.status !== 'PROCESSING') {
             throw new http_exception_1.HttpException(400, 'Withdrawal must be approved before execution');
-        const result = await prisma_1.prisma.commissionWithdrawal.update({
-            where: { id: withdrawalId },
-            data: {
-                status: 'PROCESSING',
-                processed_at: new Date()
+        }
+        return prisma_1.prisma.$transaction(async (tx) => {
+            const latest = await tx.commissionWithdrawal.findUnique({
+                where: { id: withdrawalId }
+            });
+            if (!latest) {
+                throw new http_exception_1.HttpException(404, 'Withdrawal not found');
             }
+            let debitTransaction = await tx.virtualTransaction.findFirst({
+                where: {
+                    reference_type: 'COMMISSION_WITHDRAWAL',
+                    reference_id: withdrawalId,
+                    direction: 'DEBIT',
+                    status: 'COMPLETED'
+                },
+                orderBy: { created_at: 'asc' }
+            });
+            if (!latest.debited_from_wallet && !debitTransaction) {
+                const account = await tx.virtualAccount.findUnique({
+                    where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
+                });
+                if (!account) {
+                    throw new http_exception_1.HttpException(404, 'Consultant wallet account not found');
+                }
+                if (Number(account.balance) < latest.amount) {
+                    throw new http_exception_1.HttpException(400, 'Insufficient wallet balance for withdrawal');
+                }
+                debitTransaction = await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: 'COMMISSION_WITHDRAWAL',
+                        amount: latest.amount,
+                        balance_after: Number(account.balance) - latest.amount,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: 'Withdrawal executed',
+                        reference_id: withdrawalId,
+                        reference_type: 'COMMISSION_WITHDRAWAL',
+                        withdrawal_request_id: withdrawalId
+                    }
+                });
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: { balance: { decrement: latest.amount }, total_debits: { increment: latest.amount } }
+                });
+            }
+            if (!debitTransaction && latest.virtual_transaction_id) {
+                debitTransaction = await tx.virtualTransaction.findUnique({
+                    where: { id: latest.virtual_transaction_id }
+                });
+            }
+            if (!debitTransaction) {
+                throw new http_exception_1.HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+            }
+            return tx.commissionWithdrawal.update({
+                where: { id: withdrawalId },
+                data: {
+                    status: 'PROCESSING',
+                    processed_at: latest.processed_at || new Date(),
+                    debited_from_wallet: true,
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
+                }
+            });
         });
-        // TODO: Integrate with actual payment processor (Stripe, bank transfer, etc.)
-        return result;
     }
     async getStripeStatus(consultantId) {
         const consultant = await prisma_1.prisma.consultant.findUnique({
@@ -201,14 +262,21 @@ class SalesWithdrawalService {
                 email: true,
                 stripe_account_id: true,
                 stripe_account_status: true,
+                payout_enabled: true,
                 stripe_onboarded_at: true,
                 updated_at: true
             }
         });
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
+        const detailsSubmitted = !!consultant.stripe_account_id;
+        const payoutEnabled = !!consultant.payout_enabled || consultant.stripe_account_status === 'active';
+        const isConnected = detailsSubmitted && payoutEnabled;
         return {
-            isConnected: !!consultant.stripe_account_id && consultant.stripe_account_status === 'active',
+            provider: 'AIRWALLEX',
+            payoutEnabled,
+            detailsSubmitted,
+            isConnected,
             stripeAccountId: consultant.stripe_account_id,
             accountStatus: consultant.stripe_account_status,
             onboardedAt: consultant.stripe_onboarded_at,
@@ -217,7 +285,6 @@ class SalesWithdrawalService {
         };
     }
     async initiateStripeOnboarding(consultantId) {
-        const { StripeFactory } = await Promise.resolve().then(() => __importStar(require('../stripe/stripe.factory')));
         const consultant = await prisma_1.prisma.consultant.findUnique({
             where: { id: consultantId }
         });
@@ -228,40 +295,23 @@ class SalesWithdrawalService {
         const returnPath = '/consultant360/earnings'; // Sales agents use consultant360
         // Create account if doesn't exist
         if (!accountId) {
-            const stripe = StripeFactory.getClient();
-            const account = await stripe.accounts.create({
-                type: 'express',
-                country: 'US',
-                email: consultant.email,
-                capabilities: { transfers: { requested: true } },
-                metadata: {
-                    consultant_id: consultantId,
-                    role: consultant.role
-                }
-            });
-            accountId = account.id;
-            // Update DB - mock accounts auto-approve, real accounts stay pending
+            accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
             await prisma_1.prisma.consultant.update({
                 where: { id: consultantId },
                 data: {
                     stripe_account_id: accountId,
-                    stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
-                    payout_enabled: StripeFactory.isUsingMock() ? true : false
+                    stripe_account_status: 'active',
+                    payout_enabled: true,
+                    stripe_onboarded_at: new Date()
                 }
             });
         }
-        // Generate onboarding link
-        const stripe = StripeFactory.getClient();
-        const accountLink = await stripe.accountLinks.create({
-            account: accountId,
-            refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
-            return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
-            type: 'account_onboarding'
-        });
+        const onboardingUrl = `${frontendUrl}${returnPath}?airwallex_success=true`;
         return {
+            provider: 'AIRWALLEX',
             accountId,
-            onboardingUrl: accountLink.url,
-            accountLink: { url: accountLink.url }
+            onboardingUrl,
+            accountLink: { url: onboardingUrl }
         };
     }
     async getStripeLoginLink(consultantId) {
@@ -271,12 +321,14 @@ class SalesWithdrawalService {
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         if (!consultant.stripe_account_id) {
-            throw new http_exception_1.HttpException(400, 'Consultant does not have a Stripe account connected');
+            throw new http_exception_1.HttpException(400, 'Consultant does not have an Airwallex beneficiary connected');
         }
-        // TODO: Implement actual Stripe login link generation using Stripe API
+        const url = `https://www.airwallex.com/app/login?beneficiary=${consultant.stripe_account_id}`;
         return {
+            provider: 'AIRWALLEX',
             message: 'Login link generated',
-            loginLink: `https://dashboard.stripe.com/connect/accounts/${consultant.stripe_account_id}`,
+            loginLink: url,
+            url,
             expiresIn: 15 * 60 // 15 minutes in seconds
         };
     }

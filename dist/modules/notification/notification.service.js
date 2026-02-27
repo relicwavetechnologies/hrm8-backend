@@ -67,6 +67,9 @@ class NotificationService extends service_1.BaseService {
     async getUserNotifications(recipientType, recipientId, limit = 20, offset = 0) {
         return this.notificationRepository.findByRecipient(recipientType, recipientId, limit, offset);
     }
+    async getUnreadCount(recipientType, recipientId) {
+        return this.notificationRepository.countUnreadByRecipient(recipientType, recipientId);
+    }
     async getNotificationById(id, recipientType, recipientId) {
         const notification = await this.notificationRepository.findById(id);
         if (!notification)

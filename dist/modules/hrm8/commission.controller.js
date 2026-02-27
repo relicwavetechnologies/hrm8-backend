@@ -9,11 +9,15 @@ class CommissionController extends controller_1.BaseController {
         super();
         this.getAll = async (req, res) => {
             try {
-                const { limit, offset, consultantId } = req.query;
+                const { limit, offset, consultantId, regionId, status, commissionType } = req.query;
                 const result = await this.commissionService.getAll({
                     limit: limit ? Number(limit) : undefined,
                     offset: offset ? Number(offset) : undefined,
                     consultantId: consultantId,
+                    regionId: regionId,
+                    status: status,
+                    commissionType: commissionType,
+                    allowedRegionIds: this.getScopedRegionIds(req),
                 });
                 return this.sendSuccess(res, result);
             }
@@ -24,8 +28,18 @@ class CommissionController extends controller_1.BaseController {
         this.getById = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.commissionService.getById(id);
+                const result = await this.commissionService.getById(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getReviewContext = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const context = await this.commissionService.getReviewContext(id, this.getScopedRegionIds(req));
+                return this.sendSuccess(res, { context });
             }
             catch (error) {
                 return this.sendError(res, error);
@@ -43,7 +57,7 @@ class CommissionController extends controller_1.BaseController {
         this.confirm = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.commissionService.confirm(id);
+                const result = await this.commissionService.confirm(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -115,6 +129,12 @@ class CommissionController extends controller_1.BaseController {
             }
         };
         this.commissionService = new commission_service_1.CommissionService(new commission_repository_1.CommissionRepository());
+    }
+    getScopedRegionIds(req) {
+        if (req.hrm8User?.role !== 'REGIONAL_LICENSEE') {
+            return undefined;
+        }
+        return req.assignedRegionIds || [];
     }
 }
 exports.CommissionController = CommissionController;

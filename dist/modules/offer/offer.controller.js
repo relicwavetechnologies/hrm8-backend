@@ -6,6 +6,45 @@ const offer_service_1 = require("./offer.service");
 class OfferController extends controller_1.BaseController {
     constructor() {
         super(...arguments);
+        this.getWorkflowByApplication = async (req, res) => {
+            try {
+                if (!req.user?.id)
+                    return this.sendError(res, new Error('Unauthorized'), 401);
+                const applicationId = req.params.applicationId;
+                const data = await offer_service_1.OfferService.getWorkflowByApplication(applicationId, req.user.id);
+                return this.sendSuccess(res, data);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.updateWorkflowByApplication = async (req, res) => {
+            try {
+                if (!req.user?.id)
+                    return this.sendError(res, new Error('Unauthorized'), 401);
+                const applicationId = req.params.applicationId;
+                const data = await offer_service_1.OfferService.updateWorkflowByApplication(applicationId, req.user.id, req.body || {});
+                return this.sendSuccess(res, data);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.uploadWorkflowDocuments = async (req, res) => {
+            try {
+                if (!req.user?.id)
+                    return this.sendError(res, new Error('Unauthorized'), 401);
+                const applicationId = req.params.applicationId;
+                const files = req.files || [];
+                const category = req.body?.category || 'OTHER';
+                const note = req.body?.note || undefined;
+                const data = await offer_service_1.OfferService.uploadWorkflowDocuments(applicationId, req.user.id, files, category, note);
+                return this.sendSuccess(res, data);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         this.create = async (req, res) => {
             try {
                 const offer = await offer_service_1.OfferService.createOffer(req.body, req.user?.id || 'system');

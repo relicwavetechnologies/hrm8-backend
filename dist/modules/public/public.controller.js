@@ -33,6 +33,86 @@ class PublicController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        this.getCompanies = async (req, res) => {
+            try {
+                const { search, page, limit } = req.query;
+                const pageNum = Math.max(parseInt(page) || 1, 1);
+                const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+                const offset = (pageNum - 1) * limitNum;
+                const result = await this.publicService.getPublicCompanies({
+                    search: typeof search === 'string' ? search : undefined,
+                    limit: limitNum,
+                    offset,
+                });
+                return this.sendSuccess(res, {
+                    companies: result.companies,
+                    pagination: {
+                        total: result.total,
+                        page: pageNum,
+                        limit: limitNum,
+                        pages: Math.ceil(result.total / limitNum),
+                    },
+                });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getCompanyDetails = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { search, department, location, page, limit } = req.query;
+                const pageNum = Math.max(parseInt(page) || 1, 1);
+                const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+                const offset = (pageNum - 1) * limitNum;
+                const result = await this.publicService.getPublicCompany(id, {
+                    search: typeof search === 'string' ? search : undefined,
+                    department: typeof department === 'string' ? department : undefined,
+                    location: typeof location === 'string' ? location : undefined,
+                    limit: limitNum,
+                    offset,
+                });
+                if (!result) {
+                    return this.sendError(res, new Error('Company not found'));
+                }
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getCompanyJobs = async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { search, department, location, page, limit } = req.query;
+                const pageNum = Math.max(parseInt(page) || 1, 1);
+                const limitNum = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+                const offset = (pageNum - 1) * limitNum;
+                const result = await this.publicService.getPublicCompanyJobs(id, {
+                    search: typeof search === 'string' ? search : undefined,
+                    department: typeof department === 'string' ? department : undefined,
+                    location: typeof location === 'string' ? location : undefined,
+                    limit: limitNum,
+                    offset,
+                });
+                if (!result) {
+                    return this.sendError(res, new Error('Company not found'));
+                }
+                return this.sendSuccess(res, {
+                    jobs: result.jobs,
+                    total: result.total,
+                    pagination: {
+                        total: result.total,
+                        page: pageNum,
+                        limit: limitNum,
+                        pages: Math.ceil(result.total / limitNum),
+                    },
+                });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         this.getJobDetails = async (req, res) => {
             try {
                 const { id } = req.params;

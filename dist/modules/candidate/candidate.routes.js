@@ -127,6 +127,7 @@ router.get('/notifications/preferences', candidate_auth_middleware_1.authenticat
 router.put('/notifications/preferences', candidate_auth_middleware_1.authenticateCandidate, candidateController.updateNotificationPreferences);
 // Notifications
 router.get('/notifications', candidate_auth_middleware_1.authenticateCandidate, notificationController.list);
+router.get('/notifications/count', candidate_auth_middleware_1.authenticateCandidate, notificationController.count);
 router.patch('/notifications/:id/read', candidate_auth_middleware_1.authenticateCandidate, notificationController.markRead);
 router.patch('/notifications/read-all', candidate_auth_middleware_1.authenticateCandidate, notificationController.markAllRead);
 exports.default = router;

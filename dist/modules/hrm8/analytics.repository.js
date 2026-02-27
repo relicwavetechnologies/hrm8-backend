@@ -228,6 +228,12 @@ class AnalyticsRepository {
         else if (params.regionIds && params.regionIds.length > 0) {
             where.region_id = { in: params.regionIds };
         }
+        if (params.search) {
+            where.OR = [
+                { name: { contains: params.search, mode: 'insensitive' } },
+                { domain: { contains: params.search, mode: 'insensitive' } },
+            ];
+        }
         const [total, companies] = await Promise.all([
             prisma_1.prisma.company.count({ where }),
             prisma_1.prisma.company.findMany({
@@ -259,6 +265,19 @@ class AnalyticsRepository {
             }
         });
         return { companies, jobStats, total };
+    }
+    async getJobStatsForCompanies(companyIds) {
+        return prisma_1.prisma.job.groupBy({
+            by: ['company_id', 'status'],
+            where: { company_id: { in: companyIds } },
+            _count: {
+                id: true
+            },
+            _sum: {
+                views_count: true,
+                clicks_count: true
+            }
+        });
     }
 }
 exports.AnalyticsRepository = AnalyticsRepository;

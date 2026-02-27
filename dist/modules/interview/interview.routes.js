@@ -7,6 +7,7 @@ const unified_auth_middleware_1 = require("../../middlewares/unified-auth.middle
 const router = (0, express_1.Router)();
 const interviewController = new interview_controller_1.InterviewController();
 router.post('/', auth_middleware_1.authenticate, interviewController.create);
+router.post('/suggest-time', auth_middleware_1.authenticate, interviewController.suggestTime);
 // Generic list with query params
 router.get('/', unified_auth_middleware_1.authenticateUnified, interviewController.list);
 router.get('/job/:jobId', unified_auth_middleware_1.authenticateUnified, interviewController.listByJob);

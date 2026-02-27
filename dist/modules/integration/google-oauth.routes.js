@@ -59,19 +59,35 @@ router.get('/status', auth_middleware_1.authenticate, async (req, res) => {
     }
 });
 /**
+ * GET /api/auth/google/company-timezone
+ * Returns company timezone and work hours from CompanySettings.
+ */
+router.get('/company-timezone', auth_middleware_1.authenticate, async (req, res) => {
+    if (!req.user)
+        return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        const tzInfo = await google_oauth_service_1.googleOAuthService.getCompanyTimezone(req.user.companyId);
+        return res.json({ success: true, data: tzInfo });
+    }
+    catch (err) {
+        console.error('[GoogleOAuth] Timezone error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to fetch timezone' });
+    }
+});
+/**
  * POST /api/auth/google/interviewers-availability
- * Body: { interviewerIds: string[], timeMin: string, timeMax: string }
+ * Body: { interviewerIds: string[], timeMin: string, timeMax: string, timezone?: string }
  * Returns free/busy data for each interviewer.
  */
 router.post('/interviewers-availability', auth_middleware_1.authenticate, async (req, res) => {
     if (!req.user)
         return res.status(401).json({ error: 'Unauthorized' });
-    const { interviewerIds, timeMin, timeMax } = req.body;
+    const { interviewerIds, timeMin, timeMax, timezone } = req.body;
     if (!Array.isArray(interviewerIds) || !timeMin || !timeMax) {
         return res.status(400).json({ success: false, error: 'interviewerIds, timeMin, and timeMax are required' });
     }
     try {
-        const result = await google_oauth_service_1.googleOAuthService.getFreeBusy(interviewerIds, req.user.companyId, new Date(timeMin), new Date(timeMax));
+        const result = await google_oauth_service_1.googleOAuthService.getFreeBusy(interviewerIds, req.user.companyId, new Date(timeMin), new Date(timeMax), timezone);
         return res.json({ success: true, data: result });
     }
     catch (err) {
@@ -101,6 +117,22 @@ router.post('/interviewers-status', auth_middleware_1.authenticate, async (req, 
     catch (err) {
         console.error('[GoogleOAuth] Interviewers status error:', err);
         return res.status(500).json({ success: false, error: 'Failed to check statuses' });
+    }
+});
+/**
+ * POST /api/auth/google/disconnect
+ * Disconnects the current user's Google Calendar integration.
+ */
+router.post('/disconnect', auth_middleware_1.authenticate, async (req, res) => {
+    if (!req.user)
+        return res.status(401).json({ error: 'Unauthorized' });
+    try {
+        await google_oauth_service_1.googleOAuthService.disconnect(req.user.id, req.user.companyId);
+        return res.json({ success: true, message: 'Google integration disconnected' });
+    }
+    catch (err) {
+        console.error('[GoogleOAuth] Disconnect error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to disconnect' });
     }
 });
 exports.default = router;

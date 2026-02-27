@@ -1,12 +1,30 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getLicenseeLeaderboardSchema = exports.getRevenueAnalyticsSchema = exports.getRecentAuditLogsSchema = exports.searchCandidatesByNameSchema = exports.searchConsultantsSchema = exports.getMyQuickStatsSchema = exports.getMyCandidatesSchema = exports.getMyCompaniesSchema = exports.getRegionalPerformanceSchema = exports.getMyDailyBriefingSchema = exports.getActivityFeedSchema = exports.getCommunicationHistorySchema = exports.getCompanyFinancialSummarySchema = exports.getLeadPipelineSchema = exports.getOfferStatusSchema = exports.getAssessmentResultsSchema = exports.getInterviewDetailsSchema = exports.getHiringFunnelAnalyticsSchema = exports.getConsultantCommissionSchema = exports.getConsultantPerformanceSchema = exports.getJobCompleteDashboardSchema = exports.getCandidateCompleteOverviewSchema = void 0;
+exports.getLicenseeLeaderboardSchema = exports.getRevenueAnalyticsSchema = exports.getRecentAuditLogsSchema = exports.searchCandidatesByNameSchema = exports.searchConsultantsSchema = exports.getMyQuickStatsSchema = exports.getMyCandidatesSchema = exports.getMyCompaniesSchema = exports.getRegionalPerformanceSchema = exports.getMyDailyBriefingSchema = exports.getActivityFeedSchema = exports.getCommunicationHistorySchema = exports.getCompanyFinancialSummarySchema = exports.getLeadPipelineSchema = exports.getOfferStatusSchema = exports.getAssessmentResultsSchema = exports.addTaskNoteToolSchema = exports.createCandidateTaskToolSchema = exports.sendCandidateEmailToolSchema = exports.addInterviewNoteSchema = exports.scheduleCandidateInterviewSchema = exports.addCandidateNoteSchema = exports.updateCandidateStageSchema = exports.getCandidateDrawerActivitySchema = exports.getCandidateDrawerTasksSchema = exports.getCandidateDrawerEmailsSchema = exports.getCandidateDrawerMeetingsSchema = exports.getCandidateDrawerAnnotationsSchema = exports.getCandidateDrawerQuestionnaireSchema = exports.getCandidateDrawerNotesSchema = exports.getCandidateDrawerAiReviewSchema = exports.getCandidateDrawerResumeSchema = exports.getCandidateDrawerOverviewSchema = exports.getCandidateDrawerContextSchema = exports.getInterviewDetailsSchema = exports.getHiringFunnelAnalyticsSchema = exports.getConsultantCommissionSchema = exports.getConsultantPerformanceSchema = exports.getJobCompleteDashboardSchema = exports.getCandidateCompleteOverviewSchema = void 0;
 exports.getCandidateCompleteOverview = getCandidateCompleteOverview;
 exports.getJobCompleteDashboard = getJobCompleteDashboard;
 exports.getConsultantPerformance = getConsultantPerformance;
 exports.getConsultantCommission = getConsultantCommission;
 exports.getHiringFunnelAnalytics = getHiringFunnelAnalytics;
 exports.getInterviewDetails = getInterviewDetails;
+exports.getCandidateDrawerOverview = getCandidateDrawerOverview;
+exports.getCandidateDrawerResume = getCandidateDrawerResume;
+exports.getCandidateDrawerAiReview = getCandidateDrawerAiReview;
+exports.getCandidateDrawerNotes = getCandidateDrawerNotes;
+exports.getCandidateDrawerQuestionnaire = getCandidateDrawerQuestionnaire;
+exports.getCandidateDrawerAnnotations = getCandidateDrawerAnnotations;
+exports.getCandidateDrawerMeetings = getCandidateDrawerMeetings;
+exports.getCandidateDrawerEmails = getCandidateDrawerEmails;
+exports.getCandidateDrawerTasks = getCandidateDrawerTasks;
+exports.getCandidateDrawerActivity = getCandidateDrawerActivity;
+exports.getCandidateDrawerContext = getCandidateDrawerContext;
+exports.updateCandidateStage = updateCandidateStage;
+exports.addCandidateNote = addCandidateNote;
+exports.scheduleCandidateInterview = scheduleCandidateInterview;
+exports.addInterviewNote = addInterviewNote;
+exports.sendCandidateEmailTool = sendCandidateEmailTool;
+exports.createCandidateTaskTool = createCandidateTaskTool;
+exports.addTaskNoteTool = addTaskNoteTool;
 exports.getAssessmentResults = getAssessmentResults;
 exports.getOfferStatus = getOfferStatus;
 exports.getLeadPipeline = getLeadPipeline;
@@ -26,6 +44,12 @@ exports.getLicenseeLeaderboard = getLicenseeLeaderboard;
 const zod_1 = require("zod");
 const prisma_1 = require("../../utils/prisma");
 const assistant_access_control_1 = require("./assistant.access-control");
+const client_1 = require("@prisma/client");
+const application_activity_service_1 = require("../application/application-activity.service");
+const interview_service_1 = require("../interview/interview.service");
+const communication_service_1 = require("../communication/communication.service");
+const application_task_service_1 = require("../task/application-task.service");
+const gmail_service_1 = require("../integration/gmail.service");
 // ============================================================================
 // SHARED SCHEMAS
 // ============================================================================
@@ -89,14 +113,153 @@ function buildTokenAndFilter(tokens, fields) {
         })),
     };
 }
+const STAGE_TO_STATUS_MAP = {
+    NEW_APPLICATION: client_1.ApplicationStatus.NEW,
+    RESUME_REVIEW: client_1.ApplicationStatus.SCREENING,
+    PHONE_SCREEN: client_1.ApplicationStatus.SCREENING,
+    TECHNICAL_INTERVIEW: client_1.ApplicationStatus.INTERVIEW,
+    ONSITE_INTERVIEW: client_1.ApplicationStatus.INTERVIEW,
+    OFFER_EXTENDED: client_1.ApplicationStatus.OFFER,
+    OFFER_ACCEPTED: client_1.ApplicationStatus.HIRED,
+    REJECTED: client_1.ApplicationStatus.REJECTED,
+};
+function mapActorTypeForActivity(actor) {
+    return actor.actorType === 'CONSULTANT' ? client_1.ActorType.CONSULTANT : client_1.ActorType.HRM8_USER;
+}
+async function getCompanyScopedApplication(actor, applicationId) {
+    if (actor.actorType !== 'COMPANY_USER') {
+        throw new Error('This action is currently available only for company users.');
+    }
+    const application = await prisma_1.prisma.application.findFirst({
+        where: {
+            id: applicationId,
+            job: {
+                is: {
+                    company_id: actor.companyId,
+                },
+            },
+        },
+        include: {
+            job: {
+                select: {
+                    id: true,
+                    title: true,
+                    company_id: true,
+                },
+            },
+            candidate: {
+                select: {
+                    id: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                },
+            },
+        },
+    });
+    if (!application) {
+        throw new Error('Application not found in your company scope.');
+    }
+    return application;
+}
+async function getCompanyScopedInterview(actor, interviewId) {
+    if (actor.actorType !== 'COMPANY_USER') {
+        throw new Error('This action is currently available only for company users.');
+    }
+    const interview = await prisma_1.prisma.videoInterview.findFirst({
+        where: {
+            id: interviewId,
+            application: {
+                is: {
+                    job: {
+                        is: {
+                            company_id: actor.companyId,
+                        },
+                    },
+                },
+            },
+        },
+        include: {
+            application: {
+                include: {
+                    candidate: {
+                        select: {
+                            first_name: true,
+                            last_name: true,
+                            email: true,
+                        },
+                    },
+                    job: {
+                        select: {
+                            title: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+    if (!interview) {
+        throw new Error('Interview not found in your company scope.');
+    }
+    return interview;
+}
+async function getCompanyUserInfo(userId) {
+    const user = await prisma_1.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true },
+    });
+    return {
+        id: userId,
+        name: user?.name || 'Unknown User',
+        email: user?.email || '',
+    };
+}
+function parseApplicationNotes(rawNotes) {
+    if (!rawNotes)
+        return [];
+    if (Array.isArray(rawNotes)) {
+        return rawNotes;
+    }
+    if (typeof rawNotes === 'string') {
+        try {
+            const parsed = JSON.parse(rawNotes);
+            return Array.isArray(parsed) ? parsed : [];
+        }
+        catch {
+            const legacyText = rawNotes.trim();
+            if (!legacyText)
+                return [];
+            return [
+                {
+                    id: 'legacy-text-note',
+                    content: legacyText,
+                    mentions: [],
+                    noteType: 'general',
+                    source: 'legacy_text',
+                    createdAt: new Date().toISOString(),
+                    author: {
+                        id: 'system',
+                        name: 'Imported Note',
+                        email: '',
+                    },
+                },
+            ];
+        }
+    }
+    return [];
+}
+const communicationService = new communication_service_1.CommunicationService();
 // ============================================================================
 // TOOL SCHEMAS
 // ============================================================================
 exports.getCandidateCompleteOverviewSchema = zod_1.z.object({
-    candidateQuery: textQuerySchema.describe('Candidate ID, email, or full name'),
+    candidateQuery: textQuerySchema.optional().describe('Candidate ID, email, or full name'),
+    applicationId: uuidSchema.optional().describe('Application ID from candidate assessment context'),
     includeAssessments: zod_1.z.boolean().optional().default(true),
     includeInterviews: zod_1.z.boolean().optional().default(true),
     includeOffers: zod_1.z.boolean().optional().default(true),
+}).refine((value) => Boolean(value.candidateQuery || value.applicationId), {
+    message: 'Provide candidateQuery or applicationId.',
 });
 exports.getJobCompleteDashboardSchema = zod_1.z.object({
     jobQuery: textQuerySchema.describe('Job ID, job code, job title, or company name/domain'),
@@ -119,6 +282,90 @@ exports.getInterviewDetailsSchema = zod_1.z.object({
     applicationId: zod_1.z.string().uuid().nullish().transform((val) => val || undefined),
     jobQuery: textQuerySchema.optional(),
     candidateQuery: textQuerySchema.optional(),
+});
+exports.getCandidateDrawerContextSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    includeEmailThreads: zod_1.z.boolean().optional().default(true),
+    includeActivities: zod_1.z.boolean().optional().default(true),
+    includeAnnotations: zod_1.z.boolean().optional().default(true),
+});
+exports.getCandidateDrawerOverviewSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerResumeSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerAiReviewSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerNotesSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerQuestionnaireSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerAnnotationsSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerMeetingsSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerEmailsSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    includeThreads: zod_1.z.boolean().optional().default(true),
+});
+exports.getCandidateDrawerTasksSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+});
+exports.getCandidateDrawerActivitySchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    limit: zod_1.z.number().int().min(1).max(300).optional().default(200),
+});
+exports.updateCandidateStageSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    stage: zod_1.z.nativeEnum(client_1.ApplicationStage),
+    reason: zod_1.z.string().trim().max(300).optional(),
+});
+exports.addCandidateNoteSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    content: zod_1.z.string().trim().min(1).max(4000),
+    mentions: zod_1.z.array(uuidSchema).optional().default([]),
+    noteType: zod_1.z.enum(['general', 'questionnaire', 'annotation', 'interview']).optional().default('general'),
+});
+exports.scheduleCandidateInterviewSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    scheduledDate: zod_1.z.string().datetime().describe('Interview start datetime in ISO 8601 format'),
+    duration: zod_1.z.number().int().min(15).max(240).optional().default(60),
+    type: zod_1.z.nativeEnum(client_1.VideoInterviewType).optional().default(client_1.VideoInterviewType.VIDEO),
+    interviewerIds: zod_1.z.array(uuidSchema).optional().default([]),
+    notes: zod_1.z.string().trim().max(2000).optional(),
+    useMeetLink: zod_1.z.boolean().optional().default(false),
+});
+exports.addInterviewNoteSchema = zod_1.z.object({
+    applicationId: uuidSchema.optional(),
+    interviewId: uuidSchema,
+    content: zod_1.z.string().trim().min(1).max(2000),
+});
+exports.sendCandidateEmailToolSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    subject: zod_1.z.string().trim().min(1).max(300),
+    body: zod_1.z.string().trim().min(1).max(25000),
+    cc: zod_1.z.array(zod_1.z.string().trim().email()).optional().default([]),
+});
+exports.createCandidateTaskToolSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    title: zod_1.z.string().trim().min(1).max(300),
+    description: zod_1.z.string().trim().max(4000).optional(),
+    status: zod_1.z.nativeEnum(client_1.TaskStatus).optional().default(client_1.TaskStatus.PENDING),
+    priority: zod_1.z.nativeEnum(client_1.TaskPriority).optional().default(client_1.TaskPriority.MEDIUM),
+    type: zod_1.z.string().trim().max(100).optional(),
+    assignedTo: uuidSchema.optional(),
+    dueDate: zod_1.z.string().datetime().optional(),
+});
+exports.addTaskNoteToolSchema = zod_1.z.object({
+    applicationId: uuidSchema,
+    taskId: uuidSchema,
+    note: zod_1.z.string().trim().min(1).max(2000),
 });
 exports.getAssessmentResultsSchema = zod_1.z.object({
     applicationId: uuidSchema,
@@ -208,7 +455,7 @@ exports.getLicenseeLeaderboardSchema = zod_1.z.object({
  * Get comprehensive candidate overview with all related data
  */
 async function getCandidateCompleteOverview(args, actor) {
-    const { candidateQuery, includeAssessments, includeInterviews, includeOffers } = exports.getCandidateCompleteOverviewSchema.parse(args);
+    const { candidateQuery, applicationId, includeAssessments, includeInterviews, includeOffers } = exports.getCandidateCompleteOverviewSchema.parse(args);
     // Build scope filters
     let applicationScopeWhere = {};
     if (actor.actorType === 'COMPANY_USER') {
@@ -230,32 +477,57 @@ async function getCandidateCompleteOverview(args, actor) {
             };
         }
     }
+    let candidateIdFromApplication;
+    if (applicationId) {
+        const scopedApplication = await prisma_1.prisma.application.findFirst({
+            where: {
+                id: applicationId,
+                ...applicationScopeWhere,
+            },
+            select: {
+                id: true,
+                candidate_id: true,
+            },
+        });
+        if (!scopedApplication) {
+            return { found: false, reason: 'Application not found in your access scope.' };
+        }
+        candidateIdFromApplication = scopedApplication.candidate_id;
+    }
+    if (!candidateQuery && !candidateIdFromApplication) {
+        return { found: false, reason: 'Please provide candidateQuery or applicationId.' };
+    }
     // Find candidate
     const candidate = await prisma_1.prisma.candidate.findFirst({
         where: {
             OR: [
-                { id: candidateQuery },
-                { email: { equals: candidateQuery, mode: 'insensitive' } },
-                {
-                    AND: candidateQuery.includes(' ')
-                        ? candidateQuery
-                            .split(' ')
-                            .slice(0, 2)
-                            .map((part) => ({
-                            OR: [
-                                { first_name: { contains: part, mode: 'insensitive' } },
-                                { last_name: { contains: part, mode: 'insensitive' } },
-                            ],
-                        }))
-                        : [
-                            {
-                                OR: [
-                                    { first_name: { contains: candidateQuery, mode: 'insensitive' } },
-                                    { last_name: { contains: candidateQuery, mode: 'insensitive' } },
+                ...(candidateIdFromApplication ? [{ id: candidateIdFromApplication }] : []),
+                ...(candidateQuery
+                    ? [
+                        { id: candidateQuery },
+                        { email: { equals: candidateQuery, mode: 'insensitive' } },
+                        {
+                            AND: candidateQuery.includes(' ')
+                                ? candidateQuery
+                                    .split(' ')
+                                    .slice(0, 2)
+                                    .map((part) => ({
+                                    OR: [
+                                        { first_name: { contains: part, mode: 'insensitive' } },
+                                        { last_name: { contains: part, mode: 'insensitive' } },
+                                    ],
+                                }))
+                                : [
+                                    {
+                                        OR: [
+                                            { first_name: { contains: candidateQuery, mode: 'insensitive' } },
+                                            { last_name: { contains: candidateQuery, mode: 'insensitive' } },
+                                        ],
+                                    },
                                 ],
-                            },
-                        ],
-                },
+                        },
+                    ]
+                    : []),
             ],
             applications: { some: applicationScopeWhere },
         },
@@ -853,6 +1125,704 @@ async function getInterviewDetails(args, actor) {
             duration: vi.duration,
             feedbackCount: vi.interview_feedback.length,
         })),
+    };
+}
+/**
+ * Shared loader for candidate drawer context
+ */
+async function getDrawerApplicationCore(actor, applicationId) {
+    const scoped = await getCompanyScopedApplication(actor, applicationId);
+    const application = await prisma_1.prisma.application.findUnique({
+        where: { id: scoped.id },
+        include: {
+            candidate: {
+                select: {
+                    id: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone: true,
+                    city: true,
+                    state: true,
+                    country: true,
+                    linked_in_url: true,
+                    skills: true,
+                    education: true,
+                    work_experience: true,
+                    resumes: {
+                        orderBy: [{ is_default: 'desc' }, { uploaded_at: 'desc' }],
+                        take: 2,
+                    },
+                },
+            },
+            job: {
+                select: {
+                    id: true,
+                    title: true,
+                    job_code: true,
+                    status: true,
+                    company_id: true,
+                    company: { select: { id: true, name: true } },
+                },
+            },
+        },
+    });
+    if (!application || !application.candidate || !application.job) {
+        throw new Error('Application context not found.');
+    }
+    const resume = application.candidate.resumes?.[0] || null;
+    const notes = parseApplicationNotes(application.recruiter_notes);
+    return { application, resume, notes };
+}
+/**
+ * Drawer Overview panel
+ */
+async function getCandidateDrawerOverview(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerOverviewSchema.parse(args);
+    const { application } = await getDrawerApplicationCore(actor, applicationId);
+    return {
+        found: true,
+        scope: {
+            applicationId: application.id,
+            jobId: application.job_id,
+            candidateId: application.candidate_id,
+        },
+        candidate: {
+            id: application.candidate.id,
+            name: `${application.candidate.first_name || ''} ${application.candidate.last_name || ''}`.trim(),
+            email: application.candidate.email,
+            phone: application.candidate.phone,
+            location: [application.candidate.city, application.candidate.state, application.candidate.country].filter(Boolean).join(', '),
+            linkedIn: application.candidate.linked_in_url,
+        },
+        application: {
+            id: application.id,
+            status: application.status,
+            stage: application.stage,
+            score: application.score,
+            rank: application.rank,
+            appliedDate: application.applied_date,
+            updatedAt: application.updated_at,
+            shortlisted: application.shortlisted,
+        },
+        job: {
+            id: application.job.id,
+            title: application.job.title,
+            code: application.job.job_code,
+            status: application.job.status,
+            company: application.job.company?.name,
+        },
+    };
+}
+/**
+ * Drawer Resume panel
+ */
+async function getCandidateDrawerResume(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerResumeSchema.parse(args);
+    const { application, resume } = await getDrawerApplicationCore(actor, applicationId);
+    return {
+        found: true,
+        scope: { applicationId: application.id, candidateId: application.candidate_id },
+        resume: resume
+            ? {
+                id: resume.id,
+                fileName: resume.file_name,
+                fileUrl: resume.file_url,
+                content: resume.content || '',
+                uploadedAt: resume.uploaded_at,
+            }
+            : null,
+        profileSignals: {
+            skills: application.candidate.skills || [],
+            education: application.candidate.education || [],
+            workExperience: application.candidate.work_experience || [],
+        },
+    };
+}
+/**
+ * Drawer AI Review panel
+ */
+async function getCandidateDrawerAiReview(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerAiReviewSchema.parse(args);
+    const { application } = await getDrawerApplicationCore(actor, applicationId);
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        aiAnalysis: application.ai_analysis,
+        score: application.score,
+        screeningStatus: application.screening_status,
+        automatedScreeningScore: application.automated_screening_score,
+        manualScreeningStatus: application.manual_screening_status,
+    };
+}
+/**
+ * Drawer Notes panel
+ */
+async function getCandidateDrawerNotes(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerNotesSchema.parse(args);
+    const { application, notes } = await getDrawerApplicationCore(actor, applicationId);
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        notes,
+        count: notes.length,
+    };
+}
+/**
+ * Drawer Questionnaire panel
+ */
+async function getCandidateDrawerQuestionnaire(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerQuestionnaireSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const [data, responses] = await Promise.all([
+        prisma_1.prisma.application.findUnique({
+            where: { id: application.id },
+            select: {
+                id: true,
+                questionnaire_data: true,
+                custom_answers: true,
+            },
+        }),
+        prisma_1.prisma.questionnaireResponse.findMany({
+            where: { application_id: application.id },
+            orderBy: { submitted_at: 'desc' },
+        }),
+    ]);
+    if (!data) {
+        return { found: false, reason: 'Application not found in your company scope.' };
+    }
+    return {
+        found: true,
+        scope: { applicationId: data.id },
+        questionnaireData: data.questionnaire_data,
+        customAnswers: data.custom_answers,
+        responses,
+    };
+}
+/**
+ * Drawer Annotation panel
+ */
+async function getCandidateDrawerAnnotations(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerAnnotationsSchema.parse(args);
+    const { application, resume } = await getDrawerApplicationCore(actor, applicationId);
+    if (!resume) {
+        return {
+            found: true,
+            scope: { applicationId: application.id },
+            resumeId: null,
+            annotations: [],
+            count: 0,
+        };
+    }
+    const annotations = await prisma_1.prisma.resumeAnnotation.findMany({
+        where: { resume_id: resume.id },
+        orderBy: { created_at: 'asc' },
+    });
+    return {
+        found: true,
+        scope: { applicationId: application.id, resumeId: resume.id },
+        annotations,
+        count: annotations.length,
+    };
+}
+/**
+ * Drawer Meetings/Interviews panel
+ */
+async function getCandidateDrawerMeetings(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerMeetingsSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const interviews = await prisma_1.prisma.videoInterview.findMany({
+        where: { application_id: application.id },
+        include: {
+            interview_notes: {
+                orderBy: { created_at: 'desc' },
+            },
+            interview_feedback: true,
+            job_round: { select: { id: true, name: true } },
+        },
+        orderBy: { scheduled_date: 'desc' },
+    });
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        interviews,
+        count: interviews.length,
+    };
+}
+/**
+ * Drawer Email panel
+ */
+async function getCandidateDrawerEmails(args, actor) {
+    const { applicationId, includeThreads } = exports.getCandidateDrawerEmailsSchema.parse(args);
+    const { application } = await getDrawerApplicationCore(actor, applicationId);
+    const [emailLogs, gmailThreads] = await Promise.all([
+        communicationService.getEmailLogs(application.id),
+        includeThreads && application.candidate.email
+            ? gmail_service_1.gmailService
+                .getThreadsForCandidate(actor.userId, application.job.company_id, application.candidate.email)
+                .catch(() => [])
+            : Promise.resolve([]),
+    ]);
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        gmailThreads,
+        emailLogs,
+        gmailConnected: gmailThreads.length > 0,
+    };
+}
+/**
+ * Drawer Task panel
+ */
+async function getCandidateDrawerTasks(args, actor) {
+    const { applicationId } = exports.getCandidateDrawerTasksSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const tasks = await application_task_service_1.ApplicationTaskService.getTasks(application.id);
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        tasks,
+        taskNotes: tasks.map((task) => ({
+            taskId: task.id,
+            title: task.title,
+            note: task.description || '',
+        })),
+        count: tasks.length,
+    };
+}
+/**
+ * Drawer Activity panel
+ */
+async function getCandidateDrawerActivity(args, actor) {
+    const { applicationId, limit } = exports.getCandidateDrawerActivitySchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const activity = await application_activity_service_1.ApplicationActivityService.list(application.id, limit);
+    return {
+        found: true,
+        scope: { applicationId: application.id },
+        activity,
+        count: activity.length,
+    };
+}
+/**
+ * Get full context data for candidate assessment drawer
+ */
+async function getCandidateDrawerContext(args, actor) {
+    const { applicationId, includeEmailThreads, includeActivities, includeAnnotations } = exports.getCandidateDrawerContextSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const fullApplication = await prisma_1.prisma.application.findFirst({
+        where: {
+            id: application.id,
+        },
+        include: {
+            candidate: {
+                select: {
+                    id: true,
+                    first_name: true,
+                    last_name: true,
+                    email: true,
+                    phone: true,
+                    city: true,
+                    state: true,
+                    country: true,
+                    linked_in_url: true,
+                    skills: true,
+                    education: true,
+                    work_experience: true,
+                    resumes: {
+                        orderBy: [{ is_default: 'desc' }, { uploaded_at: 'desc' }],
+                        take: 2,
+                    },
+                },
+            },
+            job: {
+                select: {
+                    id: true,
+                    title: true,
+                    job_code: true,
+                    status: true,
+                    company_id: true,
+                    company: { select: { id: true, name: true } },
+                },
+            },
+            video_interview: {
+                include: {
+                    interview_notes: {
+                        orderBy: { created_at: 'desc' },
+                    },
+                },
+                orderBy: { scheduled_date: 'desc' },
+            },
+        },
+    });
+    if (!fullApplication) {
+        return { found: false, reason: 'Application not found in your company scope.' };
+    }
+    const resume = fullApplication.candidate?.resumes?.[0] || null;
+    const [tasks, activities, emailLogs, annotations, gmailThreads] = await Promise.all([
+        application_task_service_1.ApplicationTaskService.getTasks(fullApplication.id),
+        includeActivities ? application_activity_service_1.ApplicationActivityService.list(fullApplication.id, 200) : Promise.resolve([]),
+        communicationService.getEmailLogs(fullApplication.id),
+        includeAnnotations && resume
+            ? prisma_1.prisma.resumeAnnotation.findMany({
+                where: { resume_id: resume.id },
+                orderBy: { created_at: 'asc' },
+            })
+            : Promise.resolve([]),
+        includeEmailThreads && fullApplication.candidate?.email
+            ? gmail_service_1.gmailService
+                .getThreadsForCandidate(actor.userId, fullApplication.job.company_id, fullApplication.candidate.email)
+                .catch(() => [])
+            : Promise.resolve([]),
+    ]);
+    const notes = parseApplicationNotes(fullApplication.recruiter_notes);
+    return {
+        found: true,
+        scope: {
+            applicationId: fullApplication.id,
+            jobId: fullApplication.job_id,
+            candidateId: fullApplication.candidate_id,
+        },
+        candidate: {
+            id: fullApplication.candidate?.id,
+            name: `${fullApplication.candidate?.first_name || ''} ${fullApplication.candidate?.last_name || ''}`.trim(),
+            email: fullApplication.candidate?.email,
+            phone: fullApplication.candidate?.phone,
+            location: [fullApplication.candidate?.city, fullApplication.candidate?.state, fullApplication.candidate?.country]
+                .filter(Boolean)
+                .join(', '),
+            linkedIn: fullApplication.candidate?.linked_in_url,
+            resume: resume
+                ? {
+                    id: resume.id,
+                    fileName: resume.file_name,
+                    fileUrl: resume.file_url,
+                    content: resume.content || '',
+                    uploadedAt: resume.uploaded_at,
+                }
+                : null,
+            skills: fullApplication.candidate?.skills || [],
+            education: fullApplication.candidate?.education || [],
+            workExperience: fullApplication.candidate?.work_experience || [],
+        },
+        application: {
+            id: fullApplication.id,
+            status: fullApplication.status,
+            stage: fullApplication.stage,
+            score: fullApplication.score,
+            aiAnalysis: fullApplication.ai_analysis,
+            appliedDate: fullApplication.applied_date,
+            updatedAt: fullApplication.updated_at,
+            notes,
+        },
+        job: {
+            id: fullApplication.job.id,
+            title: fullApplication.job.title,
+            code: fullApplication.job.job_code,
+            status: fullApplication.job.status,
+            company: fullApplication.job.company?.name,
+        },
+        annotations,
+        interviews: fullApplication.video_interview,
+        meetings: fullApplication.video_interview.map((item) => ({
+            id: item.id,
+            type: item.type,
+            status: item.status,
+            scheduledDate: item.scheduled_date,
+            duration: item.duration,
+            notes: item.notes,
+            interviewNotes: item.interview_notes,
+        })),
+        tasks,
+        taskNotes: tasks.map((task) => ({
+            taskId: task.id,
+            title: task.title,
+            note: task.description || '',
+        })),
+        activity: activities,
+        emails: {
+            gmailThreads,
+            emailLogs,
+            gmailConnected: gmailThreads.length > 0,
+        },
+        summary: {
+            notesCount: notes.length,
+            annotationCount: annotations.length,
+            meetingsCount: fullApplication.video_interview.length,
+            taskCount: tasks.length,
+            emailLogCount: emailLogs.length,
+            activityCount: activities.length,
+        },
+    };
+}
+/**
+ * Update candidate stage for an application
+ */
+async function updateCandidateStage(args, actor) {
+    const { applicationId, stage, reason } = exports.updateCandidateStageSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    if (application.stage === stage) {
+        return {
+            success: true,
+            noChange: true,
+            message: `Candidate is already in ${stage}.`,
+            applicationId: application.id,
+            stage: application.stage,
+            status: application.status,
+        };
+    }
+    const mappedStatus = STAGE_TO_STATUS_MAP[stage] || application.status;
+    const updated = await prisma_1.prisma.application.update({
+        where: { id: application.id },
+        data: {
+            stage,
+            status: mappedStatus,
+        },
+        select: {
+            id: true,
+            stage: true,
+            status: true,
+            updated_at: true,
+        },
+    });
+    await application_activity_service_1.ApplicationActivityService.logSafe({
+        applicationId: application.id,
+        actorId: actor.userId,
+        actorType: mapActorTypeForActivity(actor),
+        action: 'stage_changed',
+        subject: 'Candidate stage changed',
+        description: reason
+            ? `Stage changed from ${application.stage} to ${stage}. Reason: ${reason}`
+            : `Stage changed from ${application.stage} to ${stage}`,
+        metadata: {
+            previousStage: application.stage,
+            newStage: stage,
+            previousStatus: application.status,
+            newStatus: mappedStatus,
+            reason,
+            source: 'assistant_tool',
+        },
+    });
+    return {
+        success: true,
+        message: `Moved candidate to ${updated.stage}.`,
+        applicationId: updated.id,
+        previousStage: application.stage,
+        stage: updated.stage,
+        status: updated.status,
+        updatedAt: updated.updated_at,
+    };
+}
+/**
+ * Add note to candidate application
+ */
+async function addCandidateNote(args, actor) {
+    const { applicationId, content, mentions, noteType } = exports.addCandidateNoteSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const author = await getCompanyUserInfo(actor.userId);
+    const existingNotes = parseApplicationNotes(application.recruiter_notes);
+    const note = {
+        id: crypto.randomUUID(),
+        content,
+        mentions,
+        noteType,
+        source: 'assistant_tool',
+        createdAt: new Date().toISOString(),
+        author,
+    };
+    const nextNotes = [...existingNotes, note];
+    await prisma_1.prisma.application.update({
+        where: { id: application.id },
+        data: {
+            recruiter_notes: JSON.stringify(nextNotes),
+        },
+    });
+    await application_activity_service_1.ApplicationActivityService.logSafe({
+        applicationId: application.id,
+        actorId: actor.userId,
+        actorType: mapActorTypeForActivity(actor),
+        action: 'note_added',
+        subject: 'Application note added',
+        description: `Added ${noteType} note via assistant`,
+        metadata: {
+            noteId: note.id,
+            mentions,
+            noteType,
+            source: 'assistant_tool',
+        },
+    });
+    return {
+        success: true,
+        message: 'Note added to candidate application.',
+        applicationId: application.id,
+        note,
+        totalNotes: nextNotes.length,
+    };
+}
+/**
+ * Schedule interview for candidate
+ */
+async function scheduleCandidateInterview(args, actor) {
+    const { applicationId, scheduledDate, duration, type, interviewerIds, notes, useMeetLink } = exports.scheduleCandidateInterviewSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const interviewDate = new Date(scheduledDate);
+    if (Number.isNaN(interviewDate.getTime())) {
+        throw new Error('Invalid scheduledDate. Use ISO datetime format.');
+    }
+    const interview = await interview_service_1.InterviewService.createInterview({
+        applicationId: application.id,
+        scheduledBy: actor.userId,
+        scheduledDate: interviewDate,
+        duration,
+        type,
+        interviewerIds,
+        notes,
+        useMeetLink,
+        companyId: application.job.company_id,
+    });
+    await application_activity_service_1.ApplicationActivityService.logSafe({
+        applicationId: application.id,
+        actorId: actor.userId,
+        actorType: mapActorTypeForActivity(actor),
+        action: 'interview_scheduled',
+        subject: 'Interview scheduled',
+        description: `${type} interview scheduled for ${interviewDate.toISOString()}`,
+        metadata: {
+            interviewId: interview.id,
+            type,
+            duration,
+            scheduledDate: interviewDate.toISOString(),
+            interviewerIds,
+            useMeetLink,
+            source: 'assistant_tool',
+        },
+    });
+    return {
+        success: true,
+        message: 'Interview scheduled successfully.',
+        interview: {
+            id: interview.id,
+            applicationId: application.id,
+            type: interview.type,
+            status: interview.status,
+            scheduledDate: interview.scheduled_date,
+            duration: interview.duration,
+            meetingLink: interview.meeting_link,
+            meetLinkError: interview._meetLinkError || null,
+        },
+    };
+}
+/**
+ * Add note to an interview
+ */
+async function addInterviewNote(args, actor) {
+    const { applicationId, interviewId, content } = exports.addInterviewNoteSchema.parse(args);
+    const interview = await getCompanyScopedInterview(actor, interviewId);
+    if (applicationId && interview.application_id !== applicationId) {
+        throw new Error('Interview does not belong to the current candidate context.');
+    }
+    const author = await getCompanyUserInfo(actor.userId);
+    const note = await prisma_1.prisma.interviewNote.create({
+        data: {
+            interview_id: interview.id,
+            author_id: author.id,
+            author_name: author.name,
+            content,
+        },
+    });
+    await application_activity_service_1.ApplicationActivityService.logSafe({
+        applicationId: interview.application_id,
+        actorId: actor.userId,
+        actorType: mapActorTypeForActivity(actor),
+        action: 'interview_note_added',
+        subject: 'Interview note added',
+        description: `${author.name} added an interview note via assistant`,
+        metadata: {
+            interviewId: interview.id,
+            noteId: note.id,
+            source: 'assistant_tool',
+        },
+    });
+    return {
+        success: true,
+        message: 'Interview note added.',
+        note: {
+            id: note.id,
+            interviewId: note.interview_id,
+            content: note.content,
+            authorName: note.author_name,
+            createdAt: note.created_at,
+        },
+    };
+}
+/**
+ * Send email to candidate for an application
+ */
+async function sendCandidateEmailTool(args, actor) {
+    const { applicationId, subject, body, cc } = exports.sendCandidateEmailToolSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const result = await communicationService.sendCandidateEmail({
+        applicationId: application.id,
+        userId: actor.userId,
+        subject,
+        body,
+        cc,
+    });
+    return {
+        success: true,
+        message: 'Email sent to candidate.',
+        applicationId: application.id,
+        emailLog: result.emailLog,
+        needsReconnect: result.needsReconnect || false,
+    };
+}
+/**
+ * Create candidate task in application context
+ */
+async function createCandidateTaskTool(args, actor) {
+    const { applicationId, title, description, status, priority, type, assignedTo, dueDate } = exports.createCandidateTaskToolSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const task = await application_task_service_1.ApplicationTaskService.createTask({
+        applicationId: application.id,
+        createdBy: actor.userId,
+        title,
+        description,
+        status,
+        priority,
+        type,
+        assignedTo,
+        dueDate: dueDate ? new Date(dueDate) : undefined,
+    });
+    return {
+        success: true,
+        message: 'Task created.',
+        task,
+    };
+}
+/**
+ * Add note to task by appending to task description
+ */
+async function addTaskNoteTool(args, actor) {
+    const { applicationId, taskId, note } = exports.addTaskNoteToolSchema.parse(args);
+    const application = await getCompanyScopedApplication(actor, applicationId);
+    const task = await prisma_1.prisma.applicationTask.findFirst({
+        where: {
+            id: taskId,
+            application_id: application.id,
+        },
+    });
+    if (!task) {
+        throw new Error('Task not found in current candidate context.');
+    }
+    const stamp = new Date().toISOString();
+    const appended = `${task.description ? `${task.description}\n\n` : ''}[${stamp}] ${note}`;
+    const updated = await application_task_service_1.ApplicationTaskService.updateTask(task.id, {
+        description: appended,
+    }, actor.userId);
+    return {
+        success: true,
+        message: 'Task note added.',
+        task: updated,
     };
 }
 /**

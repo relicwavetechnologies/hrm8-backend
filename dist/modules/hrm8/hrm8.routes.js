@@ -66,12 +66,13 @@ router.get('/audit-logs', hrm8_auth_middleware_1.authenticateHrm8, auditLogContr
 router.get('/audit-logs/stats', hrm8_auth_middleware_1.authenticateHrm8, auditLogController.getStats);
 router.get('/audit-logs/:entityType/:entityId', hrm8_auth_middleware_1.authenticateHrm8, auditLogController.getByEntity);
 // Commission Routes
-router.get('/commissions', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.getAll);
+router.get('/commissions', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getAll);
 router.post('/commissions', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.create);
 router.post('/commissions/pay', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.processPayments);
 router.get('/commissions/regional', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getRegional);
 router.get('/commissions/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getById);
-router.put('/commissions/:id/confirm', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.confirm);
+router.get('/commissions/:id/review-context', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.getReviewContext);
+router.put('/commissions/:id/confirm', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), commissionController.confirm);
 router.put('/commissions/:id/pay', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.markAsPaid);
 router.put('/commissions/:id/dispute', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.dispute);
 router.put('/commissions/:id/resolve', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), commissionController.resolveDispute);
@@ -121,11 +122,21 @@ router.post('/licensees/:id/reactivate', hrm8_auth_middleware_1.authenticateHrm8
 router.post('/licensees/:id/terminate', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), regionalLicenseeController.terminate);
 router.get('/licensees/:id/impact-preview', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), regionalLicenseeController.getImpactPreview);
 // Company Routes
-router.get('/companies/:id', hrm8_auth_middleware_1.authenticateHrm8, regionalCompanyController.getById);
-router.get('/companies/:id/jobs', hrm8_auth_middleware_1.authenticateHrm8, regionalCompanyController.getCompanyJobs);
+router.get('/companies', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getAll);
+router.get('/companies/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getById);
+router.get('/companies/:id/overview', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getOverview);
+router.get('/companies/:id/activity', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getActivity);
+router.get('/companies/:id/users', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getCompanyUsers);
+router.get('/companies/:id/jobs', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getCompanyJobs);
+router.get('/companies/:id/pricing-context', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getPricingContext);
+router.get('/companies/:id/pricing-overrides', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getPricingOverrides);
+router.post('/companies/:id/pricing-overrides', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), regionalCompanyController.createPricingOverride);
+router.put('/companies/:id/pricing-overrides/:overrideId/activate', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), regionalCompanyController.activatePricingOverride);
+router.put('/companies/:id/pricing-overrides/:overrideId/deactivate', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), regionalCompanyController.deactivatePricingOverride);
 // Lead Conversion Routes
 router.get('/conversion-requests', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getAll);
 router.get('/conversion-requests/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getOne);
+router.get('/conversion-requests/:id/review-context', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getReviewContext);
 router.put('/conversion-requests/:id/approve', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), leadConversionController.approve);
 router.put('/conversion-requests/:id/decline', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), leadConversionController.decline);
 // Careers Request Routes
@@ -153,6 +164,10 @@ router.post('/pricing/promo-codes', hrm8_auth_middleware_1.authenticateHrm8, (0,
 router.put('/pricing/promo-codes/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), pricingController.updatePromoCode);
 router.delete('/pricing/promo-codes/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), pricingController.deletePromoCode);
 router.post('/pricing/promo-codes/validate', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), pricingController.validatePromoCode);
+router.get('/pricing/country-map', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), pricingController.getCountryPricingMap);
+router.post('/pricing/country-map', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), pricingController.createCountryPricingMap);
+router.put('/pricing/country-map/:id', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), pricingController.updateCountryPricingMap);
+router.put('/pricing/country-map/:id/toggle', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), pricingController.toggleCountryPricingMap);
 // Region Routes
 router.get('/regions', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getAll);
 router.get('/regions/overview', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getOverview);
@@ -204,10 +219,10 @@ router.get('/revenue/analytics/company-breakdown', hrm8_auth_middleware_1.authen
 router.get('/revenue/dashboard', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getDashboard);
 router.get('/revenue/summary', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), revenueController.getSummary);
 // Withdrawal Routes
-router.get('/admin/billing/withdrawals', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), withdrawalController.getPendingWithdrawals);
-router.post('/admin/billing/withdrawals/:id/approve', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), withdrawalController.approve);
-router.post('/admin/billing/withdrawals/:id/reject', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), withdrawalController.reject);
-router.post('/admin/billing/withdrawals/:id/process', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN']), withdrawalController.processPayment);
+router.get('/admin/billing/withdrawals', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.getPendingWithdrawals);
+router.post('/admin/billing/withdrawals/:id/approve', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.approve);
+router.post('/admin/billing/withdrawals/:id/reject', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.reject);
+router.post('/admin/billing/withdrawals/:id/process', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), withdrawalController.processPayment);
 // Settlement Routes
 router.get('/admin/billing/settlements', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), settlementController.getAll);
 router.get('/admin/billing/settlements/stats', hrm8_auth_middleware_1.authenticateHrm8, (0, hrm8_auth_middleware_2.requireHrm8Role)(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), settlementController.getStats);

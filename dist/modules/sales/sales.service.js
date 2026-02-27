@@ -7,6 +7,7 @@ const http_exception_1 = require("../../core/http-exception");
 const sales_validators_1 = require("./sales.validators");
 const prisma_1 = require("../../utils/prisma");
 const notification_service_singleton_1 = require("../notification/notification-service-singleton");
+const conversion_intent_util_1 = require("./conversion-intent.util");
 class SalesService extends service_1.BaseService {
     constructor(salesRepository) {
         super();
@@ -234,8 +235,12 @@ class SalesService extends service_1.BaseService {
         if (!consultant?.region_id) {
             throw new http_exception_1.HttpException(400, 'Consultant does not have an assigned region');
         }
-        // Use lead data for company/contact info – form only sends agentNotes and tempPassword
-        return this.salesRepository.createConversionRequest({
+        const normalizedIntentSnapshot = (0, conversion_intent_util_1.normalizeConversionIntentSnapshot)(data?.intentSnapshot ?? data?.intent_snapshot);
+        const baseAgentNotes = data.agentNotes || data.notes || null;
+        const serializedIntentSnapshot = normalizedIntentSnapshot
+            ? `\n\n[Intent Snapshot]\n${JSON.stringify(normalizedIntentSnapshot)}`
+            : '';
+        const createPayload = {
             lead: { connect: { id: leadId } },
             consultant: { connect: { id: consultantId } },
             region: { connect: { id: consultant.region_id } },
@@ -246,10 +251,15 @@ class SalesService extends service_1.BaseService {
             country: lead.country,
             city: lead.city || null,
             state_province: lead.state_province || null,
-            agent_notes: data.agentNotes || data.notes || null,
+            intent_snapshot: normalizedIntentSnapshot || undefined,
+            // Keep snapshot in notes as backward-compatible fallback for environments
+            // where intent_snapshot is not yet available.
+            agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
             temp_password: data.tempPassword || null,
             status: 'PENDING'
-        });
+        };
+        // Use lead data for company/contact info – form only sends agentNotes and tempPassword
+        return this.salesRepository.createConversionRequest(createPayload);
     }
     // --- Conversion Requests ---
     async getConversionRequests(consultantId) {

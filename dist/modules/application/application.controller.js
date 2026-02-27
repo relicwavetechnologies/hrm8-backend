@@ -97,6 +97,19 @@ class ApplicationController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        // Get ALL applications for the authenticated user's company (used by Candidates sidebar tab)
+        this.getCompanyApplications = async (req, res) => {
+            try {
+                if (!req.user?.companyId) {
+                    return this.sendError(res, new Error('Unauthorized'), 401);
+                }
+                const result = await this.applicationService.getCompanyApplications(req.user.companyId);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         // Get job applications (CRITICAL for /ats/jobs page)
         this.getJobApplications = async (req, res) => {
             try {
@@ -128,7 +141,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (typeof score !== 'number') {
                     return this.sendError(res, new Error('Score must be a number'), 400);
                 }
-                const application = await this.applicationService.updateScore(id, score);
+                const application = await this.applicationService.updateScore(id, score, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -143,7 +156,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (typeof rank !== 'number') {
                     return this.sendError(res, new Error('Rank must be a number'), 400);
                 }
-                const application = await this.applicationService.updateRank(id, rank);
+                const application = await this.applicationService.updateRank(id, rank, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -158,7 +171,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (!Array.isArray(tags)) {
                     return this.sendError(res, new Error('Tags must be an array'), 400);
                 }
-                const application = await this.applicationService.updateTags(id, tags);
+                const application = await this.applicationService.updateTags(id, tags, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -183,7 +196,7 @@ class ApplicationController extends controller_1.BaseController {
         this.unshortlistCandidate = async (req, res) => {
             try {
                 const { id } = req.params;
-                const application = await this.applicationService.unshortlistCandidate(id);
+                const application = await this.applicationService.unshortlistCandidate(id, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -198,7 +211,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (!stage) {
                     return this.sendError(res, new Error('Stage is required'), 400);
                 }
-                const application = await this.applicationService.updateStage(id, stage);
+                const application = await this.applicationService.updateStage(id, stage, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -213,7 +226,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (typeof notes !== 'string') {
                     return this.sendError(res, new Error('Notes must be a string'), 400);
                 }
-                const application = await this.applicationService.updateNotes(id, notes);
+                const application = await this.applicationService.updateNotes(id, notes, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -257,7 +270,7 @@ class ApplicationController extends controller_1.BaseController {
         this.markAsRead = async (req, res) => {
             try {
                 const { id } = req.params;
-                const application = await this.applicationService.markAsRead(id);
+                const application = await this.applicationService.markAsRead(id, req.user?.id);
                 return this.sendSuccess(res, { application });
             }
             catch (error) {
@@ -283,7 +296,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (!Array.isArray(applicationIds) || !scores) {
                     return this.sendError(res, new Error('Application IDs array and scores object are required'), 400);
                 }
-                const updatedCount = await this.applicationService.bulkScoreCandidates(applicationIds, scores);
+                const updatedCount = await this.applicationService.bulkScoreCandidates(applicationIds, scores, req.user?.id);
                 return this.sendSuccess(res, { updatedCount, message: `${updatedCount} application(s) scored successfully` });
             }
             catch (error) {
@@ -297,7 +310,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (!Array.isArray(applicationIds) || !jobId) {
                     return this.sendError(res, new Error('Application IDs array and Job ID are required'), 400);
                 }
-                const result = await this.applicationService.bulkAiAnalysis(applicationIds, jobId);
+                const result = await this.applicationService.bulkAiAnalysis(applicationIds, jobId, req.user?.id);
                 return this.sendSuccess(res, {
                     ...result,
                     message: `Analysis completed: ${result.success} succeeded, ${result.failed} failed`
@@ -347,7 +360,7 @@ class ApplicationController extends controller_1.BaseController {
         this.updateManualScreening = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.applicationService.updateManualScreening(id, req.body);
+                const result = await this.applicationService.updateManualScreening(id, req.body, req.user?.id);
                 return this.sendSuccess(res, { application: result });
             }
             catch (error) {
@@ -396,7 +409,7 @@ class ApplicationController extends controller_1.BaseController {
                     }
                 }
                 else if (decision === 'REJECT') {
-                    await this.applicationService.updateStage(id, 'REJECTED');
+                    await this.applicationService.updateStage(id, 'REJECTED', req.user.id);
                 }
                 return this.sendSuccess(res, { evaluation });
             }
@@ -429,6 +442,37 @@ class ApplicationController extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        // Get unified activity logs for an application
+        this.getActivities = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id } = req.params;
+                const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 200;
+                const activities = await this.applicationService.getActivities(id, Number.isFinite(limit) ? limit : 200);
+                return this.sendSuccess(res, { activities });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // Generic event logger for future/unknown events
+        this.logGenericActivity = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id } = req.params;
+                const { eventName, payload } = req.body || {};
+                if (!eventName || typeof eventName !== 'string') {
+                    return this.sendError(res, new Error('eventName is required'), 400);
+                }
+                const result = await this.applicationService.logGenericActivity(id, req.user.id, eventName, payload);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         // Add a note with @mention support
         this.addNote = async (req, res) => {
             try {
@@ -452,7 +496,7 @@ class ApplicationController extends controller_1.BaseController {
                 if (!req.user)
                     throw new Error('Unauthorized');
                 const { id } = req.params;
-                const { scheduledDate, duration, type, interviewerIds, notes } = req.body;
+                const { scheduledDate, duration, type, interviewerIds, notes, useMeetLink } = req.body;
                 if (!scheduledDate || !duration || !type) {
                     return this.sendError(res, new Error('scheduledDate, duration, and type are required'), 400);
                 }
@@ -464,6 +508,8 @@ class ApplicationController extends controller_1.BaseController {
                     type,
                     interviewerIds: interviewerIds || [],
                     notes,
+                    useMeetLink,
+                    companyId: req.user.companyId,
                 });
                 return this.sendSuccess(res, { interview });
             }
@@ -491,7 +537,7 @@ class ApplicationController extends controller_1.BaseController {
                     throw new Error('Unauthorized');
                 const { id, interviewId } = req.params;
                 const updates = req.body;
-                const interview = await this.applicationService.updateInterview(interviewId, updates);
+                const interview = await this.applicationService.updateInterview(interviewId, updates, req.user.id);
                 return this.sendSuccess(res, { interview });
             }
             catch (error) {
@@ -505,7 +551,7 @@ class ApplicationController extends controller_1.BaseController {
                     throw new Error('Unauthorized');
                 const { id, interviewId } = req.params;
                 const { cancellationReason } = req.body;
-                const interview = await this.applicationService.cancelInterview(interviewId, cancellationReason);
+                const interview = await this.applicationService.cancelInterview(interviewId, cancellationReason, req.user.id);
                 return this.sendSuccess(res, { interview });
             }
             catch (error) {

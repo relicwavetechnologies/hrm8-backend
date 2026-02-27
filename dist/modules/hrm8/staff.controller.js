@@ -40,7 +40,7 @@ class StaffController extends controller_1.BaseController {
         this.getById = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.staffService.getById(id);
+                const result = await this.staffService.getById(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, { consultant: result });
             }
             catch (error) {
@@ -49,7 +49,7 @@ class StaffController extends controller_1.BaseController {
         };
         this.create = async (req, res) => {
             try {
-                const result = await this.staffService.create(req.body);
+                const result = await this.staffService.create(req.body, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, { consultant: result });
             }
             catch (error) {
@@ -59,7 +59,7 @@ class StaffController extends controller_1.BaseController {
         this.update = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.staffService.update(id, req.body);
+                const result = await this.staffService.update(id, req.body, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, { consultant: result });
             }
             catch (error) {
@@ -80,7 +80,7 @@ class StaffController extends controller_1.BaseController {
         this.suspend = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.staffService.suspend(id);
+                const result = await this.staffService.suspend(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -90,7 +90,7 @@ class StaffController extends controller_1.BaseController {
         this.reactivate = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.staffService.reactivate(id);
+                const result = await this.staffService.reactivate(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -121,7 +121,7 @@ class StaffController extends controller_1.BaseController {
             try {
                 const { id } = req.params;
                 const { targetConsultantId } = req.body;
-                const result = await this.staffService.reassignJobs(id, targetConsultantId);
+                const result = await this.staffService.reassignJobs(id, targetConsultantId, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -131,7 +131,7 @@ class StaffController extends controller_1.BaseController {
         this.getPendingTasks = async (req, res) => {
             try {
                 const { id } = req.params;
-                const result = await this.staffService.getPendingTasks(id);
+                const result = await this.staffService.getPendingTasks(id, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, result);
             }
             catch (error) {
@@ -141,8 +141,8 @@ class StaffController extends controller_1.BaseController {
         this.getReassignmentOptions = async (req, res) => {
             try {
                 const { id } = req.params;
-                const consultant = await this.staffService.getById(id);
-                const result = await this.staffService.getConsultantsForReassignment(id, consultant.role, consultant.regionId);
+                const consultant = await this.staffService.getById(id, this.getScopedRegionIds(req));
+                const result = await this.staffService.getConsultantsForReassignment(id, consultant.role, consultant.regionId, this.getScopedRegionIds(req));
                 return this.sendSuccess(res, { consultants: result });
             }
             catch (error) {
@@ -176,6 +176,12 @@ class StaffController extends controller_1.BaseController {
             }
         };
         this.staffService = new staff_service_1.StaffService(new staff_repository_1.StaffRepository());
+    }
+    getScopedRegionIds(req) {
+        if (req.hrm8User?.role !== 'REGIONAL_LICENSEE') {
+            return undefined;
+        }
+        return req.assignedRegionIds || [];
     }
 }
 exports.StaffController = StaffController;

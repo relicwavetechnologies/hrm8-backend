@@ -15,6 +15,8 @@ router.post('/bulk-score', auth_middleware_1.authenticate, applicationController
 router.post('/bulk-analyze', auth_middleware_1.authenticate, applicationController.bulkAiAnalysis);
 // Check if candidate has applied
 router.get('/check', unified_auth_middleware_1.authenticateUnified, applicationController.checkApplication);
+// Get ALL applications for the company (single bulk fetch for Candidates tab)
+router.get('/company', auth_middleware_1.authenticate, applicationController.getCompanyApplications);
 // Get job applications (CRITICAL for /ats/jobs page)
 router.get('/job/:jobId', auth_middleware_1.authenticate, applicationController.getJobApplications);
 // Get application count for job
@@ -30,6 +32,10 @@ router.put('/:id/manual-screening', auth_middleware_1.authenticate, applicationC
 // Single application operations - must come after specific routes
 router.get('/:id/resume', unified_auth_middleware_1.authenticateUnified, applicationController.getResume);
 router.get('/:id', unified_auth_middleware_1.authenticateUnified, applicationController.getApplication);
+router.get('/:id/activities', auth_middleware_1.authenticate, applicationController.getActivities);
+router.get('/:id/activity', auth_middleware_1.authenticate, applicationController.getActivities); // Compatibility alias
+router.post('/:id/activities/log', auth_middleware_1.authenticate, applicationController.logGenericActivity);
+router.post('/:id/activity/log', auth_middleware_1.authenticate, applicationController.logGenericActivity); // Compatibility alias
 router.put('/:id/round/:roundId', auth_middleware_1.authenticate, applicationController.moveToRound);
 router.put('/:id/score', auth_middleware_1.authenticate, applicationController.updateScore);
 router.put('/:id/rank', auth_middleware_1.authenticate, applicationController.updateRank);
@@ -48,9 +54,12 @@ router.get('/:id/evaluations', auth_middleware_1.authenticate, applicationContro
 router.post('/:id/calls', auth_middleware_1.authenticate, communicationController.logCall);
 router.get('/:id/calls', auth_middleware_1.authenticate, communicationController.getCallLogs);
 // Communication Routes - Email
+router.get('/:id/email-threads', auth_middleware_1.authenticate, communicationController.getGmailThreads);
 router.post('/:id/emails', auth_middleware_1.authenticate, communicationController.sendEmail);
 router.get('/:id/emails', auth_middleware_1.authenticate, communicationController.getEmailLogs);
 router.post('/:id/emails/generate', auth_middleware_1.authenticate, communicationController.generateEmailWithAI);
+router.post('/:id/email-reply', auth_middleware_1.authenticate, communicationController.replyEmail);
+router.post('/:id/email-reply/rewrite', auth_middleware_1.authenticate, communicationController.rewriteEmailReply);
 // Communication Routes - SMS
 router.post('/:id/sms', auth_middleware_1.authenticate, communicationController.sendSms);
 router.get('/:id/sms', auth_middleware_1.authenticate, communicationController.getSmsLogs);

@@ -180,7 +180,9 @@ class JobRepository extends repository_1.BaseRepository {
                             id: true,
                             name: true,
                             website: true,
-                            careers_page_logo: true
+                            domain: true,
+                            careers_page_logo: true,
+                            careers_page_about: true,
                         }
                     }
                 }
@@ -188,6 +190,47 @@ class JobRepository extends repository_1.BaseRepository {
             this.prisma.job.count({ where })
         ]);
         return { jobs, total };
+    }
+    async getPublicJobCountsByCompanyIds(companyIds) {
+        if (companyIds.length === 0)
+            return {};
+        const grouped = await this.prisma.job.groupBy({
+            by: ['company_id'],
+            where: {
+                company_id: { in: companyIds },
+                status: 'OPEN',
+                visibility: 'public',
+                archived: false,
+                posting_date: { not: null },
+                OR: [{ expires_at: null }, { expires_at: { gte: new Date() } }],
+            },
+            _count: {
+                company_id: true,
+            },
+        });
+        return grouped.reduce((acc, row) => {
+            acc[row.company_id] = row._count.company_id;
+            return acc;
+        }, {});
+    }
+    async getPublicCompanyJobFacets(companyId) {
+        const rows = await this.prisma.job.findMany({
+            where: {
+                company_id: companyId,
+                status: 'OPEN',
+                visibility: 'public',
+                archived: false,
+                posting_date: { not: null },
+                OR: [{ expires_at: null }, { expires_at: { gte: new Date() } }],
+            },
+            select: {
+                department: true,
+                location: true,
+            },
+        });
+        const departments = Array.from(new Set(rows.map((row) => row.department).filter((v) => !!v?.trim()))).sort((a, b) => a.localeCompare(b));
+        const locations = Array.from(new Set(rows.map((row) => row.location).filter((v) => !!v?.trim()))).sort((a, b) => a.localeCompare(b));
+        return { departments, locations };
     }
     async createJobAnalytics(data) {
         return this.prisma.jobAnalytics.create({ data });

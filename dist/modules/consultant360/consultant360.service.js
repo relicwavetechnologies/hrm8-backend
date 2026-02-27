@@ -37,10 +37,38 @@ exports.Consultant360Service = void 0;
 const service_1 = require("../../core/service");
 const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
+const conversion_intent_util_1 = require("../sales/conversion-intent.util");
 class Consultant360Service extends service_1.BaseService {
     constructor(repository) {
         super();
         this.repository = repository;
+    }
+    async resolveConsultantCurrency(consultantId) {
+        const account = await this.repository.getAccountBalance(consultantId);
+        if (account?.id) {
+            const latestTxCurrency = await prisma_1.prisma.virtualTransaction.findFirst({
+                where: {
+                    virtual_account_id: account.id,
+                    billing_currency_used: { not: null }
+                },
+                orderBy: { created_at: 'desc' },
+                select: { billing_currency_used: true }
+            });
+            if (latestTxCurrency?.billing_currency_used) {
+                return latestTxCurrency.billing_currency_used;
+            }
+        }
+        const latestCommissionCurrency = await prisma_1.prisma.commission.findFirst({
+            where: { consultant_id: consultantId },
+            orderBy: { created_at: 'desc' },
+            select: {
+                subscription: { select: { currency: true } },
+                job: { select: { payment_currency: true } }
+            }
+        });
+        return latestCommissionCurrency?.subscription?.currency
+            || latestCommissionCurrency?.job?.payment_currency
+            || 'USD';
     }
     // --- Dashboard ---
     async getDashboard(consultantId) {
@@ -180,6 +208,11 @@ class Consultant360Service extends service_1.BaseService {
         if (!consultant.region_id) {
             throw new http_exception_1.HttpException(400, 'Consultant does not have an assigned region');
         }
+        const normalizedIntentSnapshot = (0, conversion_intent_util_1.normalizeConversionIntentSnapshot)(data?.intentSnapshot ?? data?.intent_snapshot);
+        const baseAgentNotes = data.agentNotes || data.notes || null;
+        const serializedIntentSnapshot = normalizedIntentSnapshot
+            ? `\n\n[Intent Snapshot]\n${JSON.stringify(normalizedIntentSnapshot)}`
+            : '';
         // Use lead data for company/contact info – form only sends agentNotes and tempPassword
         return this.repository.createConversionRequest({
             lead: { connect: { id: leadId } },
@@ -192,7 +225,10 @@ class Consultant360Service extends service_1.BaseService {
             country: lead.country,
             city: lead.city || null,
             state_province: lead.state_province || null,
-            agent_notes: data.agentNotes || data.notes || null,
+            intent_snapshot: normalizedIntentSnapshot || undefined,
+            // Keep snapshot in notes as backward-compatible fallback for environments
+            // where intent_snapshot is not yet available.
+            agent_notes: `${baseAgentNotes || ''}${serializedIntentSnapshot}`.trim() || null,
             temp_password: data.tempPassword || null,
             status: 'PENDING'
         });
@@ -301,7 +337,7 @@ class Consultant360Service extends service_1.BaseService {
             balance: account.balance,
             totalCredits: account.total_credits || 0,
             totalDebits: account.total_debits || 0,
-            currency: 'USD',
+            currency: await this.resolveConsultantCurrency(consultantId),
             status: account.status
         };
     }
@@ -361,75 +397,106 @@ class Consultant360Service extends service_1.BaseService {
         if (withdrawal.consultant_id !== consultantId) {
             throw new http_exception_1.HttpException(403, 'Unauthorized');
         }
-        if (withdrawal.status !== 'APPROVED') {
+        if (withdrawal.status !== 'APPROVED' && withdrawal.status !== 'PROCESSING') {
             throw new http_exception_1.HttpException(400, 'Withdrawal must be approved before execution');
         }
         return prisma_1.prisma.$transaction(async (tx) => {
-            const updated = await tx.commissionWithdrawal.update({
+            const latest = await tx.commissionWithdrawal.findUnique({
+                where: { id: withdrawalId }
+            });
+            if (!latest) {
+                throw new http_exception_1.HttpException(404, 'Withdrawal not found');
+            }
+            let debitTransaction = await tx.virtualTransaction.findFirst({
+                where: {
+                    reference_type: 'COMMISSION_WITHDRAWAL',
+                    reference_id: withdrawalId,
+                    direction: 'DEBIT',
+                    status: 'COMPLETED'
+                },
+                orderBy: { created_at: 'asc' }
+            });
+            if (!latest.debited_from_wallet && !debitTransaction) {
+                const account = await tx.virtualAccount.findUnique({
+                    where: {
+                        owner_type_owner_id: {
+                            owner_type: 'CONSULTANT',
+                            owner_id: consultantId
+                        }
+                    }
+                });
+                if (!account) {
+                    throw new http_exception_1.HttpException(404, 'Consultant wallet account not found');
+                }
+                if (Number(account.balance) < latest.amount) {
+                    throw new http_exception_1.HttpException(400, 'Insufficient wallet balance for withdrawal');
+                }
+                debitTransaction = await tx.virtualTransaction.create({
+                    data: {
+                        virtual_account_id: account.id,
+                        type: 'COMMISSION_WITHDRAWAL',
+                        amount: latest.amount,
+                        balance_after: Number(account.balance) - latest.amount,
+                        direction: 'DEBIT',
+                        status: 'COMPLETED',
+                        description: 'Withdrawal executed',
+                        reference_id: withdrawalId,
+                        reference_type: 'COMMISSION_WITHDRAWAL',
+                        withdrawal_request_id: withdrawalId
+                    }
+                });
+                await tx.virtualAccount.update({
+                    where: { id: account.id },
+                    data: {
+                        balance: { decrement: latest.amount },
+                        total_debits: { increment: latest.amount }
+                    }
+                });
+            }
+            if (!debitTransaction && latest.virtual_transaction_id) {
+                debitTransaction = await tx.virtualTransaction.findUnique({
+                    where: { id: latest.virtual_transaction_id }
+                });
+            }
+            if (!debitTransaction) {
+                throw new http_exception_1.HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
+            }
+            return tx.commissionWithdrawal.update({
                 where: { id: withdrawalId },
                 data: {
                     status: 'PROCESSING',
-                    processed_at: new Date()
+                    processed_at: latest.processed_at || new Date(),
+                    debited_from_wallet: true,
+                    virtual_transaction_id: debitTransaction.id,
+                    wallet_debit_at: debitTransaction.created_at
                 }
             });
-            // Debit the consultant's account
-            await tx.virtualAccount.update({
-                where: {
-                    owner_type_owner_id: {
-                        owner_type: 'CONSULTANT',
-                        owner_id: consultantId
-                    }
-                },
-                data: {
-                    balance: { decrement: withdrawal.amount },
-                    total_debits: { increment: withdrawal.amount }
-                }
-            });
-            return updated;
         });
     }
     // --- Stripe ---
     async initiateStripeOnboarding(consultantId) {
-        const { StripeFactory } = await Promise.resolve().then(() => __importStar(require('../stripe/stripe.factory')));
         const consultant = await this.repository.findConsultant(consultantId);
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         let accountId = consultant.stripe_account_id;
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const returnPath = '/consultant360/earnings';
-        // Create account if doesn't exist
+        // Create payout beneficiary if missing.
         if (!accountId) {
-            const stripe = StripeFactory.getClient();
-            const account = await stripe.accounts.create({
-                type: 'express',
-                country: 'US',
-                email: consultant.email,
-                capabilities: { transfers: { requested: true } },
-                metadata: {
-                    consultant_id: consultantId,
-                    role: consultant.role
-                }
-            });
-            accountId = account.id;
-            // Update DB - mock accounts auto-approve, real accounts stay pending
+            accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
             await this.repository.updateConsultant(consultantId, {
                 stripe_account_id: accountId,
-                stripe_account_status: StripeFactory.isUsingMock() ? 'active' : 'pending',
-                payout_enabled: StripeFactory.isUsingMock() ? true : false
+                stripe_account_status: 'active',
+                payout_enabled: true,
+                stripe_onboarded_at: new Date()
             });
         }
-        // Generate onboarding link
-        const stripe = StripeFactory.getClient();
-        const accountLink = await stripe.accountLinks.create({
-            account: accountId,
-            refresh_url: `${frontendUrl}${returnPath}?stripe_refresh=true`,
-            return_url: `${frontendUrl}${returnPath}?stripe_success=true`,
-            type: 'account_onboarding'
-        });
+        const onboardingUrl = `${frontendUrl}${returnPath}?airwallex_success=true`;
         return {
+            provider: 'AIRWALLEX',
             accountId,
-            onboardingUrl: accountLink.url,
-            accountLink: { url: accountLink.url }
+            onboardingUrl,
+            accountLink: { url: onboardingUrl }
         };
     }
     async getStripeStatus(consultantId) {
@@ -437,13 +504,11 @@ class Consultant360Service extends service_1.BaseService {
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         const hasAccount = !!consultant.stripe_account_id;
-        // For mock/simple logic, we assume if status is 'active' or 'completed', it's good.
-        // In production this might need a live fetch to Stripe.
-        const isMock = process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') || !process.env.STRIPE_SECRET_KEY;
         // If we have an account and it's marked active/payout_enabled in DB
         const isEnabled = hasAccount && (consultant.stripe_account_status === 'active' ||
             consultant.payout_enabled === true);
         return {
+            provider: 'AIRWALLEX',
             hasAccount,
             accountId: consultant.stripe_account_id || undefined,
             payoutsEnabled: isEnabled,
@@ -457,12 +522,13 @@ class Consultant360Service extends service_1.BaseService {
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         if (!consultant.stripe_account_id) {
-            throw new http_exception_1.HttpException(400, 'Stripe account not connected');
+            throw new http_exception_1.HttpException(400, 'Airwallex beneficiary not connected');
         }
-        // Generate Stripe dashboard login link
-        const loginLink = `https://dashboard.stripe.com/account`;
+        const loginLink = `https://www.airwallex.com/app/login?beneficiary=${consultant.stripe_account_id}`;
         return {
+            provider: 'AIRWALLEX',
             dashboardUrl: loginLink,
+            url: loginLink,
             accountId: consultant.stripe_account_id
         };
     }

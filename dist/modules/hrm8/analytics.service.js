@@ -175,15 +175,21 @@ class AnalyticsService extends service_1.BaseService {
         const limit = params?.limit && params.limit > 0 ? params.limit : 10;
         const regionId = params?.regionId && params.regionId !== 'all' ? params.regionId : undefined;
         const assignedRegionIds = params?.assignedRegionIds;
+        const search = params?.search;
         if (assignedRegionIds && assignedRegionIds.length > 0 && regionId && !assignedRegionIds.includes(regionId)) {
             throw new http_exception_1.HttpException(403, 'Access denied to this region');
         }
-        const { companies, jobStats, total } = await this.analyticsRepository.getJobBoardStats({
+        const { companies, total } = await this.analyticsRepository.getJobBoardStats({
             regionId,
+            search,
             regionIds: !regionId ? assignedRegionIds : undefined,
             page,
             limit,
         });
+        // 2. We need to fetch ALL job stats for the *filtered companies* to aggregate counts correctly
+        // The repository should return the paginated companies list.
+        const companyIds = companies.map(c => c.id);
+        const jobStats = companyIds.length > 0 ? await this.analyticsRepository.getJobStatsForCompanies(companyIds) : [];
         // Map stats by companyId
         const statsMap = new Map();
         jobStats.forEach(stat => {

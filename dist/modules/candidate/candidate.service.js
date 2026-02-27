@@ -14,6 +14,55 @@ class CandidateService extends service_1.BaseService {
         super();
         this.candidateRepository = candidateRepository;
     }
+    normalizeQuestionType(type) {
+        const normalized = String(type || '')
+            .trim()
+            .toUpperCase()
+            .replace(/-/g, '_');
+        if (normalized === 'SINGLE_CHOICE' || normalized === 'SINGLE_SELECT')
+            return 'MULTIPLE_CHOICE';
+        if (normalized === 'MULTIPLE_CHOICE')
+            return 'MULTIPLE_CHOICE';
+        if (normalized === 'MULTIPLE_SELECT')
+            return 'MULTIPLE_SELECT';
+        if (normalized === 'LONG_ANSWER')
+            return 'LONG_ANSWER';
+        if (normalized === 'CODE')
+            return 'CODE';
+        return 'SHORT_ANSWER';
+    }
+    normalizeQuestionOptions(options) {
+        if (Array.isArray(options)) {
+            const mapped = options.map((opt) => String(opt).trim()).filter(Boolean);
+            return mapped.length ? mapped : null;
+        }
+        if (options && typeof options === 'object') {
+            const nested = options.options;
+            if (Array.isArray(nested)) {
+                const mapped = nested.map((opt) => String(opt).trim()).filter(Boolean);
+                return mapped.length ? mapped : null;
+            }
+            return null;
+        }
+        if (typeof options === 'string') {
+            const raw = options.trim();
+            if (!raw)
+                return null;
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    const mapped = parsed.map((opt) => String(opt).trim()).filter(Boolean);
+                    return mapped.length ? mapped : null;
+                }
+            }
+            catch {
+                // continue with CSV fallback
+            }
+            const mapped = raw.split(',').map((opt) => opt.trim()).filter(Boolean);
+            return mapped.length ? mapped : null;
+        }
+        return null;
+    }
     async login(data) {
         const candidate = await this.candidateRepository.findByEmail((0, email_1.normalizeEmail)(data.email));
         if (!candidate) {
@@ -200,8 +249,8 @@ class CandidateService extends service_1.BaseService {
             questions: assessment.assessment_question?.map((q) => ({
                 id: q.id,
                 questionText: q.question_text,
-                questionType: q.question_type,
-                options: q.options,
+                questionType: this.normalizeQuestionType(q.question_type),
+                options: this.normalizeQuestionOptions(q.options),
                 points: q.points,
                 order: q.order
             })) || []

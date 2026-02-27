@@ -4,6 +4,7 @@ exports.ApplicationTaskService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
 const client_1 = require("@prisma/client");
+const application_activity_service_1 = require("../application/application-activity.service");
 class ApplicationTaskService {
     // Create a new task
     static async createTask(params) {
@@ -42,6 +43,22 @@ class ApplicationTaskService {
                 },
             },
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: params.applicationId,
+            actorId: params.createdBy,
+            action: params.assignedTo ? 'task_assigned' : 'task_created',
+            subject: params.assignedTo ? 'Task created and assigned' : 'Task created',
+            description: params.assignedTo
+                ? `Task "${params.title}" assigned`
+                : `Task "${params.title}" created`,
+            metadata: {
+                taskId: task.id,
+                title: task.title,
+                priority: task.priority,
+                status: task.status,
+                assignedTo: task.assigned_to,
+            },
+        });
         return task;
     }
     // Get all tasks for an application
@@ -73,7 +90,7 @@ class ApplicationTaskService {
         return tasks;
     }
     // Update a task
-    static async updateTask(taskId, updates) {
+    static async updateTask(taskId, updates, actorId) {
         const task = await prisma_1.prisma.applicationTask.findUnique({
             where: { id: taskId },
         });
@@ -117,10 +134,21 @@ class ApplicationTaskService {
                 },
             },
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: task.application_id,
+            actorId,
+            action: updates.assignedTo ? 'task_assigned' : 'task_updated',
+            subject: updates.assignedTo ? 'Task assignment updated' : 'Task updated',
+            description: `Task "${updatedTask.title}" updated`,
+            metadata: {
+                taskId: updatedTask.id,
+                updates,
+            },
+        });
         return updatedTask;
     }
     // Delete a task
-    static async deleteTask(taskId) {
+    static async deleteTask(taskId, actorId) {
         const task = await prisma_1.prisma.applicationTask.findUnique({
             where: { id: taskId },
         });
@@ -130,7 +158,42 @@ class ApplicationTaskService {
         await prisma_1.prisma.applicationTask.delete({
             where: { id: taskId },
         });
+        await application_activity_service_1.ApplicationActivityService.logSafe({
+            applicationId: task.application_id,
+            actorId,
+            action: 'task_deleted',
+            subject: 'Task deleted',
+            description: `Task "${task.title}" deleted`,
+            metadata: {
+                taskId,
+                title: task.title,
+            },
+        });
         return { success: true, message: 'Task deleted successfully' };
+    }
+    // Get all tasks for a company (bulk fetch)
+    static async getCompanyTasks(companyId) {
+        return prisma_1.prisma.applicationTask.findMany({
+            where: {
+                application: {
+                    job: { company_id: companyId },
+                },
+            },
+            include: {
+                creator: { select: { id: true, name: true, email: true } },
+                assignee: { select: { id: true, name: true, email: true } },
+                application: {
+                    select: {
+                        id: true,
+                        job: { select: { id: true, title: true } },
+                        candidate: {
+                            select: { id: true, email: true, first_name: true, last_name: true, photo: true },
+                        },
+                    },
+                },
+            },
+            orderBy: [{ status: 'asc' }, { priority: 'desc' }, { created_at: 'desc' }],
+        });
     }
     // Get task statistics for an application
     static async getTaskStats(applicationId) {

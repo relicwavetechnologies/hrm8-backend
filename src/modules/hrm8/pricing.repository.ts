@@ -157,4 +157,36 @@ export class PricingRepository {
             where: { id }
         });
     }
+
+    async findCountryPricingMap() {
+        return prisma.countryPricingMap.findMany({
+            orderBy: [{ country_name: 'asc' }],
+        });
+    }
+
+    async createCountryPricingMap(data: Prisma.CountryPricingMapCreateInput) {
+        return prisma.countryPricingMap.create({
+            data,
+        });
+    }
+
+    async updateCountryPricingMap(id: string, data: Prisma.CountryPricingMapUpdateInput) {
+        return prisma.countryPricingMap.update({
+            where: { id },
+            data,
+        });
+    }
+
+    async toggleCountryPricingMap(id: string, isActive: boolean) {
+        return prisma.countryPricingMap.update({
+            where: { id },
+            data: { is_active: isActive },
+        });
+    }
+
+    async findCountryPricingMapById(id: string) {
+        return prisma.countryPricingMap.findUnique({
+            where: { id },
+        });
+    }
 }

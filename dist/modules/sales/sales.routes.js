@@ -31,10 +31,10 @@ router.post('/commissions/withdraw', consultant_auth_middleware_1.authenticateCo
 router.get('/commissions/withdrawals', consultant_auth_middleware_1.authenticateConsultant, salesController.getWithdrawals);
 router.post('/commissions/withdrawals/:id/cancel', consultant_auth_middleware_1.authenticateConsultant, salesController.cancelWithdrawal);
 router.post('/commissions/withdrawals/:id/execute', consultant_auth_middleware_1.authenticateConsultant, salesController.executeWithdrawal);
-// Stripe
-router.get('/stripe/status', consultant_auth_middleware_1.authenticateConsultant, salesController.getStripeStatus);
-router.post('/stripe/onboard', consultant_auth_middleware_1.authenticateConsultant, salesController.initiateStripeOnboarding);
-router.post('/stripe/login-link', consultant_auth_middleware_1.authenticateConsultant, salesController.getStripeLoginLink);
+// Payouts (Airwallex rail)
+router.get('/payouts/status', consultant_auth_middleware_1.authenticateConsultant, salesController.getStripeStatus);
+router.post('/payouts/beneficiaries', consultant_auth_middleware_1.authenticateConsultant, salesController.initiateStripeOnboarding);
+router.post('/payouts/login-link', consultant_auth_middleware_1.authenticateConsultant, salesController.getStripeLoginLink);
 // Activities
 router.get('/activities', consultant_auth_middleware_1.authenticateConsultant, salesController.getActivities);
 router.post('/activities', consultant_auth_middleware_1.authenticateConsultant, salesController.createActivity);

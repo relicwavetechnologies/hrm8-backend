@@ -19,7 +19,7 @@ router.post('/withdraw', consultant_auth_middleware_1.authenticateConsultantStri
 router.get('/withdrawals', consultant_auth_middleware_1.authenticateConsultantStrict, controller.getWithdrawals);
 router.post('/withdrawals/:id/cancel', consultant_auth_middleware_1.authenticateConsultantStrict, controller.cancelWithdrawal);
 router.post('/withdrawals/:id/execute', consultant_auth_middleware_1.authenticateConsultantStrict, controller.executeWithdrawal);
-router.post('/stripe/onboard', consultant_auth_middleware_1.authenticateConsultantStrict, controller.stripeOnboard);
-router.get('/stripe/status', consultant_auth_middleware_1.authenticateConsultantStrict, controller.getStripeStatus);
-router.post('/stripe/login-link', consultant_auth_middleware_1.authenticateConsultantStrict, controller.getStripeLoginLink);
+router.post('/payouts/beneficiaries', consultant_auth_middleware_1.authenticateConsultantStrict, controller.stripeOnboard);
+router.get('/payouts/status', consultant_auth_middleware_1.authenticateConsultantStrict, controller.getStripeStatus);
+router.post('/payouts/login-link', consultant_auth_middleware_1.authenticateConsultantStrict, controller.getStripeLoginLink);
 exports.default = router;

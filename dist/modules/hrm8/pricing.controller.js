@@ -72,6 +72,8 @@ class PricingController extends controller_1.BaseController {
                     payload.regionId = requestedRegionId;
                     payload.region_id = requestedRegionId;
                 }
+                payload.approvedBy = req.hrm8User?.id;
+                payload.approved_by = req.hrm8User?.id;
                 const result = await this.pricingService.createPriceBook(payload);
                 return this.sendSuccess(res, { priceBook: result });
             }
@@ -107,6 +109,8 @@ class PricingController extends controller_1.BaseController {
                     payload.regionId = requestedRegionId;
                     payload.region_id = requestedRegionId;
                 }
+                payload.approvedBy = req.hrm8User?.id;
+                payload.approved_by = req.hrm8User?.id;
                 const result = await this.pricingService.updatePriceBook(id, payload);
                 return this.sendSuccess(res, { priceBook: result });
             }
@@ -254,6 +258,54 @@ class PricingController extends controller_1.BaseController {
                 const { code } = req.body;
                 const result = await this.pricingService.validatePromoCode(code);
                 return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getCountryPricingMap = async (req, res) => {
+            try {
+                const result = await this.pricingService.getCountryPricingMap();
+                return this.sendSuccess(res, { countryPricingMap: result });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.createCountryPricingMap = async (req, res) => {
+            try {
+                if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                    throw new http_exception_1.HttpException(403, 'Only global admins can create country pricing mappings');
+                }
+                const result = await this.pricingService.createCountryPricingMap(req.body);
+                return this.sendSuccess(res, { countryPricing: result });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.updateCountryPricingMap = async (req, res) => {
+            try {
+                if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                    throw new http_exception_1.HttpException(403, 'Only global admins can update country pricing mappings');
+                }
+                const { id } = req.params;
+                const result = await this.pricingService.updateCountryPricingMap(id, req.body);
+                return this.sendSuccess(res, { countryPricing: result });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.toggleCountryPricingMap = async (req, res) => {
+            try {
+                if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                    throw new http_exception_1.HttpException(403, 'Only global admins can toggle country pricing mappings');
+                }
+                const { id } = req.params;
+                const { isActive, is_active } = req.body || {};
+                const result = await this.pricingService.toggleCountryPricingMap(id, Boolean(isActive ?? is_active));
+                return this.sendSuccess(res, { countryPricing: result });
             }
             catch (error) {
                 return this.sendError(res, error);

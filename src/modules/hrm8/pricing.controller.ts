@@ -298,4 +298,55 @@ export class PricingController extends BaseController {
             return this.sendError(res, error);
         }
     };
+
+    getCountryPricingMap = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            const result = await this.pricingService.getCountryPricingMap();
+            return this.sendSuccess(res, { countryPricingMap: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    createCountryPricingMap = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                throw new HttpException(403, 'Only global admins can create country pricing mappings');
+            }
+            const result = await this.pricingService.createCountryPricingMap(req.body);
+            return this.sendSuccess(res, { countryPricing: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    updateCountryPricingMap = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                throw new HttpException(403, 'Only global admins can update country pricing mappings');
+            }
+            const { id } = req.params;
+            const result = await this.pricingService.updateCountryPricingMap(id as string, req.body);
+            return this.sendSuccess(res, { countryPricing: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
+
+    toggleCountryPricingMap = async (req: Hrm8AuthenticatedRequest, res: Response) => {
+        try {
+            if (req.hrm8User?.role !== 'GLOBAL_ADMIN') {
+                throw new HttpException(403, 'Only global admins can toggle country pricing mappings');
+            }
+            const { id } = req.params;
+            const { isActive, is_active } = req.body || {};
+            const result = await this.pricingService.toggleCountryPricingMap(
+                id as string,
+                Boolean(isActive ?? is_active)
+            );
+            return this.sendSuccess(res, { countryPricing: result });
+        } catch (error) {
+            return this.sendError(res, error);
+        }
+    };
 }

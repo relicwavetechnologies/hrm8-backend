@@ -3,6 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CommunicationController = void 0;
 const controller_1 = require("../../core/controller");
 const communication_service_1 = require("./communication.service");
+const gmail_service_1 = require("../integration/gmail.service");
+const client_1 = require("@prisma/client");
+const prisma = new client_1.PrismaClient();
 class CommunicationController extends controller_1.BaseController {
     constructor() {
         super();
@@ -15,6 +18,39 @@ class CommunicationController extends controller_1.BaseController {
                 const { to } = req.body;
                 // Use direct email sending for test
                 return this.sendSuccess(res, { message: 'Test email endpoint - configure SMTP settings' });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // ==================== GMAIL THREADS ====================
+        this.getGmailThreads = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id: applicationId } = req.params;
+                // Get candidate email from application
+                const application = await prisma.application.findUnique({
+                    where: { id: applicationId },
+                    include: { candidate: { select: { email: true } } },
+                });
+                if (!application) {
+                    return this.sendError(res, new Error('Application not found'), 404);
+                }
+                const candidateEmail = application.candidate?.email;
+                const emailLogs = await this.communicationService.getEmailLogs(applicationId);
+                if (!candidateEmail) {
+                    return this.sendSuccess(res, { gmailThreads: [], emailLogs, gmailConnected: false });
+                }
+                try {
+                    const gmailThreads = await gmail_service_1.gmailService.getThreadsForCandidate(req.user.id, req.user.companyId, candidateEmail);
+                    return this.sendSuccess(res, { gmailThreads, emailLogs, gmailConnected: true });
+                }
+                catch (gmailError) {
+                    // Gmail not connected or API error — still return email logs
+                    console.error('[CommunicationController] Gmail error:', gmailError.message);
+                    return this.sendSuccess(res, { gmailThreads: [], emailLogs, gmailConnected: false });
+                }
             }
             catch (error) {
                 return this.sendError(res, error);
@@ -67,18 +103,22 @@ class CommunicationController extends controller_1.BaseController {
                 if (!req.user)
                     throw new Error('Unauthorized');
                 const { id: applicationId } = req.params;
-                const { subject, body, templateId } = req.body;
+                const { subject, body, templateId, cc } = req.body;
                 if (!subject || !body) {
                     return this.sendError(res, new Error('subject and body are required'), 400);
                 }
-                const emailLog = await this.communicationService.sendCandidateEmail({
+                const result = await this.communicationService.sendCandidateEmail({
                     applicationId,
                     userId: req.user.id,
                     subject,
                     body,
                     templateId,
+                    cc,
                 });
-                return this.sendSuccess(res, { emailLog });
+                return this.sendSuccess(res, {
+                    emailLog: result.emailLog,
+                    ...(result.needsReconnect && { needsReconnect: true })
+                });
             }
             catch (error) {
                 return this.sendError(res, error);
@@ -207,6 +247,52 @@ class CommunicationController extends controller_1.BaseController {
                 const { jobId } = req.params;
                 const team = await this.communicationService.getHiringTeamForSlack(jobId);
                 return this.sendSuccess(res, { team });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        // ==================== EMAIL THREAD REPLIES ====================
+        this.replyEmail = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id: applicationId } = req.params;
+                const { threadId, messageId, subject, body, to, cc } = req.body;
+                if (!threadId || !messageId || !subject || !body || !to) {
+                    return this.sendError(res, new Error('threadId, messageId, subject, body, and to are required'), 400);
+                }
+                const emailLog = await this.communicationService.replyToEmail({
+                    applicationId,
+                    userId: req.user.id,
+                    threadId,
+                    messageId,
+                    subject,
+                    body,
+                    to,
+                    cc,
+                });
+                return this.sendSuccess(res, { emailLog });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.rewriteEmailReply = async (req, res) => {
+            try {
+                if (!req.user)
+                    throw new Error('Unauthorized');
+                const { id: applicationId } = req.params;
+                const { originalMessage, tone } = req.body;
+                if (!originalMessage) {
+                    return this.sendError(res, new Error('originalMessage is required'), 400);
+                }
+                const rewritten = await this.communicationService.rewriteEmailReply({
+                    applicationId,
+                    originalMessage,
+                    tone,
+                });
+                return this.sendSuccess(res, rewritten);
             }
             catch (error) {
                 return this.sendError(res, error);

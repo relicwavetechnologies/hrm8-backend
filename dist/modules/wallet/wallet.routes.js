@@ -28,8 +28,6 @@ router.post('/subscriptions/:subscriptionId/renew', auth_middleware_1.authentica
 router.post('/subscriptions/:subscriptionId/cancel', auth_middleware_1.authenticate, walletController.cancelSubscription);
 // Add-ons
 router.post('/addons', auth_middleware_1.authenticate, walletController.purchaseAddonService);
-// Stripe
-router.post('/stripe/checkout', auth_middleware_1.authenticate, walletController.createStripeCheckoutSession);
 // Admin Routes - Withdrawals
 router.get('/admin/withdrawals/pending', auth_middleware_1.authenticate, walletController.getPendingWithdrawals);
 router.post('/admin/withdrawals/:withdrawalId/approve', auth_middleware_1.authenticate, walletController.approveWithdrawal);

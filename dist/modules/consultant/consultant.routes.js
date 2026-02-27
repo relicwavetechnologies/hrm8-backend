@@ -43,8 +43,8 @@ router.post('/commissions/withdrawals/:id/execute', consultant_auth_middleware_1
 // Performance
 router.get('/performance', consultant_auth_middleware_1.authenticateConsultant, consultantController.getPerformance);
 router.get('/analytics/dashboard', consultant_auth_middleware_1.authenticateConsultant, consultantController.getDashboardAnalytics);
-// Stripe
-router.get('/stripe/status', consultant_auth_middleware_1.authenticateConsultant, consultantController.getStripeStatus);
-router.post('/stripe/onboard', consultant_auth_middleware_1.authenticateConsultant, consultantController.initiateStripeOnboarding);
-router.post('/stripe/login-link', consultant_auth_middleware_1.authenticateConsultant, consultantController.getStripeLoginLink);
+// Payouts (Airwallex rail)
+router.get('/payouts/status', consultant_auth_middleware_1.authenticateConsultant, consultantController.getStripeStatus);
+router.post('/payouts/beneficiaries', consultant_auth_middleware_1.authenticateConsultant, consultantController.initiateStripeOnboarding);
+router.post('/payouts/login-link', consultant_auth_middleware_1.authenticateConsultant, consultantController.getStripeLoginLink);
 exports.default = router;

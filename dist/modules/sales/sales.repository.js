@@ -2,6 +2,59 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SalesRepository = void 0;
 const repository_1 = require("../../core/repository");
+const conversionRequestSelect = {
+    id: true,
+    lead_id: true,
+    consultant_id: true,
+    region_id: true,
+    status: true,
+    company_name: true,
+    email: true,
+    phone: true,
+    website: true,
+    country: true,
+    city: true,
+    state_province: true,
+    agent_notes: true,
+    reviewed_by: true,
+    reviewed_at: true,
+    admin_notes: true,
+    decline_reason: true,
+    converted_at: true,
+    company_id: true,
+    created_at: true,
+    updated_at: true,
+    temp_password: true,
+    intent_snapshot: true,
+};
+const conversionRequestSelectWithoutIntentSnapshot = {
+    id: true,
+    lead_id: true,
+    consultant_id: true,
+    region_id: true,
+    status: true,
+    company_name: true,
+    email: true,
+    phone: true,
+    website: true,
+    country: true,
+    city: true,
+    state_province: true,
+    agent_notes: true,
+    reviewed_by: true,
+    reviewed_at: true,
+    admin_notes: true,
+    decline_reason: true,
+    converted_at: true,
+    company_id: true,
+    created_at: true,
+    updated_at: true,
+    temp_password: true,
+};
+const isIntentSnapshotColumnMissing = (error) => {
+    const err = error;
+    return err?.code === 'P2022' && String(err?.meta?.column || '').includes('intent_snapshot');
+};
 class SalesRepository extends repository_1.BaseRepository {
     // --- Leads ---
     async createLead(data) {
@@ -22,19 +75,80 @@ class SalesRepository extends repository_1.BaseRepository {
     }
     // --- Conversion Requests ---
     async createConversionRequest(data) {
-        return this.prisma.leadConversionRequest.create({ data });
+        const payload = { ...data };
+        try {
+            return await this.prisma.leadConversionRequest.create({
+                data: payload,
+                select: conversionRequestSelect
+            });
+        }
+        catch (error) {
+            if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+                throw error;
+            }
+            const fallbackPayload = { ...payload };
+            delete fallbackPayload.intent_snapshot;
+            return this.prisma.leadConversionRequest.create({
+                data: fallbackPayload,
+                select: conversionRequestSelectWithoutIntentSnapshot
+            });
+        }
     }
     async updateConversionRequest(id, data) {
-        return this.prisma.leadConversionRequest.update({ where: { id }, data });
+        const payload = { ...data };
+        try {
+            return await this.prisma.leadConversionRequest.update({
+                where: { id },
+                data: payload,
+                select: conversionRequestSelect
+            });
+        }
+        catch (error) {
+            if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+                throw error;
+            }
+            const fallbackPayload = { ...payload };
+            delete fallbackPayload.intent_snapshot;
+            return this.prisma.leadConversionRequest.update({
+                where: { id },
+                data: fallbackPayload,
+                select: conversionRequestSelectWithoutIntentSnapshot
+            });
+        }
     }
     async findConversionRequests(filters) {
-        return this.prisma.leadConversionRequest.findMany({
-            where: filters,
-            orderBy: { created_at: 'desc' }
-        });
+        try {
+            return await this.prisma.leadConversionRequest.findMany({
+                where: filters,
+                orderBy: { created_at: 'desc' },
+                select: conversionRequestSelect
+            });
+        }
+        catch (error) {
+            if (!isIntentSnapshotColumnMissing(error))
+                throw error;
+            return this.prisma.leadConversionRequest.findMany({
+                where: filters,
+                orderBy: { created_at: 'desc' },
+                select: conversionRequestSelectWithoutIntentSnapshot
+            });
+        }
     }
     async findConversionRequestById(id) {
-        return this.prisma.leadConversionRequest.findUnique({ where: { id } });
+        try {
+            return await this.prisma.leadConversionRequest.findUnique({
+                where: { id },
+                select: conversionRequestSelect
+            });
+        }
+        catch (error) {
+            if (!isIntentSnapshotColumnMissing(error))
+                throw error;
+            return this.prisma.leadConversionRequest.findUnique({
+                where: { id },
+                select: conversionRequestSelectWithoutIntentSnapshot
+            });
+        }
     }
     // --- Opportunities ---
     async createOpportunity(data) {

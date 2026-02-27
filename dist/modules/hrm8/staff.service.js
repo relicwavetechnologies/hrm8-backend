@@ -5,6 +5,7 @@ const service_1 = require("../../core/service");
 const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const password_1 = require("../../utils/password");
+const commission_rate_util_1 = require("./commission-rate.util");
 class StaffService extends service_1.BaseService {
     constructor(staffRepository) {
         super();
@@ -19,7 +20,9 @@ class StaffService extends service_1.BaseService {
             firstName: consultant.first_name,
             lastName: consultant.last_name,
             regionId: consultant.region_id,
-            defaultCommissionRate: consultant.default_commission_rate,
+            defaultCommissionRate: consultant.default_commission_rate === null || consultant.default_commission_rate === undefined
+                ? undefined
+                : (0, commission_rate_util_1.toCommissionRatePercent)(consultant.default_commission_rate),
             createdAt: consultant.created_at,
             updatedAt: consultant.updated_at,
             // Stats & details
@@ -63,6 +66,14 @@ class StaffService extends service_1.BaseService {
         ];
         keysToDelete.forEach(key => delete mapped[key]);
         return mapped;
+    }
+    assertRegionScope(consultantRegionId, allowedRegionIds) {
+        if (!allowedRegionIds) {
+            return;
+        }
+        if (!consultantRegionId || !allowedRegionIds.includes(consultantRegionId)) {
+            throw new http_exception_1.HttpException(403, 'Access denied for this region');
+        }
     }
     async getAll(filters) {
         const { regionId, regionIds, role, status } = filters;
@@ -193,14 +204,15 @@ class StaffService extends service_1.BaseService {
             recently_joined: recentlyJoined,
         };
     }
-    async getById(id) {
+    async getById(id, allowedRegionIds) {
         const consultant = await this.staffRepository.findById(id);
         if (!consultant) {
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.mapToFrontend(consultant);
     }
-    async create(data) {
+    async create(data, allowedRegionIds) {
         // Validation
         const requiredFields = ['email', 'firstName', 'lastName', 'role', 'regionId', 'password'];
         const missingFields = requiredFields.filter(f => !data[f]);
@@ -212,19 +224,28 @@ class StaffService extends service_1.BaseService {
             throw new http_exception_1.HttpException(409, 'Email already in use');
         }
         const { password, firstName, lastName, regionId, defaultCommissionRate, ...rest } = data;
+        this.assertRegionScope(regionId, allowedRegionIds);
         const passwordHash = await (0, password_1.hashPassword)(password);
+        const normalizedRate = defaultCommissionRate === undefined
+            ? undefined
+            : (0, commission_rate_util_1.toCommissionRateDecimal)(defaultCommissionRate, 0);
         const created = await this.staffRepository.create({
             ...rest,
             first_name: firstName,
             last_name: lastName,
             region_id: regionId,
-            default_commission_rate: defaultCommissionRate,
+            default_commission_rate: normalizedRate,
             password_hash: passwordHash,
             status: 'ACTIVE',
         });
         return this.mapToFrontend(created);
     }
-    async update(id, data) {
+    async update(id, data, allowedRegionIds) {
+        const existing = await this.staffRepository.findById(id);
+        if (!existing) {
+            throw new http_exception_1.HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(existing.region_id, allowedRegionIds);
         // Prevent password update via this method
         delete data.password;
         delete data.password_hash;
@@ -242,17 +263,30 @@ class StaffService extends service_1.BaseService {
             mappedData.region_id = data.regionId;
             delete mappedData.regionId;
         }
-        if (data.defaultCommissionRate) {
-            mappedData.default_commission_rate = data.defaultCommissionRate;
+        if (Object.prototype.hasOwnProperty.call(data, 'defaultCommissionRate')) {
+            const rawRate = data.defaultCommissionRate;
+            mappedData.default_commission_rate = rawRate === null || rawRate === undefined
+                ? null
+                : (0, commission_rate_util_1.toCommissionRateDecimal)(rawRate, 0);
             delete mappedData.defaultCommissionRate;
         }
         const updated = await this.staffRepository.update(id, mappedData);
         return this.mapToFrontend(updated);
     }
-    async suspend(id) {
+    async suspend(id, allowedRegionIds) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new http_exception_1.HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.staffRepository.update(id, { status: 'SUSPENDED' });
     }
-    async reactivate(id) {
+    async reactivate(id, allowedRegionIds) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new http_exception_1.HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         return this.staffRepository.update(id, { status: 'ACTIVE' });
     }
     async delete(id) {
@@ -273,7 +307,12 @@ class StaffService extends service_1.BaseService {
         // In real app, we would check for uniqueness and add suffix if needed
         return { email };
     }
-    async getPendingTasks(id) {
+    async getPendingTasks(id, allowedRegionIds) {
+        const consultant = await this.staffRepository.findById(id);
+        if (!consultant) {
+            throw new http_exception_1.HttpException(404, 'Consultant not found');
+        }
+        this.assertRegionScope(consultant.region_id, allowedRegionIds);
         const activeAssignments = await prisma_1.prisma.consultantJobAssignment.findMany({
             where: { consultant_id: id, status: 'ACTIVE' },
             include: { job: true }
@@ -283,7 +322,8 @@ class StaffService extends service_1.BaseService {
             count: activeAssignments.length
         };
     }
-    async getConsultantsForReassignment(id, role, regionId) {
+    async getConsultantsForReassignment(id, role, regionId, allowedRegionIds) {
+        this.assertRegionScope(regionId, allowedRegionIds);
         return this.staffRepository.findMany({
             where: {
                 id: { not: id },
@@ -293,7 +333,19 @@ class StaffService extends service_1.BaseService {
             }
         });
     }
-    async reassignJobs(id, targetConsultantId) {
+    async reassignJobs(id, targetConsultantId, allowedRegionIds) {
+        const [sourceConsultant, targetConsultant] = await Promise.all([
+            this.staffRepository.findById(id),
+            this.staffRepository.findById(targetConsultantId),
+        ]);
+        if (!sourceConsultant) {
+            throw new http_exception_1.HttpException(404, 'Source consultant not found');
+        }
+        if (!targetConsultant) {
+            throw new http_exception_1.HttpException(404, 'Target consultant not found');
+        }
+        this.assertRegionScope(sourceConsultant.region_id, allowedRegionIds);
+        this.assertRegionScope(targetConsultant.region_id, allowedRegionIds);
         return prisma_1.prisma.$transaction(async (tx) => {
             const assignments = await tx.consultantJobAssignment.findMany({
                 where: { consultant_id: id, status: 'ACTIVE' }
