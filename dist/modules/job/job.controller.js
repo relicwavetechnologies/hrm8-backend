@@ -118,8 +118,14 @@ class JobController extends controller_1.BaseController {
                     return this.sendError(res, new Error('Not authenticated'));
                 const { id } = req.params;
                 const { servicePackage } = req.body;
-                const job = await this.jobService.upgradeToManagedService(id, req.user.companyId, req.user.id, { servicePackage });
-                return this.sendSuccess(res, { job });
+                const result = await this.jobService.upgradeToManagedService(id, req.user.companyId, req.user.id, { servicePackage });
+                if (result.status === 'PENDING_PAYMENT') {
+                    return res.status(202).json({
+                        success: true,
+                        data: result,
+                    });
+                }
+                return this.sendSuccess(res, { job: result.job });
             }
             catch (error) {
                 return this.sendError(res, error);

@@ -304,7 +304,8 @@ class PricingController extends controller_1.BaseController {
                 }
                 const { id } = req.params;
                 const { isActive, is_active } = req.body || {};
-                const result = await this.pricingService.toggleCountryPricingMap(id, Boolean(isActive ?? is_active));
+                const explicitValue = isActive ?? is_active;
+                const result = await this.pricingService.toggleCountryPricingMap(id, explicitValue !== undefined ? Boolean(explicitValue) : undefined);
                 return this.sendSuccess(res, { countryPricing: result });
             }
             catch (error) {

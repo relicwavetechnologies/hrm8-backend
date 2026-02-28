@@ -340,9 +340,10 @@ export class PricingController extends BaseController {
             }
             const { id } = req.params;
             const { isActive, is_active } = req.body || {};
+            const explicitValue = isActive ?? is_active;
             const result = await this.pricingService.toggleCountryPricingMap(
                 id as string,
-                Boolean(isActive ?? is_active)
+                explicitValue !== undefined ? Boolean(explicitValue) : undefined
             );
             return this.sendSuccess(res, { countryPricing: result });
         } catch (error) {

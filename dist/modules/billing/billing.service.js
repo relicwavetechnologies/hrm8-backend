@@ -9,6 +9,9 @@ const subscription_service_1 = require("../subscription/subscription.service");
 const wallet_service_1 = require("../wallet/wallet.service");
 const airwallex_service_1 = require("../airwallex/airwallex.service");
 const xero_service_1 = require("../xero/xero.service");
+const billing_logger_1 = require("../../utils/billing-logger");
+const logger_1 = require("../../utils/logger");
+const log = logger_1.Logger.create('billing');
 const BILLING_AUTO_CONFIRM = process.env.BILLING_AUTO_CONFIRM !== 'false';
 const toObject = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -399,6 +402,61 @@ class BillingService {
             }
         }
         return { status: 'REFUNDED', billId: bill.id };
+    }
+    /**
+     * Process an incoming Airwallex webhook event.
+     *
+     * Validates:
+     * 1. Webhook signature (in live mode)
+     * 2. Amount/currency match against bill snapshot
+     * 3. Idempotent – a bill already PAID is a no-op
+     */
+    static async processWebhook(rawBody, signature, event) {
+        if (!airwallex_service_1.AirwallexService.verifyWebhookSignature(rawBody, signature)) {
+            log.error('Webhook signature verification failed');
+            throw new http_exception_1.HttpException(401, 'Invalid webhook signature');
+        }
+        const parsed = airwallex_service_1.AirwallexService.parseWebhook(event);
+        if (!parsed.paymentAttemptId || !parsed.status) {
+            log.warn('Webhook event missing paymentAttemptId or status', { event });
+            return { status: 'IGNORED' };
+        }
+        const bill = await prisma_1.prisma.bill.findFirst({
+            where: { payment_reference: parsed.paymentAttemptId },
+            select: {
+                id: true,
+                status: true,
+                amount: true,
+                total_amount: true,
+                currency: true,
+                company_id: true,
+            },
+        });
+        if (!bill) {
+            log.warn('Webhook for unknown payment attempt', { paymentAttemptId: parsed.paymentAttemptId });
+            return { status: 'UNKNOWN_BILL' };
+        }
+        if (bill.status === client_1.BillStatus.PAID) {
+            log.info('Webhook for already-paid bill (idempotent)', { billId: bill.id });
+            return { status: 'ALREADY_PAID', billId: bill.id };
+        }
+        if (parsed.status === 'SUCCEEDED') {
+            billing_logger_1.BillingLogger.paymentCompleted({
+                companyId: bill.company_id,
+                billId: bill.id,
+                paymentAttemptId: parsed.paymentAttemptId,
+                checkoutType: 'webhook',
+                amount: Number(bill.total_amount || bill.amount),
+                currency: bill.currency,
+            });
+            const result = await this.markPaymentSucceeded(parsed.paymentAttemptId, parsed.providerTransactionId);
+            return { status: 'SUCCEEDED', billId: result.billId };
+        }
+        if (parsed.status === 'FAILED') {
+            await this.markPaymentFailed(parsed.paymentAttemptId, 'Payment failed via webhook');
+            return { status: 'FAILED', billId: bill.id };
+        }
+        return { status: 'UNHANDLED' };
     }
 }
 exports.BillingService = BillingService;

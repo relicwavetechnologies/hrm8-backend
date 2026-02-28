@@ -3,7 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BillingController = void 0;
 const controller_1 = require("../../core/controller");
 const billing_service_1 = require("./billing.service");
-const airwallex_service_1 = require("../airwallex/airwallex.service");
 class BillingController extends controller_1.BaseController {
     constructor() {
         super('billing');
@@ -48,19 +47,15 @@ class BillingController extends controller_1.BaseController {
         };
         this.handleAirwallexWebhook = async (req, res) => {
             try {
-                const parsed = airwallex_service_1.AirwallexService.parseWebhook(req.body);
-                if (!parsed.paymentAttemptId || !parsed.status) {
-                    return res.status(200).json({ received: true, ignored: true });
-                }
-                if (parsed.status === 'SUCCEEDED') {
-                    await billing_service_1.BillingService.markPaymentSucceeded(parsed.paymentAttemptId, parsed.providerTransactionId);
-                }
-                else {
-                    await billing_service_1.BillingService.markPaymentFailed(parsed.paymentAttemptId);
-                }
-                return res.status(200).json({ received: true });
+                const signature = req.headers['x-airwallex-signature'] || '';
+                const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+                const result = await billing_service_1.BillingService.processWebhook(rawBody, signature, req.body);
+                return res.status(200).json({ received: true, ...result });
             }
             catch (error) {
+                if (error?.statusCode === 401) {
+                    return res.status(401).json({ error: 'Invalid webhook signature' });
+                }
                 return this.sendError(res, error);
             }
         };

@@ -263,7 +263,8 @@ class PricingService extends service_1.BaseService {
         if (!existing) {
             throw new http_exception_1.HttpException(404, 'Country pricing map not found');
         }
-        return this.pricingRepository.toggleCountryPricingMap(id, isActive);
+        const newState = isActive !== undefined ? isActive : !existing.is_active;
+        return this.pricingRepository.toggleCountryPricingMap(id, newState);
     }
 }
 exports.PricingService = PricingService;

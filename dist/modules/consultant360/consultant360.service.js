@@ -42,6 +42,12 @@ class Consultant360Service extends service_1.BaseService {
     constructor(repository) {
         super();
         this.repository = repository;
+        /** @deprecated Use initiatePayoutOnboarding */
+        this.initiateStripeOnboarding = this.initiatePayoutOnboarding.bind(this);
+        /** @deprecated Use getPayoutStatus */
+        this.getStripeStatus = this.getPayoutStatus.bind(this);
+        /** @deprecated Use getPayoutDashboardLink */
+        this.getStripeLoginLink = this.getPayoutDashboardLink.bind(this);
     }
     async resolveConsultantCurrency(consultantId) {
         const account = await this.repository.getAccountBalance(consultantId);
@@ -473,15 +479,15 @@ class Consultant360Service extends service_1.BaseService {
             });
         });
     }
-    // --- Stripe ---
-    async initiateStripeOnboarding(consultantId) {
+    // --- Payout Provider (Airwallex) – provider-neutral method names ---
+    async initiatePayoutOnboarding(consultantId) {
         const consultant = await this.repository.findConsultant(consultantId);
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
+        // DB columns still named stripe_* – will be renamed during next DB migration.
         let accountId = consultant.stripe_account_id;
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const returnPath = '/consultant360/earnings';
-        // Create payout beneficiary if missing.
         if (!accountId) {
             accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
             await this.repository.updateConsultant(consultantId, {
@@ -499,12 +505,11 @@ class Consultant360Service extends service_1.BaseService {
             accountLink: { url: onboardingUrl }
         };
     }
-    async getStripeStatus(consultantId) {
+    async getPayoutStatus(consultantId) {
         const consultant = await this.repository.findConsultant(consultantId);
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         const hasAccount = !!consultant.stripe_account_id;
-        // If we have an account and it's marked active/payout_enabled in DB
         const isEnabled = hasAccount && (consultant.stripe_account_status === 'active' ||
             consultant.payout_enabled === true);
         return {
@@ -513,11 +518,11 @@ class Consultant360Service extends service_1.BaseService {
             accountId: consultant.stripe_account_id || undefined,
             payoutsEnabled: isEnabled,
             chargesEnabled: isEnabled,
-            detailsSubmitted: isEnabled, // specific to this flow simplification
+            detailsSubmitted: isEnabled,
             requiresAction: hasAccount && !isEnabled
         };
     }
-    async getStripeLoginLink(consultantId) {
+    async getPayoutDashboardLink(consultantId) {
         const consultant = await this.repository.findConsultant(consultantId);
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');

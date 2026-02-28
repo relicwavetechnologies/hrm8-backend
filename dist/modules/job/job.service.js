@@ -15,6 +15,8 @@ const env_1 = require("../../config/env");
 const job_allocation_service_1 = require("./job-allocation.service");
 const billing_service_1 = require("../billing/billing.service");
 const commission_rate_util_1 = require("../hrm8/commission-rate.util");
+const feature_flags_1 = require("../../config/feature-flags");
+const billing_logger_1 = require("../../utils/billing-logger");
 class JobService extends service_1.BaseService {
     constructor(jobRepository, applicationRepository, notificationService, jobRoundService) {
         super();
@@ -559,8 +561,6 @@ class JobService extends service_1.BaseService {
             throw new http_exception_1.HttpException(400, 'Managed service package is required');
         }
         const hiringMode = this.hiringModeForServicePackage(servicePackage);
-        // Draft jobs must be published through the centralized flow so subscription quota
-        // and invoice/assignment logic remain consistent.
         if (job.status === 'DRAFT') {
             await this.jobRepository.update(id, {
                 service_package: servicePackage,
@@ -588,6 +588,7 @@ class JobService extends service_1.BaseService {
             if (shouldChargeInvoice) {
                 const salaryContext = (job.salary_max ?? job.salary_min ?? 0) || 0;
                 const pricing = await job_payment_service_1.JobPaymentService.getJobPrice(companyId, salaryContext, servicePackage);
+                const atsBase = process.env.ATS_FRONTEND_URL || 'http://localhost:8080';
                 const checkout = await billing_service_1.BillingService.createCheckout({
                     companyId,
                     userId: userId || job.created_by,
@@ -596,6 +597,8 @@ class JobService extends service_1.BaseService {
                     amount: pricing.price,
                     currency: pricing.currency,
                     description: `HRM8 managed service (${servicePackage})`,
+                    successUrl: `${atsBase}/jobs/${id}/setup?payment_success=true&service=${servicePackage}`,
+                    cancelUrl: `${atsBase}/jobs/${id}/setup?payment_canceled=true`,
                     metadata: {
                         type: 'managed_service',
                         jobId: id,
@@ -605,9 +608,46 @@ class JobService extends service_1.BaseService {
                     },
                 });
                 paymentAttemptId = checkout.paymentAttemptId;
+                billing_logger_1.BillingLogger.checkoutInitiated({
+                    companyId,
+                    checkoutType: 'managed_service',
+                    amount: pricing.price,
+                    currency: pricing.currency,
+                    billId: checkout.billId,
+                    paymentAttemptId,
+                });
                 if (checkout.status !== 'SUCCEEDED') {
+                    if (feature_flags_1.FeatureFlags.FF_MANAGED_CHECKOUT_V2) {
+                        billing_logger_1.BillingLogger.paymentPending({
+                            companyId,
+                            paymentAttemptId,
+                            checkoutUrl: checkout.url,
+                            amount: pricing.price,
+                            currency: pricing.currency,
+                            jobId: id,
+                        });
+                        return {
+                            status: 'PENDING_PAYMENT',
+                            checkoutUrl: checkout.url,
+                            paymentAttemptId,
+                            amount: pricing.price,
+                            currency: pricing.currency,
+                            xeroInvoiceId: checkout.xeroInvoiceId,
+                            xeroInvoiceNumber: checkout.xeroInvoiceNumber,
+                            jobId: id,
+                            servicePackage,
+                        };
+                    }
                     throw new http_exception_1.HttpException(402, 'Managed-service invoice payment is pending. Please complete payment to continue.');
                 }
+                billing_logger_1.BillingLogger.paymentCompleted({
+                    companyId,
+                    billId: checkout.billId,
+                    paymentAttemptId,
+                    checkoutType: 'managed_service',
+                    amount: pricing.price,
+                    currency: pricing.currency,
+                });
                 await this.jobRepository.update(id, {
                     payment_status: 'PAID',
                     payment_amount: pricing.price,
@@ -628,6 +668,8 @@ class JobService extends service_1.BaseService {
                     const assignmentError = error?.message || 'No consultant available for assignment. Please try again later.';
                     if (paymentAttemptId) {
                         await billing_service_1.BillingService.refundPayment(paymentAttemptId, assignmentError);
+                        billing_logger_1.BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
+                        billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
                         await this.jobRepository.update(id, {
                             payment_status: 'PENDING',
                             payment_completed_at: null,
@@ -635,12 +677,15 @@ class JobService extends service_1.BaseService {
                         });
                         throw new http_exception_1.HttpException(503, `${assignmentError} Invoice payment was reversed automatically. Please retry later.`);
                     }
+                    billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
                     throw new http_exception_1.HttpException(503, assignmentError);
                 }
                 if (!consultantId) {
                     const assignmentError = 'No consultant available for assignment. Please try again later.';
                     if (paymentAttemptId) {
                         await billing_service_1.BillingService.refundPayment(paymentAttemptId, assignmentError);
+                        billing_logger_1.BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
+                        billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
                         await this.jobRepository.update(id, {
                             payment_status: 'PENDING',
                             payment_completed_at: null,
@@ -648,9 +693,11 @@ class JobService extends service_1.BaseService {
                         });
                         throw new http_exception_1.HttpException(503, `${assignmentError} Invoice payment was reversed automatically. Please retry later.`);
                     }
+                    billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
                     throw new http_exception_1.HttpException(503, assignmentError);
                 }
             }
+            billing_logger_1.BillingLogger.assignmentSuccess({ jobId: id, consultantId, servicePackage });
             await this.createManagedServiceCommissionIfMissing(id, consultantId);
         }
         const updatedJob = await this.jobRepository.update(id, {
@@ -661,7 +708,10 @@ class JobService extends service_1.BaseService {
             status: 'OPEN',
             posting_date: job.posting_date ?? new Date(),
         });
-        return this.mapToResponse(updatedJob);
+        return {
+            status: 'COMPLETED',
+            job: this.mapToResponse(updatedJob),
+        };
     }
     async updateAlerts(id, companyId, alertsConfig) {
         await this.getJob(id, companyId);

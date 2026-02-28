@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { BillingService } from './billing.service';
 import { AuthenticatedRequest } from '../../types';
-import { AirwallexService } from '../airwallex/airwallex.service';
 
 export class BillingController extends BaseController {
   constructor() {
@@ -52,19 +51,14 @@ export class BillingController extends BaseController {
 
   handleAirwallexWebhook = async (req: Request, res: Response) => {
     try {
-      const parsed = AirwallexService.parseWebhook(req.body);
-      if (!parsed.paymentAttemptId || !parsed.status) {
-        return res.status(200).json({ received: true, ignored: true });
-      }
-
-      if (parsed.status === 'SUCCEEDED') {
-        await BillingService.markPaymentSucceeded(parsed.paymentAttemptId, parsed.providerTransactionId);
-      } else {
-        await BillingService.markPaymentFailed(parsed.paymentAttemptId);
-      }
-
-      return res.status(200).json({ received: true });
+      const signature = (req.headers['x-airwallex-signature'] as string) || '';
+      const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      const result = await BillingService.processWebhook(rawBody, signature, req.body);
+      return res.status(200).json({ received: true, ...result });
     } catch (error) {
+      if ((error as any)?.statusCode === 401) {
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
       return this.sendError(res, error);
     }
   };

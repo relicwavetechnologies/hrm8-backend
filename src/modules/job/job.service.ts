@@ -16,6 +16,27 @@ import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
 import { BillingService } from '../billing/billing.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
+import { FeatureFlags } from '../../config/feature-flags';
+import { BillingLogger } from '../../utils/billing-logger';
+
+export interface ManagedServiceCompleted {
+  status: 'COMPLETED';
+  job: Job;
+}
+
+export interface ManagedServicePendingPayment {
+  status: 'PENDING_PAYMENT';
+  checkoutUrl: string;
+  paymentAttemptId: string;
+  amount: number;
+  currency: string;
+  xeroInvoiceId: string;
+  xeroInvoiceNumber: string;
+  jobId: string;
+  servicePackage: string;
+}
+
+export type ManagedServiceUpgradeResult = ManagedServiceCompleted | ManagedServicePendingPayment;
 
 export class JobService extends BaseService {
   constructor(
@@ -629,7 +650,7 @@ export class JobService extends BaseService {
     companyId: string,
     userId: string,
     payload: { servicePackage?: string }
-  ): Promise<Job> {
+  ): Promise<ManagedServiceUpgradeResult> {
     let job = await this.jobRepository.findById(id);
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
@@ -640,8 +661,6 @@ export class JobService extends BaseService {
     }
     const hiringMode = this.hiringModeForServicePackage(servicePackage);
 
-    // Draft jobs must be published through the centralized flow so subscription quota
-    // and invoice/assignment logic remain consistent.
     if (job.status === 'DRAFT') {
       await this.jobRepository.update(id, {
         service_package: servicePackage,
@@ -680,6 +699,7 @@ export class JobService extends BaseService {
           servicePackage as 'shortlisting' | 'full-service' | 'executive-search' | 'rpo'
         );
 
+        const atsBase = process.env.ATS_FRONTEND_URL || 'http://localhost:8080';
         const checkout = await BillingService.createCheckout(
           {
             companyId,
@@ -690,6 +710,8 @@ export class JobService extends BaseService {
             amount: pricing.price,
             currency: pricing.currency,
             description: `HRM8 managed service (${servicePackage})`,
+            successUrl: `${atsBase}/jobs/${id}/setup?payment_success=true&service=${servicePackage}`,
+            cancelUrl: `${atsBase}/jobs/${id}/setup?payment_canceled=true`,
             metadata: {
               type: 'managed_service',
               jobId: id,
@@ -701,12 +723,53 @@ export class JobService extends BaseService {
         );
 
         paymentAttemptId = checkout.paymentAttemptId;
+
+        BillingLogger.checkoutInitiated({
+          companyId,
+          checkoutType: 'managed_service',
+          amount: pricing.price,
+          currency: pricing.currency,
+          billId: checkout.billId,
+          paymentAttemptId,
+        });
+
         if (checkout.status !== 'SUCCEEDED') {
+          if (FeatureFlags.FF_MANAGED_CHECKOUT_V2) {
+            BillingLogger.paymentPending({
+              companyId,
+              paymentAttemptId,
+              checkoutUrl: checkout.url,
+              amount: pricing.price,
+              currency: pricing.currency,
+              jobId: id,
+            });
+
+            return {
+              status: 'PENDING_PAYMENT' as const,
+              checkoutUrl: checkout.url,
+              paymentAttemptId,
+              amount: pricing.price,
+              currency: pricing.currency,
+              xeroInvoiceId: checkout.xeroInvoiceId,
+              xeroInvoiceNumber: checkout.xeroInvoiceNumber,
+              jobId: id,
+              servicePackage,
+            };
+          }
           throw new HttpException(
             402,
             'Managed-service invoice payment is pending. Please complete payment to continue.'
           );
         }
+
+        BillingLogger.paymentCompleted({
+          companyId,
+          billId: checkout.billId,
+          paymentAttemptId,
+          checkoutType: 'managed_service',
+          amount: pricing.price,
+          currency: pricing.currency,
+        });
 
         await this.jobRepository.update(id, {
           payment_status: 'PAID',
@@ -729,6 +792,8 @@ export class JobService extends BaseService {
             error?.message || 'No consultant available for assignment. Please try again later.';
           if (paymentAttemptId) {
             await BillingService.refundPayment(paymentAttemptId, assignmentError);
+            BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
+            BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
             await this.jobRepository.update(id, {
               payment_status: 'PENDING',
               payment_completed_at: null,
@@ -739,6 +804,7 @@ export class JobService extends BaseService {
               `${assignmentError} Invoice payment was reversed automatically. Please retry later.`
             );
           }
+          BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
           throw new HttpException(503, assignmentError);
         }
 
@@ -746,6 +812,8 @@ export class JobService extends BaseService {
           const assignmentError = 'No consultant available for assignment. Please try again later.';
           if (paymentAttemptId) {
             await BillingService.refundPayment(paymentAttemptId, assignmentError);
+            BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
+            BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
             await this.jobRepository.update(id, {
               payment_status: 'PENDING',
               payment_completed_at: null,
@@ -756,10 +824,12 @@ export class JobService extends BaseService {
               `${assignmentError} Invoice payment was reversed automatically. Please retry later.`
             );
           }
+          BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
           throw new HttpException(503, assignmentError);
         }
       }
 
+      BillingLogger.assignmentSuccess({ jobId: id, consultantId, servicePackage });
       await this.createManagedServiceCommissionIfMissing(id, consultantId);
     }
 
@@ -772,7 +842,10 @@ export class JobService extends BaseService {
       posting_date: job.posting_date ?? new Date(),
     });
 
-    return this.mapToResponse(updatedJob);
+    return {
+      status: 'COMPLETED' as const,
+      job: this.mapToResponse(updatedJob),
+    };
   }
 
   async updateAlerts(id: string, companyId: string, alertsConfig: any): Promise<Job> {

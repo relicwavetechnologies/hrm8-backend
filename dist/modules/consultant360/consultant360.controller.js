@@ -177,46 +177,52 @@ class Consultant360Controller extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
-        // Stripe
-        this.stripeOnboard = async (req, res) => {
+        // Payout provider (Airwallex) – provider-neutral names
+        this.onboardPayoutProvider = async (req, res) => {
             try {
                 const consultantId = req.consultant?.id;
                 if (!consultantId) {
                     throw new http_exception_1.HttpException(401, 'Unauthorized');
                 }
-                const result = await this.service.initiateStripeOnboarding(consultantId);
+                const result = await this.service.initiatePayoutOnboarding(consultantId);
                 return this.sendSuccess(res, result);
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.getStripeStatus = async (req, res) => {
+        this.getPayoutStatus = async (req, res) => {
             try {
                 const consultantId = req.consultant?.id;
                 if (!consultantId) {
                     throw new http_exception_1.HttpException(401, 'Unauthorized');
                 }
-                const status = await this.service.getStripeStatus(consultantId);
+                const status = await this.service.getPayoutStatus(consultantId);
                 return this.sendSuccess(res, status);
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
-        this.getStripeLoginLink = async (req, res) => {
+        this.getPayoutDashboardLink = async (req, res) => {
             try {
                 const consultantId = req.consultant?.id;
                 if (!consultantId) {
                     throw new http_exception_1.HttpException(401, 'Unauthorized');
                 }
-                const link = await this.service.getStripeLoginLink(consultantId);
+                const link = await this.service.getPayoutDashboardLink(consultantId);
                 return this.sendSuccess(res, link);
             }
             catch (error) {
                 return this.sendError(res, error);
             }
         };
+        /** @deprecated Use onboardPayoutProvider – kept for route compatibility. */
+        this.stripeOnboard = this.onboardPayoutProvider;
+        /** @deprecated Use getPayoutStatus – kept for route compatibility. */
+        this.getStripeStatus = this.getPayoutStatus;
+        /** @deprecated Use getPayoutDashboardLink – kept for route compatibility. */
+        this.getStripeLoginLink = this.getPayoutDashboardLink;
         this.service = new consultant360_service_1.Consultant360Service(new consultant360_repository_1.Consultant360Repository());
     }
 }

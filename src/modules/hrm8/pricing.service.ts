@@ -309,11 +309,12 @@ export class PricingService extends BaseService {
         return this.pricingRepository.updateCountryPricingMap(id, updateData);
     }
 
-    async toggleCountryPricingMap(id: string, isActive: boolean) {
+    async toggleCountryPricingMap(id: string, isActive?: boolean) {
         const existing = await this.pricingRepository.findCountryPricingMapById(id);
         if (!existing) {
             throw new HttpException(404, 'Country pricing map not found');
         }
-        return this.pricingRepository.toggleCountryPricingMap(id, isActive);
+        const newState = isActive !== undefined ? isActive : !existing.is_active;
+        return this.pricingRepository.toggleCountryPricingMap(id, newState);
     }
 }

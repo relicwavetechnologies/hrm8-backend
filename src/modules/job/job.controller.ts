@@ -135,14 +135,21 @@ export class JobController extends BaseController {
       const { id } = req.params as { id: string };
       const { servicePackage } = req.body as { servicePackage?: string };
 
-      const job = await this.jobService.upgradeToManagedService(
+      const result = await this.jobService.upgradeToManagedService(
         id,
         req.user.companyId,
         req.user.id,
         { servicePackage }
       );
 
-      return this.sendSuccess(res, { job });
+      if (result.status === 'PENDING_PAYMENT') {
+        return res.status(202).json({
+          success: true,
+          data: result,
+        });
+      }
+
+      return this.sendSuccess(res, { job: result.job });
     } catch (error) {
       return this.sendError(res, error);
     }

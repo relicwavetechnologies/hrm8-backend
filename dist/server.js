@@ -8,8 +8,13 @@ const loaders_1 = __importDefault(require("./loaders"));
 const logger_1 = require("./utils/logger");
 const server_1 = require("./websocket/server");
 const url_1 = require("url");
+const billing_env_1 = require("./config/billing-env");
+const feature_flags_1 = require("./config/feature-flags");
 const startServer = async () => {
     try {
+        (0, billing_env_1.validateBillingEnv)();
+        logger_1.logger.info('Billing provider mode', { mode: billing_env_1.BILLING_PROVIDER_MODE });
+        logger_1.logger.info('Feature flags', feature_flags_1.FeatureFlags);
         const app = await (0, loaders_1.default)();
         const server = app.listen(config_1.default.PORT, () => {
             // Server started

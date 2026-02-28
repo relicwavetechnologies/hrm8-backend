@@ -3,9 +3,15 @@ import loaders from './loaders';
 import { logger } from './utils/logger';
 import { wss } from './websocket/server';
 import { parse } from 'url';
+import { validateBillingEnv, BILLING_PROVIDER_MODE } from './config/billing-env';
+import { FeatureFlags } from './config/feature-flags';
 
 const startServer = async () => {
   try {
+    validateBillingEnv();
+    logger.info('Billing provider mode', { mode: BILLING_PROVIDER_MODE });
+    logger.info('Feature flags', FeatureFlags);
+
     const app = await loaders();
 
     const server = app.listen(config.PORT, () => {
