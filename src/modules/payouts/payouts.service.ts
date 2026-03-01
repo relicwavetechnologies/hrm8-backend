@@ -1,27 +1,34 @@
-import crypto from 'crypto';
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
-import { ConsultantWithdrawalService } from '../consultant/consultant-withdrawal.service';
+import { AirwallexService } from '../airwallex/airwallex.service';
+import { CommissionPayoutService } from './commission-payout.service';
+import { Logger } from '../../utils/logger';
+
+const log = Logger.create('payouts');
 
 export class PayoutsService {
-  private consultantWithdrawalService = new ConsultantWithdrawalService();
 
-  async createBeneficiary(consultantId: string) {
+  async createBeneficiary(consultantId: string, bankDetails?: Record<string, unknown>) {
     const consultant = await prisma.consultant.findUnique({ where: { id: consultantId } });
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    let accountId = consultant.stripe_account_id;
-    if (!accountId) {
-      accountId = `awx_benef_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    let beneficiaryId = consultant.airwallex_beneficiary_id || consultant.stripe_account_id;
+    if (!beneficiaryId) {
+      const result = await AirwallexService.createBeneficiary(consultantId, bankDetails || {});
+      beneficiaryId = result.beneficiaryId;
+
       await prisma.consultant.update({
         where: { id: consultantId },
         data: {
-          stripe_account_id: accountId,
+          airwallex_beneficiary_id: beneficiaryId,
+          stripe_account_id: beneficiaryId,
           stripe_account_status: 'active',
           payout_enabled: true,
           stripe_onboarded_at: new Date(),
         },
       });
+
+      log.info('Beneficiary created', { consultantId, beneficiaryId });
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -29,7 +36,7 @@ export class PayoutsService {
 
     return {
       provider: 'AIRWALLEX',
-      accountId,
+      accountId: beneficiaryId,
       onboardingUrl,
       accountLink: { url: onboardingUrl },
       status: 'active',
@@ -86,11 +93,30 @@ export class PayoutsService {
   }
 
   async executeWithdrawal(withdrawalId: string, consultantId: string) {
-    const withdrawal = await this.consultantWithdrawalService.executeWithdrawal(withdrawalId, consultantId);
+    const withdrawal = await prisma.commissionWithdrawal.findUnique({
+      where: { id: withdrawalId },
+    });
+
+    if (!withdrawal) throw new HttpException(404, 'Withdrawal not found');
+    if (withdrawal.consultant_id !== consultantId) throw new HttpException(403, 'Unauthorized');
+
+    const result = await CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
+
+    log.info('Withdrawal payout executed', {
+      withdrawalId,
+      transferId: result.transferId,
+      xeroBillId: result.xeroBillId,
+      status: result.status,
+    });
+
     return {
       provider: 'AIRWALLEX',
-      withdrawal,
-      message: 'Withdrawal execution initiated through Airwallex payout rail',
+      transferId: result.transferId,
+      xeroBillId: result.xeroBillId,
+      status: result.status,
+      message: result.status === 'COMPLETED'
+        ? 'Payout completed — Airwallex transfer and Xero expense recorded'
+        : 'Payout processing — Airwallex transfer initiated, awaiting completion webhook',
     };
   }
 }

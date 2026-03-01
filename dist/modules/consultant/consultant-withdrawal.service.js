@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConsultantWithdrawalService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
+const commission_payout_service_1 = require("../payouts/commission-payout.service");
+const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
 class ConsultantWithdrawalService {
     /**
      * Unified balance using VirtualAccount as single source of truth (aligns with Consultant360).
@@ -93,19 +95,26 @@ class ConsultantWithdrawalService {
             throw new http_exception_1.HttpException(400, 'One or more commissions are already in an active withdrawal request');
         }
         const totalAmount = commissions.reduce((sum, c) => sum + c.amount, 0);
-        // Allow slight float difference or strict? Let's be strict but mindful of float precision.
         if (Math.abs(totalAmount - data.amount) > 0.01) {
-            // throw new HttpException(400, 'Amount mismatch with selected commissions');
-            // For now, let's just proceed with the calculated amount from commissions to be safe?
-            // Or trust the payload amount?
-            // Better to trust the SUM to avoid fraud.
-            // We'll update the logic to use the sum.
+            throw new http_exception_1.HttpException(400, `Amount mismatch: selected commissions total ${totalAmount}, requested ${data.amount}`);
         }
-        // Create Withdrawal Request
+        const consultant = await prisma_1.prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { payout_currency: true, region_id: true }
+        });
+        const payoutCurrency = consultant?.payout_currency || 'USD';
+        const sourceCurrencies = [...new Set(commissions.map(c => c.currency || 'USD'))];
+        const primarySourceCurrency = sourceCurrencies[0] || 'USD';
+        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
+        const { payoutAmount, fxRate } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(primarySourceCurrency, payoutCurrency, totalAmount, fxQuote);
         const withdrawal = await prisma_1.prisma.commissionWithdrawal.create({
             data: {
                 consultant_id: consultantId,
-                amount: totalAmount, // Use calculated sum
+                amount: totalAmount,
+                currency: primarySourceCurrency,
+                payout_currency: payoutCurrency,
+                payout_amount: payoutAmount,
+                fx_rate_used: fxRate,
                 payment_method: data.paymentMethod,
                 payment_details: data.paymentDetails || {},
                 commission_ids: data.commissionIds,
@@ -145,8 +154,7 @@ class ConsultantWithdrawalService {
     }
     async executeWithdrawal(withdrawalId, consultantId) {
         const withdrawal = await prisma_1.prisma.commissionWithdrawal.findUnique({
-            where: { id: withdrawalId },
-            include: { consultant: true }
+            where: { id: withdrawalId }
         });
         if (!withdrawal)
             throw new http_exception_1.HttpException(404, 'Withdrawal not found');
@@ -155,74 +163,7 @@ class ConsultantWithdrawalService {
         if (withdrawal.status !== 'APPROVED' && withdrawal.status !== 'PROCESSING') {
             throw new http_exception_1.HttpException(400, 'Withdrawal must be approved before execution');
         }
-        return prisma_1.prisma.$transaction(async (tx) => {
-            const latest = await tx.commissionWithdrawal.findUnique({
-                where: { id: withdrawalId }
-            });
-            if (!latest) {
-                throw new http_exception_1.HttpException(404, 'Withdrawal not found');
-            }
-            let debitTransaction = await tx.virtualTransaction.findFirst({
-                where: {
-                    reference_type: 'COMMISSION_WITHDRAWAL',
-                    reference_id: withdrawalId,
-                    direction: 'DEBIT',
-                    status: 'COMPLETED'
-                },
-                orderBy: { created_at: 'asc' }
-            });
-            if (!latest.debited_from_wallet && !debitTransaction) {
-                const account = await tx.virtualAccount.findUnique({
-                    where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
-                });
-                if (!account) {
-                    throw new http_exception_1.HttpException(404, 'Consultant wallet account not found');
-                }
-                if (Number(account.balance) < latest.amount) {
-                    throw new http_exception_1.HttpException(400, 'Insufficient wallet balance for withdrawal');
-                }
-                debitTransaction = await tx.virtualTransaction.create({
-                    data: {
-                        virtual_account_id: account.id,
-                        type: 'COMMISSION_WITHDRAWAL',
-                        amount: latest.amount,
-                        balance_after: Number(account.balance) - latest.amount,
-                        direction: 'DEBIT',
-                        status: 'COMPLETED',
-                        description: 'Withdrawal executed',
-                        reference_id: withdrawalId,
-                        reference_type: 'COMMISSION_WITHDRAWAL',
-                        withdrawal_request_id: withdrawalId
-                    }
-                });
-                await tx.virtualAccount.update({
-                    where: { id: account.id },
-                    data: { balance: { decrement: latest.amount }, total_debits: { increment: latest.amount } }
-                });
-            }
-            if (!debitTransaction && latest.virtual_transaction_id) {
-                debitTransaction = await tx.virtualTransaction.findUnique({
-                    where: { id: latest.virtual_transaction_id }
-                });
-            }
-            if (!debitTransaction) {
-                throw new http_exception_1.HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
-            }
-            await tx.commissionWithdrawal.update({
-                where: { id: withdrawalId },
-                data: {
-                    status: 'PROCESSING',
-                    processed_at: latest.processed_at || new Date(),
-                    debited_from_wallet: true,
-                    virtual_transaction_id: debitTransaction.id,
-                    wallet_debit_at: debitTransaction.created_at
-                }
-            });
-            return tx.commissionWithdrawal.findUnique({
-                where: { id: withdrawalId },
-                include: { consultant: true }
-            });
-        });
+        return commission_payout_service_1.CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
     }
     async getStripeStatus(consultantId) {
         const consultant = await prisma_1.prisma.consultant.findUnique({

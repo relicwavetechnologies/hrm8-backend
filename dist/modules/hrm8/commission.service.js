@@ -7,6 +7,9 @@ const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const commission_rate_util_1 = require("./commission-rate.util");
 const conversion_commercial_context_service_1 = require("./conversion-commercial-context.service");
+const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
+const logger_1 = require("../../utils/logger");
+const log = logger_1.Logger.create('commission');
 class CommissionService extends service_1.BaseService {
     constructor(commissionRepository) {
         super();
@@ -22,6 +25,13 @@ class CommissionService extends service_1.BaseService {
             subscriptionId: commission.subscription_id,
             type: commission.type,
             amount: commission.amount,
+            currency: commission.currency || 'USD',
+            payoutCurrency: commission.payout_currency || null,
+            payoutAmount: commission.payout_amount || null,
+            fxRate: commission.fx_rate || null,
+            fxRateLockedAt: commission.fx_rate_locked_at || null,
+            fxSource: commission.fx_source || null,
+            rate: commission.rate || null,
             description: commission.description,
             status: commission.status,
             createdAt: commission.created_at,
@@ -251,14 +261,35 @@ class CommissionService extends service_1.BaseService {
             rate: customRate,
         });
     }
+    async resolveConsultantPayoutCurrency(consultantId) {
+        const consultant = await prisma_1.prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { payout_currency: true, region_id: true }
+        });
+        if (consultant?.payout_currency)
+            return consultant.payout_currency;
+        if (consultant?.region_id) {
+            const region = await prisma_1.prisma.region.findUnique({
+                where: { id: consultant.region_id },
+                select: { country: true }
+            });
+            if (region?.country) {
+                const mapping = await prisma_1.prisma.countryPricingMap?.findFirst?.({
+                    where: { country_code: region.country, is_active: true },
+                    select: { billing_currency: true }
+                });
+                if (mapping?.billing_currency)
+                    return mapping.billing_currency;
+            }
+        }
+        return 'USD';
+    }
     async create(input) {
         const { consultantId, amount: providedAmount, type, jobId, subscriptionId, description, rate, calculateFromJob = false } = input;
-        // Calculate amount if needed
         let amount = providedAmount;
         let commissionCurrency = 'USD';
         let commissionRate = (0, commission_rate_util_1.toCommissionRateDecimal)(rate, 0.20);
         if (calculateFromJob && (jobId || subscriptionId)) {
-            // Fetch payment details to calculate commission
             if (jobId) {
                 const job = await prisma_1.prisma.job.findUnique({
                     where: { id: jobId },
@@ -292,10 +323,13 @@ class CommissionService extends service_1.BaseService {
         }
         if (!amount || amount <= 0)
             throw new http_exception_1.HttpException(400, 'Commission amount must be positive');
+        const payoutCurrency = await this.resolveConsultantPayoutCurrency(consultantId);
+        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(commissionCurrency, payoutCurrency);
+        const { payoutAmount, fxRate, fxSource } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(commissionCurrency, payoutCurrency, amount, fxQuote);
+        log.info('Commission FX resolved', {
+            consultantId, commissionCurrency, payoutCurrency, amount, fxRate, payoutAmount, fxSource
+        });
         return this.commissionRepository.transaction(async (tx) => {
-            // Need to fetch consultant for region_id. Using global prisma for now inside tx context if possible or assume tx has access
-            // Ideally Repository should expose method that accepts tx. 
-            // For simplicity adapting logic:
             const consultant = await tx.consultant.findUnique({
                 where: { id: consultantId },
                 select: { region_id: true, email: true },
@@ -310,18 +344,25 @@ class CommissionService extends service_1.BaseService {
                     subscription_id: subscriptionId,
                     type,
                     amount,
+                    currency: commissionCurrency,
+                    payout_currency: payoutCurrency,
+                    payout_amount: payoutAmount,
+                    fx_rate: fxRate,
+                    fx_rate_locked_at: new Date(),
+                    fx_source: fxSource,
+                    rate: commissionRate,
                     description: description || `Commission for ${type}`,
                     status: client_1.CommissionStatus.CONFIRMED,
                     confirmed_at: new Date(),
                 },
             });
-            // Wallet interaction
-            const account = await tx.virtualAccount.findUnique({
+            const walletAmount = payoutAmount;
+            const walletCurrency = payoutCurrency;
+            let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
-            let accountId = account?.id;
-            if (!accountId) {
-                const newAccount = await tx.virtualAccount.create({
+            if (!account) {
+                account = await tx.virtualAccount.create({
                     data: {
                         owner_type: 'CONSULTANT',
                         owner_id: consultantId,
@@ -329,25 +370,31 @@ class CommissionService extends service_1.BaseService {
                         status: 'ACTIVE'
                     }
                 });
-                accountId = newAccount.id;
             }
             await tx.virtualTransaction.create({
                 data: {
-                    virtual_account_id: accountId,
+                    virtual_account_id: account.id,
                     type: client_1.VirtualTransactionType.COMMISSION_EARNED,
-                    amount,
-                    balance_after: (account?.balance || 0) + amount,
+                    amount: walletAmount,
+                    balance_after: Number(account.balance) + walletAmount,
                     direction: 'CREDIT',
                     status: 'COMPLETED',
                     description: `Commission earned: ${description || type}`,
                     reference_id: commission.id,
                     reference_type: 'COMMISSION',
-                    billing_currency_used: commissionCurrency
+                    commission_id: commission.id,
+                    billing_currency_used: walletCurrency,
+                    metadata: {
+                        source_amount: amount,
+                        source_currency: commissionCurrency,
+                        fx_rate: fxRate,
+                        fx_source: fxSource,
+                    }
                 }
             });
             await tx.virtualAccount.update({
-                where: { id: accountId },
-                data: { balance: { increment: amount }, total_credits: { increment: amount } }
+                where: { id: account.id },
+                data: { balance: { increment: walletAmount }, total_credits: { increment: walletAmount } }
             });
             return commission;
         });
@@ -359,12 +406,13 @@ class CommissionService extends service_1.BaseService {
     async requestCommission(input) {
         const { consultantId, amount: providedAmount, type, jobId, subscriptionId, description, rate, calculateFromJob = false } = input;
         let amount = providedAmount;
+        let commissionCurrency = 'USD';
         let commissionRate = (0, commission_rate_util_1.toCommissionRateDecimal)(rate, 0.20);
         if (calculateFromJob && (jobId || subscriptionId)) {
             if (jobId) {
                 const job = await prisma_1.prisma.job.findUnique({
                     where: { id: jobId },
-                    select: { payment_amount: true }
+                    select: { payment_amount: true, payment_currency: true }
                 });
                 if (job?.payment_amount) {
                     const consultant = await prisma_1.prisma.consultant.findUnique({
@@ -373,12 +421,13 @@ class CommissionService extends service_1.BaseService {
                     });
                     commissionRate = (0, commission_rate_util_1.toCommissionRateDecimal)(rate ?? consultant?.default_commission_rate, 0.20);
                     amount = job.payment_amount * commissionRate;
+                    commissionCurrency = job.payment_currency || 'USD';
                 }
             }
             else if (subscriptionId) {
                 const subscription = await prisma_1.prisma.subscription.findUnique({
                     where: { id: subscriptionId },
-                    select: { base_price: true }
+                    select: { base_price: true, currency: true }
                 });
                 if (subscription?.base_price) {
                     const consultant = await prisma_1.prisma.consultant.findUnique({
@@ -387,6 +436,7 @@ class CommissionService extends service_1.BaseService {
                     });
                     commissionRate = (0, commission_rate_util_1.toCommissionRateDecimal)(rate ?? consultant?.default_commission_rate, 0.20);
                     amount = subscription.base_price * commissionRate;
+                    commissionCurrency = subscription.currency || 'USD';
                 }
             }
         }
@@ -400,6 +450,9 @@ class CommissionService extends service_1.BaseService {
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         if (!consultant.region_id)
             throw new http_exception_1.HttpException(400, 'Consultant must have a region assigned');
+        const payoutCurrency = await this.resolveConsultantPayoutCurrency(consultantId);
+        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(commissionCurrency, payoutCurrency);
+        const { payoutAmount, fxRate, fxSource } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(commissionCurrency, payoutCurrency, amount, fxQuote);
         return prisma_1.prisma.commission.create({
             data: {
                 consultant_id: consultantId,
@@ -408,6 +461,12 @@ class CommissionService extends service_1.BaseService {
                 subscription_id: subscriptionId ?? undefined,
                 type,
                 amount,
+                currency: commissionCurrency,
+                payout_currency: payoutCurrency,
+                payout_amount: payoutAmount,
+                fx_rate: fxRate,
+                fx_rate_locked_at: new Date(),
+                fx_source: fxSource,
                 description: description || `Commission request: ${type}`,
                 status: client_1.CommissionStatus.PENDING
             }
@@ -426,15 +485,14 @@ class CommissionService extends service_1.BaseService {
         if (commission.status !== client_1.CommissionStatus.PENDING) {
             throw new http_exception_1.HttpException(400, `Cannot confirm commission in status ${commission.status}`);
         }
-        // PENDING → CONFIRMED: credit VirtualAccount so amount reflects in wallet
+        // PENDING → CONFIRMED: credit VirtualAccount using the locked payout amount/currency
         return this.commissionRepository.transaction(async (tx) => {
             const consultantId = commission.consultant_id;
-            const amount = Number(commission.amount);
+            const walletAmount = Number(commission.payout_amount ?? commission.amount);
+            const walletCurrency = commission.payout_currency ?? 'USD';
+            const sourceAmount = Number(commission.amount);
+            const sourceCurrency = commission.currency ?? 'USD';
             const description = commission.description || `Commission ${commission.type}`;
-            const commissionCurrency = await this.resolveCommissionCurrency({
-                jobId: commission.job_id,
-                subscriptionId: commission.subscription_id
-            });
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
@@ -448,24 +506,31 @@ class CommissionService extends service_1.BaseService {
                     }
                 });
             }
-            const balanceAfter = Number(account.balance) + amount;
+            const balanceAfter = Number(account.balance) + walletAmount;
             await tx.virtualTransaction.create({
                 data: {
                     virtual_account_id: account.id,
                     type: client_1.VirtualTransactionType.COMMISSION_EARNED,
-                    amount,
+                    amount: walletAmount,
                     balance_after: balanceAfter,
                     direction: 'CREDIT',
                     status: 'COMPLETED',
                     description: `Commission approved: ${description}`,
                     reference_id: commission.id,
                     reference_type: 'COMMISSION',
-                    billing_currency_used: commissionCurrency
+                    commission_id: commission.id,
+                    billing_currency_used: walletCurrency,
+                    metadata: {
+                        source_amount: sourceAmount,
+                        source_currency: sourceCurrency,
+                        fx_rate: commission.fx_rate,
+                        fx_source: commission.fx_source,
+                    }
                 }
             });
             await tx.virtualAccount.update({
                 where: { id: account.id },
-                data: { balance: { increment: amount }, total_credits: { increment: amount } }
+                data: { balance: { increment: walletAmount }, total_credits: { increment: walletAmount } }
             });
             return tx.commission.update({
                 where: { id },
@@ -551,35 +616,40 @@ class CommissionService extends service_1.BaseService {
             });
         }
         // If CONFIRMED, PAID, or DISPUTED (post-confirm), we need to deduct wallet
+        // Use payout_amount (the amount that was actually credited to the wallet)
         return this.commissionRepository.transaction(async (tx) => {
-            const amount = Number(commission.amount);
+            const walletAmount = Number(commission.payout_amount ?? commission.amount);
+            const walletCurrency = commission.payout_currency ?? 'USD';
             const consultantId = commission.consultant_id;
             const account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
             if (account) {
-                const balanceAfter = Number(account.balance) - amount;
+                const balanceAfter = Number(account.balance) - walletAmount;
                 await tx.virtualTransaction.create({
                     data: {
                         virtual_account_id: account.id,
                         type: client_1.VirtualTransactionType.COMMISSION_CLAWBACK,
-                        amount: amount,
+                        amount: walletAmount,
                         balance_after: balanceAfter,
                         direction: 'DEBIT',
                         status: 'COMPLETED',
                         description: `Clawback: ${reason}`,
                         reference_id: commission.id,
-                        reference_type: 'COMMISSION'
+                        reference_type: 'COMMISSION',
+                        commission_id: commission.id,
+                        billing_currency_used: walletCurrency,
+                        metadata: {
+                            source_amount: Number(commission.amount),
+                            source_currency: commission.currency ?? 'USD',
+                            fx_rate: commission.fx_rate,
+                            fx_source: commission.fx_source,
+                        }
                     }
                 });
                 await tx.virtualAccount.update({
                     where: { id: account.id },
-                    data: {
-                        balance: { decrement: amount },
-                        // Do we decrement total_credits? Usually no, total_credits is historical. 
-                        // We might want a total_debits field or just leave balance.
-                        // Leaving total_credits as is (historical earnings).
-                    }
+                    data: { balance: { decrement: walletAmount } }
                 });
             }
             return tx.commission.update({

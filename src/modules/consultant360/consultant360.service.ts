@@ -3,6 +3,8 @@ import { Consultant360Repository } from './consultant360.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { normalizeConversionIntentSnapshot } from '../sales/conversion-intent.util';
+import { CommissionPayoutService } from '../payouts/commission-payout.service';
+import { AirwallexFxService } from '../airwallex/airwallex-fx.service';
 
 export class Consultant360Service extends BaseService {
   constructor(private repository: Consultant360Repository) {
@@ -373,9 +375,26 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Insufficient balance for withdrawal');
     }
 
+    const payoutCurrency = consultant.payout_currency || 'USD';
+    const commissionRecords = await prisma.commission.findMany({
+      where: { id: { in: commissionIds }, consultant_id: consultantId, status: 'CONFIRMED' },
+      select: { id: true, amount: true, currency: true }
+    });
+    const totalAmount = commissionRecords.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+    const primarySourceCurrency = commissionRecords[0]?.currency || 'USD';
+
+    const fxQuote = await AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
+    const { payoutAmount, fxRate } = AirwallexFxService.resolveFxFields(
+      primarySourceCurrency, payoutCurrency, totalAmount, fxQuote
+    );
+
     return this.repository.createWithdrawal({
       consultant: { connect: { id: consultantId } },
-      amount,
+      amount: totalAmount,
+      currency: primarySourceCurrency,
+      payout_currency: payoutCurrency,
+      payout_amount: payoutAmount,
+      fx_rate_used: fxRate,
       payment_method: paymentMethod,
       payment_details: paymentDetails,
       commission_ids: commissionIds,
@@ -421,88 +440,7 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Withdrawal must be approved before execution');
     }
 
-    return prisma.$transaction(async (tx) => {
-      const latest = await tx.commissionWithdrawal.findUnique({
-        where: { id: withdrawalId }
-      });
-
-      if (!latest) {
-        throw new HttpException(404, 'Withdrawal not found');
-      }
-
-      let debitTransaction = await tx.virtualTransaction.findFirst({
-        where: {
-          reference_type: 'COMMISSION_WITHDRAWAL',
-          reference_id: withdrawalId,
-          direction: 'DEBIT',
-          status: 'COMPLETED'
-        },
-        orderBy: { created_at: 'asc' }
-      });
-
-      if (!latest.debited_from_wallet && !debitTransaction) {
-        const account = await tx.virtualAccount.findUnique({
-          where: {
-            owner_type_owner_id: {
-              owner_type: 'CONSULTANT',
-              owner_id: consultantId
-            }
-          }
-        });
-
-        if (!account) {
-          throw new HttpException(404, 'Consultant wallet account not found');
-        }
-
-        if (Number(account.balance) < latest.amount) {
-          throw new HttpException(400, 'Insufficient wallet balance for withdrawal');
-        }
-
-        debitTransaction = await tx.virtualTransaction.create({
-          data: {
-            virtual_account_id: account.id,
-            type: 'COMMISSION_WITHDRAWAL',
-            amount: latest.amount,
-            balance_after: Number(account.balance) - latest.amount,
-            direction: 'DEBIT',
-            status: 'COMPLETED',
-            description: 'Withdrawal executed',
-            reference_id: withdrawalId,
-            reference_type: 'COMMISSION_WITHDRAWAL',
-            withdrawal_request_id: withdrawalId
-          }
-        });
-
-        await tx.virtualAccount.update({
-          where: { id: account.id },
-          data: {
-            balance: { decrement: latest.amount },
-            total_debits: { increment: latest.amount }
-          }
-        });
-      }
-
-      if (!debitTransaction && latest.virtual_transaction_id) {
-        debitTransaction = await tx.virtualTransaction.findUnique({
-          where: { id: latest.virtual_transaction_id }
-        });
-      }
-
-      if (!debitTransaction) {
-        throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
-      }
-
-      return tx.commissionWithdrawal.update({
-        where: { id: withdrawalId },
-        data: {
-          status: 'PROCESSING',
-          processed_at: latest.processed_at || new Date(),
-          debited_from_wallet: true,
-          virtual_transaction_id: debitTransaction.id,
-          wallet_debit_at: debitTransaction.created_at
-        }
-      });
-    });
+    return CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
   }
 
   // --- Payout Provider (Airwallex) – provider-neutral method names ---

@@ -1,39 +1,38 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PayoutsService = void 0;
-const crypto_1 = __importDefault(require("crypto"));
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
-const consultant_withdrawal_service_1 = require("../consultant/consultant-withdrawal.service");
+const airwallex_service_1 = require("../airwallex/airwallex.service");
+const commission_payout_service_1 = require("./commission-payout.service");
+const logger_1 = require("../../utils/logger");
+const log = logger_1.Logger.create('payouts');
 class PayoutsService {
-    constructor() {
-        this.consultantWithdrawalService = new consultant_withdrawal_service_1.ConsultantWithdrawalService();
-    }
-    async createBeneficiary(consultantId) {
+    async createBeneficiary(consultantId, bankDetails) {
         const consultant = await prisma_1.prisma.consultant.findUnique({ where: { id: consultantId } });
         if (!consultant)
             throw new http_exception_1.HttpException(404, 'Consultant not found');
-        let accountId = consultant.stripe_account_id;
-        if (!accountId) {
-            accountId = `awx_benef_${crypto_1.default.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+        let beneficiaryId = consultant.airwallex_beneficiary_id || consultant.stripe_account_id;
+        if (!beneficiaryId) {
+            const result = await airwallex_service_1.AirwallexService.createBeneficiary(consultantId, bankDetails || {});
+            beneficiaryId = result.beneficiaryId;
             await prisma_1.prisma.consultant.update({
                 where: { id: consultantId },
                 data: {
-                    stripe_account_id: accountId,
+                    airwallex_beneficiary_id: beneficiaryId,
+                    stripe_account_id: beneficiaryId,
                     stripe_account_status: 'active',
                     payout_enabled: true,
                     stripe_onboarded_at: new Date(),
                 },
             });
+            log.info('Beneficiary created', { consultantId, beneficiaryId });
         }
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const onboardingUrl = `${frontendUrl}/consultant360/earnings?airwallex_success=true`;
         return {
             provider: 'AIRWALLEX',
-            accountId,
+            accountId: beneficiaryId,
             onboardingUrl,
             accountLink: { url: onboardingUrl },
             status: 'active',
@@ -84,11 +83,28 @@ class PayoutsService {
         };
     }
     async executeWithdrawal(withdrawalId, consultantId) {
-        const withdrawal = await this.consultantWithdrawalService.executeWithdrawal(withdrawalId, consultantId);
+        const withdrawal = await prisma_1.prisma.commissionWithdrawal.findUnique({
+            where: { id: withdrawalId },
+        });
+        if (!withdrawal)
+            throw new http_exception_1.HttpException(404, 'Withdrawal not found');
+        if (withdrawal.consultant_id !== consultantId)
+            throw new http_exception_1.HttpException(403, 'Unauthorized');
+        const result = await commission_payout_service_1.CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
+        log.info('Withdrawal payout executed', {
+            withdrawalId,
+            transferId: result.transferId,
+            xeroBillId: result.xeroBillId,
+            status: result.status,
+        });
         return {
             provider: 'AIRWALLEX',
-            withdrawal,
-            message: 'Withdrawal execution initiated through Airwallex payout rail',
+            transferId: result.transferId,
+            xeroBillId: result.xeroBillId,
+            status: result.status,
+            message: result.status === 'COMPLETED'
+                ? 'Payout completed — Airwallex transfer and Xero expense recorded'
+                : 'Payout processing — Airwallex transfer initiated, awaiting completion webhook',
         };
     }
 }
