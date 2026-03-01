@@ -1,5 +1,9 @@
 import type { Prisma, Lead, LeadConversionRequest, Opportunity, Activity } from '@prisma/client';
 import { BaseRepository } from '../../core/repository';
+import { FeatureFlags } from '../../config/feature-flags';
+import { Logger } from '../../utils/logger';
+
+const log = Logger.create('sales-repo');
 
 const conversionRequestSelect = {
   id: true,
@@ -57,6 +61,25 @@ const isIntentSnapshotColumnMissing = (error: unknown): boolean => {
   return err?.code === 'P2022' && String(err?.meta?.column || '').includes('intent_snapshot');
 };
 
+/**
+ * Returns the correct select clause based on the strict mode flag.
+ * In strict mode, always include intent_snapshot and never fall back.
+ * In compat mode, use the try/catch fallback pattern.
+ */
+function getSelectClause() {
+  return FeatureFlags.FF_INTENT_SNAPSHOT_STRICT
+    ? conversionRequestSelect
+    : conversionRequestSelect;
+}
+
+function shouldFallback(error: unknown): boolean {
+  if (FeatureFlags.FF_INTENT_SNAPSHOT_STRICT) {
+    log.error('intent_snapshot column missing in strict mode – DB sync required', { error });
+    return false;
+  }
+  return isIntentSnapshotColumnMissing(error);
+}
+
 export class SalesRepository extends BaseRepository {
 
   // --- Leads ---
@@ -86,10 +109,10 @@ export class SalesRepository extends BaseRepository {
     try {
       return await this.prisma.leadConversionRequest.create({
         data: payload,
-        select: conversionRequestSelect
+        select: getSelectClause()
       });
     } catch (error) {
-      if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+      if (!('intent_snapshot' in payload) || !shouldFallback(error)) {
         throw error;
       }
 
@@ -108,10 +131,10 @@ export class SalesRepository extends BaseRepository {
       return await this.prisma.leadConversionRequest.update({
         where: { id },
         data: payload,
-        select: conversionRequestSelect
+        select: getSelectClause()
       });
     } catch (error) {
-      if (!('intent_snapshot' in payload) || !isIntentSnapshotColumnMissing(error)) {
+      if (!('intent_snapshot' in payload) || !shouldFallback(error)) {
         throw error;
       }
 
@@ -130,10 +153,10 @@ export class SalesRepository extends BaseRepository {
       return await this.prisma.leadConversionRequest.findMany({
         where: filters,
         orderBy: { created_at: 'desc' },
-        select: conversionRequestSelect
+        select: getSelectClause()
       });
     } catch (error) {
-      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      if (!shouldFallback(error)) throw error;
       return this.prisma.leadConversionRequest.findMany({
         where: filters,
         orderBy: { created_at: 'desc' },
@@ -146,10 +169,10 @@ export class SalesRepository extends BaseRepository {
     try {
       return await this.prisma.leadConversionRequest.findUnique({
         where: { id },
-        select: conversionRequestSelect
+        select: getSelectClause()
       });
     } catch (error) {
-      if (!isIntentSnapshotColumnMissing(error)) throw error;
+      if (!shouldFallback(error)) throw error;
       return this.prisma.leadConversionRequest.findUnique({
         where: { id },
         select: conversionRequestSelectWithoutIntentSnapshot

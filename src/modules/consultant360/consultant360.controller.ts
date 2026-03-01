@@ -195,46 +195,53 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
-  // Stripe
-  stripeOnboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  // Payout provider (Airwallex) – provider-neutral names
+  onboardPayoutProvider = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
 
-      const result = await this.service.initiateStripeOnboarding(consultantId);
+      const result = await this.service.initiatePayoutOnboarding(consultantId);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getStripeStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  getPayoutStatus = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
 
-      const status = await this.service.getStripeStatus(consultantId);
+      const status = await this.service.getPayoutStatus(consultantId);
       return this.sendSuccess(res, status);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
 
-  getStripeLoginLink = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+  getPayoutDashboardLink = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) {
         throw new HttpException(401, 'Unauthorized');
       }
 
-      const link = await this.service.getStripeLoginLink(consultantId);
+      const link = await this.service.getPayoutDashboardLink(consultantId);
       return this.sendSuccess(res, link);
     } catch (error) {
       return this.sendError(res, error);
     }
   };
+
+  /** @deprecated Use onboardPayoutProvider – kept for route compatibility. */
+  stripeOnboard = this.onboardPayoutProvider;
+  /** @deprecated Use getPayoutStatus – kept for route compatibility. */
+  getStripeStatus = this.getPayoutStatus;
+  /** @deprecated Use getPayoutDashboardLink – kept for route compatibility. */
+  getStripeLoginLink = this.getPayoutDashboardLink;
 }

@@ -505,16 +505,17 @@ export class Consultant360Service extends BaseService {
     });
   }
 
-  // --- Stripe ---
-  async initiateStripeOnboarding(consultantId: string) {
+  // --- Payout Provider (Airwallex) – provider-neutral method names ---
+
+  async initiatePayoutOnboarding(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
+    // DB columns still named stripe_* – will be renamed during next DB migration.
     let accountId = consultant.stripe_account_id;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     const returnPath = '/consultant360/earnings';
 
-    // Create payout beneficiary if missing.
     if (!accountId) {
       accountId = `awx_benef_${consultantId.replace(/-/g, '').slice(0, 20)}`;
       await this.repository.updateConsultant(consultantId, {
@@ -535,13 +536,11 @@ export class Consultant360Service extends BaseService {
     };
   }
 
-  async getStripeStatus(consultantId: string) {
+  async getPayoutStatus(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
     const hasAccount = !!consultant.stripe_account_id;
-
-    // If we have an account and it's marked active/payout_enabled in DB
     const isEnabled = hasAccount && (
       consultant.stripe_account_status === 'active' ||
       consultant.payout_enabled === true
@@ -553,12 +552,12 @@ export class Consultant360Service extends BaseService {
       accountId: consultant.stripe_account_id || undefined,
       payoutsEnabled: isEnabled,
       chargesEnabled: isEnabled,
-      detailsSubmitted: isEnabled, // specific to this flow simplification
+      detailsSubmitted: isEnabled,
       requiresAction: hasAccount && !isEnabled
     };
   }
 
-  async getStripeLoginLink(consultantId: string) {
+  async getPayoutDashboardLink(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
@@ -575,4 +574,11 @@ export class Consultant360Service extends BaseService {
       accountId: consultant.stripe_account_id
     };
   }
+
+  /** @deprecated Use initiatePayoutOnboarding */
+  initiateStripeOnboarding = this.initiatePayoutOnboarding.bind(this);
+  /** @deprecated Use getPayoutStatus */
+  getStripeStatus = this.getPayoutStatus.bind(this);
+  /** @deprecated Use getPayoutDashboardLink */
+  getStripeLoginLink = this.getPayoutDashboardLink.bind(this);
 }

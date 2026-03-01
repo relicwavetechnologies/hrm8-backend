@@ -131,8 +131,17 @@ router.post('/licensees/:id/terminate', authenticateHrm8, requireHrm8Role(['GLOB
 router.get('/licensees/:id/impact-preview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.getImpactPreview);
 
 // Company Routes
-router.get('/companies/:id', authenticateHrm8, regionalCompanyController.getById);
-router.get('/companies/:id/jobs', authenticateHrm8, regionalCompanyController.getCompanyJobs);
+router.get('/companies', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getAll);
+router.get('/companies/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getById);
+router.get('/companies/:id/overview', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getOverview);
+router.get('/companies/:id/activity', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getActivity);
+router.get('/companies/:id/users', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getCompanyUsers);
+router.get('/companies/:id/jobs', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getCompanyJobs);
+router.get('/companies/:id/pricing-context', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getPricingContext);
+router.get('/companies/:id/pricing-overrides', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionalCompanyController.getPricingOverrides);
+router.post('/companies/:id/pricing-overrides', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalCompanyController.createPricingOverride);
+router.put('/companies/:id/pricing-overrides/:overrideId/activate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalCompanyController.activatePricingOverride);
+router.put('/companies/:id/pricing-overrides/:overrideId/deactivate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalCompanyController.deactivatePricingOverride);
 
 // Lead Conversion Routes
 router.get('/conversion-requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), leadConversionController.getAll);
@@ -171,6 +180,11 @@ router.post('/pricing/promo-codes', authenticateHrm8, requireHrm8Role(['GLOBAL_A
 router.put('/pricing/promo-codes/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.updatePromoCode);
 router.delete('/pricing/promo-codes/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.deletePromoCode);
 router.post('/pricing/promo-codes/validate', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), pricingController.validatePromoCode);
+
+router.get('/pricing/country-map', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), pricingController.getCountryPricingMap);
+router.post('/pricing/country-map', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.createCountryPricingMap);
+router.put('/pricing/country-map/:id', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.updateCountryPricingMap);
+router.put('/pricing/country-map/:id/toggle', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), pricingController.toggleCountryPricingMap);
 
 // Region Routes
 router.get('/regions', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), regionController.getAll);

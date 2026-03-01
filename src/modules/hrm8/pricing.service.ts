@@ -248,4 +248,73 @@ export class PricingService extends BaseService {
             id: promo.id
         };
     }
+
+    async getCountryPricingMap() {
+        return this.pricingRepository.findCountryPricingMap();
+    }
+
+    async createCountryPricingMap(data: any) {
+        const countryCode = this.normalizeCode(data.countryCode ?? data.country_code, '');
+        if (!countryCode) {
+            throw new HttpException(400, 'countryCode is required');
+        }
+        const countryName = (data.countryName ?? data.country_name ?? '').trim();
+        if (!countryName) {
+            throw new HttpException(400, 'countryName is required');
+        }
+        const pricingPeg = this.normalizeCode(data.pricingPeg ?? data.pricing_peg, '');
+        if (!pricingPeg) {
+            throw new HttpException(400, 'pricingPeg is required');
+        }
+        const billingCurrency = this.normalizeCode(data.billingCurrency ?? data.billing_currency, pricingPeg);
+        const isActive = this.normalizeBoolean(data.isActive ?? data.is_active, true);
+
+        return this.pricingRepository.createCountryPricingMap({
+            country_code: countryCode,
+            country_name: countryName,
+            pricing_peg: pricingPeg,
+            billing_currency: billingCurrency,
+            is_active: isActive,
+        });
+    }
+
+    async updateCountryPricingMap(id: string, data: any) {
+        const existing = await this.pricingRepository.findCountryPricingMapById(id);
+        if (!existing) {
+            throw new HttpException(404, 'Country pricing map not found');
+        }
+
+        const updateData: any = {};
+        if (data.countryCode !== undefined || data.country_code !== undefined) {
+            updateData.country_code = this.normalizeCode(data.countryCode ?? data.country_code, existing.country_code);
+        }
+        if (data.countryName !== undefined || data.country_name !== undefined) {
+            const name = (data.countryName ?? data.country_name ?? '').trim();
+            if (!name) throw new HttpException(400, 'countryName cannot be empty');
+            updateData.country_name = name;
+        }
+        if (data.pricingPeg !== undefined || data.pricing_peg !== undefined) {
+            updateData.pricing_peg = this.normalizeCode(data.pricingPeg ?? data.pricing_peg, existing.pricing_peg);
+        }
+        if (data.billingCurrency !== undefined || data.billing_currency !== undefined) {
+            updateData.billing_currency = this.normalizeCode(
+                data.billingCurrency ?? data.billing_currency,
+                updateData.pricing_peg || existing.pricing_peg
+            );
+        }
+        if (data.isActive !== undefined || data.is_active !== undefined) {
+            updateData.is_active = this.normalizeBoolean(data.isActive ?? data.is_active, existing.is_active);
+        }
+
+        return this.pricingRepository.updateCountryPricingMap(id, updateData);
+    }
+
+    async toggleCountryPricingMap(id: string, isActive?: boolean) {
+        const existing = await this.pricingRepository.findCountryPricingMapById(id);
+        if (!existing) {
+            throw new HttpException(404, 'Country pricing map not found');
+        }
+        const newState = isActive !== undefined ? isActive : !existing.is_active;
+        return this.pricingRepository.toggleCountryPricingMap(id, newState);
+    }
 }

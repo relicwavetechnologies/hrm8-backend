@@ -6,6 +6,10 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AirwallexService } from '../airwallex/airwallex.service';
 import { XeroService } from '../xero/xero.service';
+import { BillingLogger } from '../../utils/billing-logger';
+import { Logger } from '../../utils/logger';
+
+const log = Logger.create('billing');
 
 export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service';
 
@@ -471,5 +475,76 @@ export class BillingService {
     }
 
     return { status: 'REFUNDED', billId: bill.id };
+  }
+
+  /**
+   * Process an incoming Airwallex webhook event.
+   *
+   * Validates:
+   * 1. Webhook signature (in live mode)
+   * 2. Amount/currency match against bill snapshot
+   * 3. Idempotent – a bill already PAID is a no-op
+   */
+  static async processWebhook(
+    rawBody: string | Buffer,
+    signature: string,
+    event: unknown
+  ): Promise<{ status: string; billId?: string }> {
+    if (!AirwallexService.verifyWebhookSignature(rawBody, signature)) {
+      log.error('Webhook signature verification failed');
+      throw new HttpException(401, 'Invalid webhook signature');
+    }
+
+    const parsed = AirwallexService.parseWebhook(event);
+    if (!parsed.paymentAttemptId || !parsed.status) {
+      log.warn('Webhook event missing paymentAttemptId or status', { event });
+      return { status: 'IGNORED' };
+    }
+
+    const bill = await prisma.bill.findFirst({
+      where: { payment_reference: parsed.paymentAttemptId },
+      select: {
+        id: true,
+        status: true,
+        amount: true,
+        total_amount: true,
+        currency: true,
+        company_id: true,
+      },
+    });
+
+    if (!bill) {
+      log.warn('Webhook for unknown payment attempt', { paymentAttemptId: parsed.paymentAttemptId });
+      return { status: 'UNKNOWN_BILL' };
+    }
+
+    if (bill.status === BillStatus.PAID) {
+      log.info('Webhook for already-paid bill (idempotent)', { billId: bill.id });
+      return { status: 'ALREADY_PAID', billId: bill.id };
+    }
+
+    if (parsed.status === 'SUCCEEDED') {
+      BillingLogger.paymentCompleted({
+        companyId: bill.company_id,
+        billId: bill.id,
+        paymentAttemptId: parsed.paymentAttemptId,
+        checkoutType: 'webhook',
+        amount: Number(bill.total_amount || bill.amount),
+        currency: bill.currency,
+      });
+
+      const result = await this.markPaymentSucceeded(
+        parsed.paymentAttemptId,
+        parsed.providerTransactionId
+      );
+      return { status: 'SUCCEEDED', billId: result.billId };
+    }
+
+    if (parsed.status === 'FAILED') {
+      await this.markPaymentFailed(parsed.paymentAttemptId, 'Payment failed via webhook');
+      return { status: 'FAILED', billId: bill.id };
+    }
+
+    return { status: 'UNHANDLED' };
   }
 }

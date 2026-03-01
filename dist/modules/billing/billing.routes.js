@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_middleware_1 = require("../../middlewares/auth.middleware");
+const billing_controller_1 = require("./billing.controller");
+const router = (0, express_1.Router)();
+const controller = new billing_controller_1.BillingController();
+router.post('/checkout', auth_middleware_1.authenticate, controller.createCheckout);
+router.get('/payments/:paymentAttemptId', auth_middleware_1.authenticate, controller.getPaymentStatus);
+router.post('/refunds/:paymentAttemptId', auth_middleware_1.authenticate, controller.refundPayment);
+router.post('/webhooks/airwallex', controller.handleAirwallexWebhook);
+exports.default = router;

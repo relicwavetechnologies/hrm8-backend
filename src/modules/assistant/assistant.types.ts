@@ -1,6 +1,57 @@
 import { UserRole } from '@prisma/client';
 import { z } from 'zod';
 
+// ─── AI Reference Context Framework ──────────────────────────────────────────
+
+/**
+ * Zod schema for a single entity reference token sent from the frontend.
+ * Frontend sends IDs/hints only — backend resolves authoritative data.
+ */
+export const entityReferenceSchema = z.object({
+  entityType: z.enum(['job', 'candidate', 'company', 'application', 'consultant', 'custom']),
+  entityId: z.string().trim().min(1).max(120),
+  label: z.string().trim().min(1).max(200),
+  source: z.string().trim().min(1).max(100),
+  meta: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+});
+
+export type EntityReference = z.infer<typeof entityReferenceSchema>;
+
+/**
+ * Zod schema for the context payload in assistant request body.
+ * Validation is intentionally lenient: missing/extra fields are stripped.
+ */
+export const assistantContextSchema = z.object({
+  references: z.array(entityReferenceSchema).max(20).optional(),
+  // Existing candidate assessment fields — kept for backward compatibility
+  mode: z.string().optional(),
+  applicationId: z.string().optional(),
+  candidateId: z.string().optional(),
+  candidateName: z.string().optional(),
+  candidateEmail: z.string().optional(),
+  jobId: z.string().optional(),
+  jobTitle: z.string().optional(),
+  currentStage: z.string().optional(),
+  currentStatus: z.string().optional(),
+}).passthrough();
+
+/**
+ * Backend-resolved shape for a single entity reference.
+ * Frontend token is resolved to this authoritative snapshot after ACL checks.
+ */
+export interface ResolvedReference {
+  entityType: EntityReference['entityType'];
+  entityId: string;
+  label: string;
+  /** true = resolved successfully and actor has permission */
+  resolved: boolean;
+  /** Human-readable context summary injected into the system prompt */
+  contextSummary?: string;
+  /** Set when the reference could not be resolved or permission was denied */
+  error?: string;
+}
+
+
 export type AssistantActorType = 'COMPANY_USER' | 'HRM8_USER' | 'CONSULTANT';
 
 export enum ToolAccessLevel {

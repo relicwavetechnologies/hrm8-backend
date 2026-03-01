@@ -4,7 +4,7 @@ import { convertToCoreMessages, streamText, tool, UIMessage } from 'ai';
 import { z } from 'zod';
 import { Response } from 'express';
 import { Logger } from '../../utils/logger';
-import { AssistantActor, ToolDefinition } from './assistant.types';
+import { AssistantActor, ToolDefinition, entityReferenceSchema, ResolvedReference } from './assistant.types';
 import { TOOL_REGISTRY } from './assistant.tool-registry';
 import { prisma } from '../../utils/prisma';
 import { AssistantAccessControl } from './assistant.access-control';
@@ -101,8 +101,12 @@ export class AssistantStreamService {
     const coreMessages = convertToCoreMessages(messages);
     // console.log('[StreamService] Messages after conversion:', JSON.stringify(coreMessages, null, 2));
 
+    // Resolve entity references from context payload (MVP: job type)
+    const rawRefs = this.normalizeReferences(rawBody);
+    const resolvedRefs = rawRefs.length > 0 ? await this.resolveReferences(rawRefs, actor) : [];
+
     // Build system prompt (async now)
-    const systemPrompt = await this.buildSystemPrompt(actor, scopedTools, candidateContext);
+    const systemPrompt = await this.buildSystemPrompt(actor, scopedTools, candidateContext, resolvedRefs);
     // console.log('[StreamService] System prompt length:', systemPrompt.length);
 
     try {
@@ -168,6 +172,154 @@ export class AssistantStreamService {
         });
       }
     }
+  }
+
+  /**
+   * Parse and validate entity references from the raw request body.
+   * Returns an empty array (not an error) if context.references is missing or invalid.
+   */
+  private normalizeReferences(rawBody: any): Array<z.infer<typeof entityReferenceSchema>> {
+    const rawRefs = rawBody?.context?.references;
+    if (!Array.isArray(rawRefs) || rawRefs.length === 0) return [];
+
+    const valid: Array<z.infer<typeof entityReferenceSchema>> = [];
+    for (const item of rawRefs) {
+      const parsed = entityReferenceSchema.safeParse(item);
+      if (parsed.success) valid.push(parsed.data);
+    }
+    return valid.slice(0, 20); // hard cap
+  }
+
+  /**
+   * Resolve entity references to authoritative data with ACL enforcement.
+   * Currently supports: job.
+   * Others resolve as label-only so the assistant at least knows what was attached.
+   */
+  private async resolveReferences(
+    refs: Array<z.infer<typeof entityReferenceSchema>>,
+    actor: AssistantActor
+  ): Promise<ResolvedReference[]> {
+    const results: ResolvedReference[] = await Promise.all(
+      refs.map(async (ref): Promise<ResolvedReference> => {
+        try {
+          if (ref.entityType === 'job') {
+            return await this.resolveJobReference(ref, actor);
+          }
+          // Passthrough for unsupported types — assistant knows label/ID but no snapshot
+          return {
+            entityType: ref.entityType,
+            entityId: ref.entityId,
+            label: ref.label,
+            resolved: false,
+            contextSummary: `${ref.entityType} referenced: ${ref.label} (id: ${ref.entityId})`,
+          };
+        } catch (err) {
+          this.logger.warn('assistant.references.resolve-error', {
+            entityType: ref.entityType,
+            entityId: ref.entityId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return {
+            entityType: ref.entityType,
+            entityId: ref.entityId,
+            label: ref.label,
+            resolved: false,
+            error: 'Resolution failed',
+          };
+        }
+      })
+    );
+    return results;
+  }
+
+  /**
+   * Resolve a single job reference with actor scope enforcement.
+   */
+  private async resolveJobReference(
+    ref: z.infer<typeof entityReferenceSchema>,
+    actor: AssistantActor
+  ): Promise<ResolvedReference> {
+    const job = await prisma.job.findUnique({
+      where: { id: ref.entityId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        employment_type: true,
+        location: true,
+        department: true,
+        experience_level: true,
+        company_id: true,
+      },
+    });
+
+    if (!job) {
+      return {
+        entityType: 'job',
+        entityId: ref.entityId,
+        label: ref.label,
+        resolved: false,
+        error: 'Job not found or access denied',
+      };
+    }
+
+    // ACL: COMPANY_USER can only see their own company's jobs
+    if (actor.actorType === 'COMPANY_USER' && job.company_id !== actor.companyId) {
+      this.logger.warn('assistant.references.acl-denied', {
+        entityType: 'job',
+        entityId: ref.entityId,
+        actorId: actor.userId,
+      });
+      return {
+        entityType: 'job',
+        entityId: ref.entityId,
+        label: ref.label,
+        resolved: false,
+        error: 'Access denied',
+      };
+    }
+
+    const summary = [
+      `Job: ${job.title}`,
+      `Status: ${job.status}`,
+      job.department ? `Department: ${job.department}` : null,
+      job.location ? `Location: ${job.location}` : null,
+      job.employment_type ? `Employment type: ${job.employment_type}` : null,
+      job.experience_level ? `Experience level: ${job.experience_level}` : null,
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    return {
+      entityType: 'job',
+      entityId: job.id,
+      label: job.title,
+      resolved: true,
+      contextSummary: summary,
+    };
+  }
+
+  /**
+   * Build the "Attached Context" section of the system prompt from resolved references.
+   */
+  private buildReferencePromptSection(resolved: ResolvedReference[]): string {
+    if (resolved.length === 0) return '';
+
+    const lines = ['', '## Attached Context (user-provided references)', 'The user has attached the following records to this conversation:'];
+    for (const ref of resolved) {
+      if (ref.resolved && ref.contextSummary) {
+        lines.push(`- [${ref.entityType.toUpperCase()}] ${ref.contextSummary}`);
+      } else if (!ref.error || ref.error !== 'Access denied') {
+        // Show label-only refs but not ACL failures (avoid leaking that record exists)
+        lines.push(`- [${ref.entityType.toUpperCase()}] ${ref.label} (details unavailable)`);
+      }
+    }
+    lines.push(
+      '',
+      'When the user refers to "this job", "this candidate", etc., use the above records as the primary scope.',
+      'Do not ask the user to specify which record they mean if a single reference of that type is attached.'
+    );
+    return lines.join('\n');
   }
 
   private normalizeMessages(rawBody: any): UIMessage[] {
@@ -493,7 +645,8 @@ export class AssistantStreamService {
   private async buildSystemPrompt(
     actor: AssistantActor,
     allowedTools: ToolDefinition[],
-    context?: CandidateAssessmentContext
+    context?: CandidateAssessmentContext,
+    resolvedRefs?: ResolvedReference[]
   ): Promise<string> {
     const accessLevel = AssistantAccessControl.getAccessLevel(actor);
     const scopeDescription = AssistantAccessControl.buildScopeDescription(actor);
@@ -541,6 +694,11 @@ export class AssistantStreamService {
 
     if (personalizedContext) {
       lines.push('', personalizedContext);
+    }
+
+    // Inject resolved reference context
+    if (resolvedRefs && resolvedRefs.length > 0) {
+      lines.push(this.buildReferencePromptSection(resolvedRefs));
     }
 
     if (context && context.mode === 'candidate_assessment') {
