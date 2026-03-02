@@ -6,10 +6,28 @@ import { ApplicationActivityService } from '../application/application-activity.
 
 type WorkflowStepKey = 'negotiation' | 'amount' | 'offer_letter' | 'document_request' | 'documents' | 'hired';
 
+interface CompensationBreakdown {
+  baseSalary?: string;
+  variablePay?: string;
+  signingBonus?: string;
+  retentionBonus?: string;
+  esops?: string;
+  rsus?: string;
+  ppf?: string;
+  gratuity?: string;
+  healthInsurance?: string;
+  hra?: string;
+  travelAllowance?: string;
+  mealAllowance?: string;
+  learningBudget?: string;
+  otherBenefits?: string;
+}
+
 interface OfferWorkflowState {
   currentStep: WorkflowStepKey;
   negotiationComplete: boolean;
   amount: string;
+  compensation?: CompensationBreakdown;
   offerLetterSent: boolean;
   documentRequestSent: boolean;
   stepNotes: Partial<Record<WorkflowStepKey, string>>;
@@ -32,6 +50,7 @@ export class OfferService {
       currentStep: 'negotiation',
       negotiationComplete: false,
       amount: '',
+      compensation: {},
       offerLetterSent: false,
       documentRequestSent: false,
       stepNotes: {},
@@ -41,6 +60,7 @@ export class OfferService {
       currentStep: (saved.currentStep || base.currentStep) as WorkflowStepKey,
       negotiationComplete: Boolean(saved.negotiationComplete),
       amount: String(saved.amount || ''),
+      compensation: (typeof saved.compensation === 'object' && saved.compensation) ? saved.compensation : {},
       offerLetterSent: Boolean(saved.offerLetterSent),
       documentRequestSent: Boolean(saved.documentRequestSent),
       stepNotes: typeof saved.stepNotes === 'object' && saved.stepNotes ? saved.stepNotes : {},
@@ -158,6 +178,7 @@ export class OfferService {
     data: {
       negotiationComplete?: boolean;
       amount?: string;
+      compensation?: CompensationBreakdown;
       offerLetterSent?: boolean;
       documentRequestSent?: boolean;
       step?: WorkflowStepKey;
@@ -173,6 +194,7 @@ export class OfferService {
       ...current,
       negotiationComplete: data.negotiationComplete ?? current.negotiationComplete,
       amount: data.amount !== undefined ? String(data.amount || '') : current.amount,
+      compensation: data.compensation !== undefined ? { ...(current.compensation || {}), ...data.compensation } : current.compensation,
       offerLetterSent: data.offerLetterSent ?? current.offerLetterSent,
       documentRequestSent: data.documentRequestSent ?? current.documentRequestSent,
       stepNotes: { ...current.stepNotes },
@@ -359,41 +381,41 @@ export class OfferService {
 
   static async sendOffer(offerId: string) {
     const offer = await prisma.offerLetter.findUnique({
-        where: { id: offerId },
-        include: { candidate: true, job: { include: { company: true } } }
+      where: { id: offerId },
+      include: { candidate: true, job: { include: { company: true } } }
     });
 
     if (!offer) throw new Error('Offer not found');
     if (offer.status !== 'DRAFT' && offer.status !== 'APPROVED') {
-        throw new Error('Invalid status');
+      throw new Error('Invalid status');
     }
 
     // Update status
     const updated = await prisma.offerLetter.update({
-        where: { id: offerId },
-        data: {
-            status: 'SENT',
-            sent_date: new Date()
-        }
+      where: { id: offerId },
+      data: {
+        status: 'SENT',
+        sent_date: new Date()
+      }
     });
 
     // Move app stage
     await prisma.application.update({
-        where: { id: offer.application_id },
-        data: { stage: 'OFFER_EXTENDED' } // Ensure Enum matches
+      where: { id: offer.application_id },
+      data: { stage: 'OFFER_EXTENDED' } // Ensure Enum matches
     });
 
     // Email
     if (offer.candidate && offer.job) {
-        const offerUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidate/offers/${offer.id}`;
-        await emailService.sendOfferEmail({
-            to: offer.candidate.email,
-            candidateName: `${offer.candidate.first_name} ${offer.candidate.last_name}`,
-            jobTitle: offer.job.title,
-            offerUrl,
-            companyName: offer.job.company?.name,
-            expiryDate: offer.expiry_date || undefined
-        });
+      const offerUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/candidate/offers/${offer.id}`;
+      await emailService.sendOfferEmail({
+        to: offer.candidate.email,
+        candidateName: `${offer.candidate.first_name} ${offer.candidate.last_name}`,
+        jobTitle: offer.job.title,
+        offerUrl,
+        companyName: offer.job.company?.name,
+        expiryDate: offer.expiry_date || undefined
+      });
     }
 
     return updated;
@@ -405,8 +427,8 @@ export class OfferService {
 
   static async getById(id: string) {
     return prisma.offerLetter.findUnique({
-        where: { id },
-        include: { candidate: true, job: true }
+      where: { id },
+      include: { candidate: true, job: true }
     });
   }
 
@@ -420,28 +442,28 @@ export class OfferService {
     if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
 
     const updated = await prisma.offerLetter.update({
-        where: { id },
-        data: {
-            status: 'ACCEPTED',
-            responded_date: new Date()
-        },
-        include: { candidate: true, job: true }
+      where: { id },
+      data: {
+        status: 'ACCEPTED',
+        responded_date: new Date()
+      },
+      include: { candidate: true, job: true }
     });
 
     // Update Application
     await prisma.application.update({
-        where: { id: offer.application_id },
-        data: { stage: 'OFFER_ACCEPTED' }
+      where: { id: offer.application_id },
+      data: { stage: 'OFFER_ACCEPTED' }
     });
 
     // Email
     if (updated.candidate && updated.job) {
-        await emailService.sendOfferAcceptedEmail({
-            to: updated.candidate.email,
-            candidateName: updated.candidate.first_name,
-            jobTitle: updated.job.title,
-            startDate: updated.start_date
-        });
+      await emailService.sendOfferAcceptedEmail({
+        to: updated.candidate.email,
+        candidateName: updated.candidate.first_name,
+        jobTitle: updated.job.title,
+        startDate: updated.start_date
+      });
     }
 
     return updated;
@@ -453,12 +475,12 @@ export class OfferService {
     if (offer.candidate_id !== candidateId) throw new Error('Unauthorized');
 
     return prisma.offerLetter.update({
-        where: { id },
-        data: {
-            status: 'DECLINED',
-            responded_date: new Date(),
-            decline_reason: reason
-        }
+      where: { id },
+      data: {
+        status: 'DECLINED',
+        responded_date: new Date(),
+        decline_reason: reason
+      }
     });
   }
 
