@@ -6,6 +6,7 @@ const openai_1 = require("@ai-sdk/openai");
 const ai_1 = require("ai");
 const zod_1 = require("zod");
 const logger_1 = require("../../utils/logger");
+const assistant_types_1 = require("./assistant.types");
 const assistant_tool_registry_1 = require("./assistant.tool-registry");
 const prisma_1 = require("../../utils/prisma");
 const assistant_access_control_1 = require("./assistant.access-control");
@@ -83,8 +84,11 @@ class AssistantStreamService {
         // console.log('[StreamService] Messages before conversion:', JSON.stringify(messages, null, 2));
         const coreMessages = (0, ai_1.convertToCoreMessages)(messages);
         // console.log('[StreamService] Messages after conversion:', JSON.stringify(coreMessages, null, 2));
+        // Resolve entity references from context payload (MVP: job type)
+        const rawRefs = this.normalizeReferences(rawBody);
+        const resolvedRefs = rawRefs.length > 0 ? await this.resolveReferences(rawRefs, actor) : [];
         // Build system prompt (async now)
-        const systemPrompt = await this.buildSystemPrompt(actor, scopedTools, candidateContext);
+        const systemPrompt = await this.buildSystemPrompt(actor, scopedTools, candidateContext, resolvedRefs);
         // console.log('[StreamService] System prompt length:', systemPrompt.length);
         try {
             const result = (0, ai_1.streamText)({
@@ -141,6 +145,137 @@ class AssistantStreamService {
                 });
             }
         }
+    }
+    /**
+     * Parse and validate entity references from the raw request body.
+     * Returns an empty array (not an error) if context.references is missing or invalid.
+     */
+    normalizeReferences(rawBody) {
+        const rawRefs = rawBody?.context?.references;
+        if (!Array.isArray(rawRefs) || rawRefs.length === 0)
+            return [];
+        const valid = [];
+        for (const item of rawRefs) {
+            const parsed = assistant_types_1.entityReferenceSchema.safeParse(item);
+            if (parsed.success)
+                valid.push(parsed.data);
+        }
+        return valid.slice(0, 20); // hard cap
+    }
+    /**
+     * Resolve entity references to authoritative data with ACL enforcement.
+     * Currently supports: job.
+     * Others resolve as label-only so the assistant at least knows what was attached.
+     */
+    async resolveReferences(refs, actor) {
+        const results = await Promise.all(refs.map(async (ref) => {
+            try {
+                if (ref.entityType === 'job') {
+                    return await this.resolveJobReference(ref, actor);
+                }
+                // Passthrough for unsupported types — assistant knows label/ID but no snapshot
+                return {
+                    entityType: ref.entityType,
+                    entityId: ref.entityId,
+                    label: ref.label,
+                    resolved: false,
+                    contextSummary: `${ref.entityType} referenced: ${ref.label} (id: ${ref.entityId})`,
+                };
+            }
+            catch (err) {
+                this.logger.warn('assistant.references.resolve-error', {
+                    entityType: ref.entityType,
+                    entityId: ref.entityId,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+                return {
+                    entityType: ref.entityType,
+                    entityId: ref.entityId,
+                    label: ref.label,
+                    resolved: false,
+                    error: 'Resolution failed',
+                };
+            }
+        }));
+        return results;
+    }
+    /**
+     * Resolve a single job reference with actor scope enforcement.
+     */
+    async resolveJobReference(ref, actor) {
+        const job = await prisma_1.prisma.job.findUnique({
+            where: { id: ref.entityId },
+            select: {
+                id: true,
+                title: true,
+                status: true,
+                employment_type: true,
+                location: true,
+                department: true,
+                experience_level: true,
+                company_id: true,
+            },
+        });
+        if (!job) {
+            return {
+                entityType: 'job',
+                entityId: ref.entityId,
+                label: ref.label,
+                resolved: false,
+                error: 'Job not found or access denied',
+            };
+        }
+        // ACL: COMPANY_USER can only see their own company's jobs
+        if (actor.actorType === 'COMPANY_USER' && job.company_id !== actor.companyId) {
+            this.logger.warn('assistant.references.acl-denied', {
+                entityType: 'job',
+                entityId: ref.entityId,
+                actorId: actor.userId,
+            });
+            return {
+                entityType: 'job',
+                entityId: ref.entityId,
+                label: ref.label,
+                resolved: false,
+                error: 'Access denied',
+            };
+        }
+        const summary = [
+            `Job: ${job.title}`,
+            `Status: ${job.status}`,
+            job.department ? `Department: ${job.department}` : null,
+            job.location ? `Location: ${job.location}` : null,
+            job.employment_type ? `Employment type: ${job.employment_type}` : null,
+            job.experience_level ? `Experience level: ${job.experience_level}` : null,
+        ]
+            .filter(Boolean)
+            .join(' | ');
+        return {
+            entityType: 'job',
+            entityId: job.id,
+            label: job.title,
+            resolved: true,
+            contextSummary: summary,
+        };
+    }
+    /**
+     * Build the "Attached Context" section of the system prompt from resolved references.
+     */
+    buildReferencePromptSection(resolved) {
+        if (resolved.length === 0)
+            return '';
+        const lines = ['', '## Attached Context (user-provided references)', 'The user has attached the following records to this conversation:'];
+        for (const ref of resolved) {
+            if (ref.resolved && ref.contextSummary) {
+                lines.push(`- [${ref.entityType.toUpperCase()}] ${ref.contextSummary}`);
+            }
+            else if (!ref.error || ref.error !== 'Access denied') {
+                // Show label-only refs but not ACL failures (avoid leaking that record exists)
+                lines.push(`- [${ref.entityType.toUpperCase()}] ${ref.label} (details unavailable)`);
+            }
+        }
+        lines.push('', 'When the user refers to "this job", "this candidate", etc., use the above records as the primary scope.', 'Do not ask the user to specify which record they mean if a single reference of that type is attached.');
+        return lines.join('\n');
     }
     normalizeMessages(rawBody) {
         // console.log('[StreamService] normalizeMessages - rawBody type:', typeof rawBody);
@@ -387,7 +522,7 @@ class AssistantStreamService {
     /**
      * Build system prompt with access control context and personalized greeting
      */
-    async buildSystemPrompt(actor, allowedTools, context) {
+    async buildSystemPrompt(actor, allowedTools, context, resolvedRefs) {
         const accessLevel = assistant_access_control_1.AssistantAccessControl.getAccessLevel(actor);
         const scopeDescription = assistant_access_control_1.AssistantAccessControl.buildScopeDescription(actor);
         // Fetch user name for personalization
@@ -433,6 +568,10 @@ class AssistantStreamService {
         ];
         if (personalizedContext) {
             lines.push('', personalizedContext);
+        }
+        // Inject resolved reference context
+        if (resolvedRefs && resolvedRefs.length > 0) {
+            lines.push(this.buildReferencePromptSection(resolvedRefs));
         }
         if (context && context.mode === 'candidate_assessment') {
             lines.push('', '## Candidate Assessment Context', 'You are currently helping inside a candidate assessment drawer.', `Default applicationId: ${context.applicationId || 'unknown'} `, `Candidate: ${context.candidateName || 'unknown'} (${context.candidateEmail || 'email unavailable'})`, `Job: ${context.jobTitle || 'unknown'} `, `Current stage/status: ${context.currentStage || 'unknown'} / ${context.currentStatus || 'unknown'}`, '- You are locked to this candidate+job context. Do not switch scope unless user explicitly leaves this drawer flow.', '- Prefer tools that use applicationId and candidate context from this drawer.', '- If user says "this candidate", DO NOT ask for candidate name/email; resolve via applicationId context.', '- If the user asks for a write action (move stage, add note, schedule interview), execute it with available context.', '- After write actions, summarize exactly what changed and surface any missing/invalid fields.', '- Do not return raw dumps. Always provide interpretation and hiring insight.');
