@@ -131,7 +131,13 @@ export class PublicController extends BaseController {
   getJobDetails = async (req: Request, res: Response) => {
     try {
       const { id } = req.params as { id: string };
-      const job = await this.publicService.getPublicJob(id);
+      const invitationToken = req.query.invitation as string | undefined;
+      const candidateEmail = req.query.email as string | undefined;
+
+      const job = await this.publicService.getPublicJob(id, {
+        invitationToken,
+        candidateEmail,
+      });
 
       if (!job) {
         return this.sendError(res, new Error('Job not found or no longer available'));
@@ -190,7 +196,13 @@ export class PublicController extends BaseController {
   getApplicationForm = async (req: Request, res: Response) => {
     try {
       const { jobId } = req.params as { jobId: string };
-      const form = await this.publicService.getApplicationForm(jobId);
+      const invitationToken = req.query.invitation as string | undefined;
+      const candidateEmail = req.query.email as string | undefined;
+
+      const form = await this.publicService.getApplicationForm(jobId, {
+        invitationToken,
+        candidateEmail,
+      });
 
       if (!form) {
         return this.sendError(res, new Error('Job not found or no longer available'));
