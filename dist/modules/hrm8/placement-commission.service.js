@@ -3,9 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlacementCommissionService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const commission_rate_util_1 = require("./commission-rate.util");
-const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
-const logger_1 = require("../../utils/logger");
-const log = logger_1.Logger.create('placement-commission');
 class PlacementCommissionService {
     static isManagedServiceJob(job) {
         const servicePackage = String(job.service_package || '').trim().toLowerCase();
@@ -90,7 +87,7 @@ class PlacementCommissionService {
         }
         const consultant = await db.consultant.findUnique({
             where: { id: consultantId },
-            select: { id: true, region_id: true, default_commission_rate: true, payout_currency: true },
+            select: { id: true, region_id: true, default_commission_rate: true },
         });
         if (!consultant) {
             return { created: false, reason: 'Assigned consultant not found' };
@@ -103,13 +100,7 @@ class PlacementCommissionService {
         if (commissionAmount <= 0) {
             return { created: false, reason: 'Calculated commission amount is zero' };
         }
-        const sourceCurrency = job.payment_currency || 'USD';
-        const payoutCurrency = consultant.payout_currency || 'USD';
-        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(sourceCurrency, payoutCurrency);
-        const { payoutAmount, fxRate, fxSource } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(sourceCurrency, payoutCurrency, commissionAmount, fxQuote);
-        log.info('Placement commission FX resolved', {
-            consultantId: consultant.id, sourceCurrency, payoutCurrency, commissionAmount, fxRate, payoutAmount
-        });
+        const commissionCurrency = job.payment_currency || 'USD';
         const commission = await db.commission.create({
             data: {
                 consultant_id: consultant.id,
@@ -117,12 +108,11 @@ class PlacementCommissionService {
                 job_id: job.id,
                 type: 'PLACEMENT',
                 amount: commissionAmount,
-                currency: sourceCurrency,
-                payout_currency: payoutCurrency,
-                payout_amount: payoutAmount,
-                fx_rate: fxRate,
-                fx_rate_locked_at: new Date(),
-                fx_source: fxSource,
+                currency: commissionCurrency,
+                payout_currency: commissionCurrency,
+                payout_amount: commissionAmount,
+                fx_rate: 1.0,
+                fx_source: 'SAME_REGION',
                 rate: commissionRate,
                 description: `Placement commission for hired candidate on job: ${job.title}`,
                 status: 'PENDING',

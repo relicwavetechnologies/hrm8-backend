@@ -7,7 +7,6 @@ const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const commission_rate_util_1 = require("./commission-rate.util");
 const conversion_commercial_context_service_1 = require("./conversion-commercial-context.service");
-const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
 const logger_1 = require("../../utils/logger");
 const log = logger_1.Logger.create('commission');
 class CommissionService extends service_1.BaseService {
@@ -261,29 +260,6 @@ class CommissionService extends service_1.BaseService {
             rate: customRate,
         });
     }
-    async resolveConsultantPayoutCurrency(consultantId) {
-        const consultant = await prisma_1.prisma.consultant.findUnique({
-            where: { id: consultantId },
-            select: { payout_currency: true, region_id: true }
-        });
-        if (consultant?.payout_currency)
-            return consultant.payout_currency;
-        if (consultant?.region_id) {
-            const region = await prisma_1.prisma.region.findUnique({
-                where: { id: consultant.region_id },
-                select: { country: true }
-            });
-            if (region?.country) {
-                const mapping = await prisma_1.prisma.countryPricingMap?.findFirst?.({
-                    where: { country_code: region.country, is_active: true },
-                    select: { billing_currency: true }
-                });
-                if (mapping?.billing_currency)
-                    return mapping.billing_currency;
-            }
-        }
-        return 'USD';
-    }
     async create(input) {
         const { consultantId, amount: providedAmount, type, jobId, subscriptionId, description, rate, calculateFromJob = false } = input;
         let amount = providedAmount;
@@ -323,12 +299,6 @@ class CommissionService extends service_1.BaseService {
         }
         if (!amount || amount <= 0)
             throw new http_exception_1.HttpException(400, 'Commission amount must be positive');
-        const payoutCurrency = await this.resolveConsultantPayoutCurrency(consultantId);
-        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(commissionCurrency, payoutCurrency);
-        const { payoutAmount, fxRate, fxSource } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(commissionCurrency, payoutCurrency, amount, fxQuote);
-        log.info('Commission FX resolved', {
-            consultantId, commissionCurrency, payoutCurrency, amount, fxRate, payoutAmount, fxSource
-        });
         return this.commissionRepository.transaction(async (tx) => {
             const consultant = await tx.consultant.findUnique({
                 where: { id: consultantId },
@@ -345,19 +315,16 @@ class CommissionService extends service_1.BaseService {
                     type,
                     amount,
                     currency: commissionCurrency,
-                    payout_currency: payoutCurrency,
-                    payout_amount: payoutAmount,
-                    fx_rate: fxRate,
-                    fx_rate_locked_at: new Date(),
-                    fx_source: fxSource,
+                    payout_currency: commissionCurrency,
+                    payout_amount: amount,
+                    fx_rate: 1.0,
+                    fx_source: 'SAME_REGION',
                     rate: commissionRate,
                     description: description || `Commission for ${type}`,
                     status: client_1.CommissionStatus.CONFIRMED,
                     confirmed_at: new Date(),
                 },
             });
-            const walletAmount = payoutAmount;
-            const walletCurrency = payoutCurrency;
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
@@ -375,26 +342,20 @@ class CommissionService extends service_1.BaseService {
                 data: {
                     virtual_account_id: account.id,
                     type: client_1.VirtualTransactionType.COMMISSION_EARNED,
-                    amount: walletAmount,
-                    balance_after: Number(account.balance) + walletAmount,
+                    amount,
+                    balance_after: Number(account.balance) + amount,
                     direction: 'CREDIT',
                     status: 'COMPLETED',
                     description: `Commission earned: ${description || type}`,
                     reference_id: commission.id,
                     reference_type: 'COMMISSION',
                     commission_id: commission.id,
-                    billing_currency_used: walletCurrency,
-                    metadata: {
-                        source_amount: amount,
-                        source_currency: commissionCurrency,
-                        fx_rate: fxRate,
-                        fx_source: fxSource,
-                    }
+                    billing_currency_used: commissionCurrency,
                 }
             });
             await tx.virtualAccount.update({
                 where: { id: account.id },
-                data: { balance: { increment: walletAmount }, total_credits: { increment: walletAmount } }
+                data: { balance: { increment: amount }, total_credits: { increment: amount } }
             });
             return commission;
         });
@@ -450,9 +411,6 @@ class CommissionService extends service_1.BaseService {
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         if (!consultant.region_id)
             throw new http_exception_1.HttpException(400, 'Consultant must have a region assigned');
-        const payoutCurrency = await this.resolveConsultantPayoutCurrency(consultantId);
-        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(commissionCurrency, payoutCurrency);
-        const { payoutAmount, fxRate, fxSource } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(commissionCurrency, payoutCurrency, amount, fxQuote);
         return prisma_1.prisma.commission.create({
             data: {
                 consultant_id: consultantId,
@@ -462,11 +420,10 @@ class CommissionService extends service_1.BaseService {
                 type,
                 amount,
                 currency: commissionCurrency,
-                payout_currency: payoutCurrency,
-                payout_amount: payoutAmount,
-                fx_rate: fxRate,
-                fx_rate_locked_at: new Date(),
-                fx_source: fxSource,
+                payout_currency: commissionCurrency,
+                payout_amount: amount,
+                fx_rate: 1.0,
+                fx_source: 'SAME_REGION',
                 description: description || `Commission request: ${type}`,
                 status: client_1.CommissionStatus.PENDING
             }
@@ -485,13 +442,10 @@ class CommissionService extends service_1.BaseService {
         if (commission.status !== client_1.CommissionStatus.PENDING) {
             throw new http_exception_1.HttpException(400, `Cannot confirm commission in status ${commission.status}`);
         }
-        // PENDING → CONFIRMED: credit VirtualAccount using the locked payout amount/currency
         return this.commissionRepository.transaction(async (tx) => {
             const consultantId = commission.consultant_id;
-            const walletAmount = Number(commission.payout_amount ?? commission.amount);
-            const walletCurrency = commission.payout_currency ?? 'USD';
-            const sourceAmount = Number(commission.amount);
-            const sourceCurrency = commission.currency ?? 'USD';
+            const walletAmount = Number(commission.amount);
+            const walletCurrency = commission.currency ?? 'USD';
             const description = commission.description || `Commission ${commission.type}`;
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
@@ -520,12 +474,6 @@ class CommissionService extends service_1.BaseService {
                     reference_type: 'COMMISSION',
                     commission_id: commission.id,
                     billing_currency_used: walletCurrency,
-                    metadata: {
-                        source_amount: sourceAmount,
-                        source_currency: sourceCurrency,
-                        fx_rate: commission.fx_rate,
-                        fx_source: commission.fx_source,
-                    }
                 }
             });
             await tx.virtualAccount.update({
@@ -618,8 +566,8 @@ class CommissionService extends service_1.BaseService {
         // If CONFIRMED, PAID, or DISPUTED (post-confirm), we need to deduct wallet
         // Use payout_amount (the amount that was actually credited to the wallet)
         return this.commissionRepository.transaction(async (tx) => {
-            const walletAmount = Number(commission.payout_amount ?? commission.amount);
-            const walletCurrency = commission.payout_currency ?? 'USD';
+            const walletAmount = Number(commission.amount);
+            const walletCurrency = commission.currency ?? 'USD';
             const consultantId = commission.consultant_id;
             const account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
@@ -639,12 +587,6 @@ class CommissionService extends service_1.BaseService {
                         reference_type: 'COMMISSION',
                         commission_id: commission.id,
                         billing_currency_used: walletCurrency,
-                        metadata: {
-                            source_amount: Number(commission.amount),
-                            source_currency: commission.currency ?? 'USD',
-                            fx_rate: commission.fx_rate,
-                            fx_source: commission.fx_source,
-                        }
                     }
                 });
                 await tx.virtualAccount.update({

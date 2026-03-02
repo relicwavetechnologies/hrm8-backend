@@ -8,8 +8,7 @@ export interface ReconciliationResult {
   runAt: string;
   walletChecks: WalletCheckResult[];
   transferChecks: TransferCheckResult[];
-  fxIntegrityChecks: FxIntegrityResult[];
-  summary: { totalIssues: number; walletMismatches: number; staleTransfers: number; fxDrift: number };
+  summary: { totalIssues: number; walletMismatches: number; staleTransfers: number };
 }
 
 interface WalletCheckResult {
@@ -29,39 +28,26 @@ interface TransferCheckResult {
   hoursInProcessing?: number;
 }
 
-interface FxIntegrityResult {
-  commissionId: string;
-  amount: number;
-  currency: string;
-  fxRate: number;
-  payoutAmount: number;
-  expectedPayoutAmount: number;
-  status: 'OK' | 'DRIFT';
-}
-
 export class ReconciliationService {
   static async runFullReconciliation(): Promise<ReconciliationResult> {
     log.info('Starting full reconciliation run');
     const runAt = new Date().toISOString();
 
-    const [walletChecks, transferChecks, fxIntegrityChecks] = await Promise.all([
+    const [walletChecks, transferChecks] = await Promise.all([
       this.checkWalletBalances(),
       this.checkTransferStatuses(),
-      this.checkFxIntegrity(),
     ]);
 
     const summary = {
       totalIssues:
         walletChecks.filter((w) => w.status !== 'OK').length +
-        transferChecks.filter((t) => t.status !== 'OK').length +
-        fxIntegrityChecks.filter((f) => f.status !== 'OK').length,
+        transferChecks.filter((t) => t.status !== 'OK').length,
       walletMismatches: walletChecks.filter((w) => w.status === 'MISMATCH').length,
       staleTransfers: transferChecks.filter((t) => t.status === 'STALE').length,
-      fxDrift: fxIntegrityChecks.filter((f) => f.status === 'DRIFT').length,
     };
 
     log.info('Reconciliation complete', summary);
-    return { runAt, walletChecks, transferChecks, fxIntegrityChecks, summary };
+    return { runAt, walletChecks, transferChecks, summary };
   }
 
   private static async checkWalletBalances(): Promise<WalletCheckResult[]> {
@@ -143,41 +129,4 @@ export class ReconciliationService {
     return results;
   }
 
-  private static async checkFxIntegrity(): Promise<FxIntegrityResult[]> {
-    const results: FxIntegrityResult[] = [];
-
-    const commissions = await prisma.commission.findMany({
-      where: {
-        fx_rate: { not: null },
-        payout_amount: { not: null },
-        status: { in: ['CONFIRMED', 'PAID'] },
-      },
-      select: {
-        id: true,
-        amount: true,
-        currency: true,
-        fx_rate: true,
-        payout_amount: true,
-      },
-    });
-
-    for (const c of commissions) {
-      if (c.fx_rate == null || c.payout_amount == null) continue;
-      const expected = Number((c.amount * c.fx_rate).toFixed(2));
-      const actual = Number(c.payout_amount.toFixed(2));
-      const drift = Math.abs(expected - actual);
-
-      results.push({
-        commissionId: c.id,
-        amount: c.amount,
-        currency: c.currency,
-        fxRate: c.fx_rate,
-        payoutAmount: actual,
-        expectedPayoutAmount: expected,
-        status: drift > 0.01 ? 'DRIFT' : 'OK',
-      });
-    }
-
-    return results;
-  }
 }

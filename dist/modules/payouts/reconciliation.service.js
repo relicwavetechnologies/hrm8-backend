@@ -9,21 +9,18 @@ class ReconciliationService {
     static async runFullReconciliation() {
         log.info('Starting full reconciliation run');
         const runAt = new Date().toISOString();
-        const [walletChecks, transferChecks, fxIntegrityChecks] = await Promise.all([
+        const [walletChecks, transferChecks] = await Promise.all([
             this.checkWalletBalances(),
             this.checkTransferStatuses(),
-            this.checkFxIntegrity(),
         ]);
         const summary = {
             totalIssues: walletChecks.filter((w) => w.status !== 'OK').length +
-                transferChecks.filter((t) => t.status !== 'OK').length +
-                fxIntegrityChecks.filter((f) => f.status !== 'OK').length,
+                transferChecks.filter((t) => t.status !== 'OK').length,
             walletMismatches: walletChecks.filter((w) => w.status === 'MISMATCH').length,
             staleTransfers: transferChecks.filter((t) => t.status === 'STALE').length,
-            fxDrift: fxIntegrityChecks.filter((f) => f.status === 'DRIFT').length,
         };
         log.info('Reconciliation complete', summary);
-        return { runAt, walletChecks, transferChecks, fxIntegrityChecks, summary };
+        return { runAt, walletChecks, transferChecks, summary };
     }
     static async checkWalletBalances() {
         const results = [];
@@ -89,40 +86,6 @@ class ReconciliationService {
                 providerStatus: providerStatus.status,
                 status,
                 hoursInProcessing: Number(hoursInProcessing.toFixed(1)),
-            });
-        }
-        return results;
-    }
-    static async checkFxIntegrity() {
-        const results = [];
-        const commissions = await prisma_1.prisma.commission.findMany({
-            where: {
-                fx_rate: { not: null },
-                payout_amount: { not: null },
-                status: { in: ['CONFIRMED', 'PAID'] },
-            },
-            select: {
-                id: true,
-                amount: true,
-                currency: true,
-                fx_rate: true,
-                payout_amount: true,
-            },
-        });
-        for (const c of commissions) {
-            if (c.fx_rate == null || c.payout_amount == null)
-                continue;
-            const expected = Number((c.amount * c.fx_rate).toFixed(2));
-            const actual = Number(c.payout_amount.toFixed(2));
-            const drift = Math.abs(expected - actual);
-            results.push({
-                commissionId: c.id,
-                amount: c.amount,
-                currency: c.currency,
-                fxRate: c.fx_rate,
-                payoutAmount: actual,
-                expectedPayoutAmount: expected,
-                status: drift > 0.01 ? 'DRIFT' : 'OK',
             });
         }
         return results;

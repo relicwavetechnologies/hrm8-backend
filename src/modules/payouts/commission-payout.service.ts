@@ -38,9 +38,8 @@ export class CommissionPayoutService {
       throw new HttpException(400, 'Consultant does not have a payout beneficiary configured');
     }
 
-    const payoutCurrency = withdrawal.payout_currency || consultant.payout_currency || 'USD';
-    const walletDebitAmount = Number(withdrawal.amount);
-    const transferAmount = Number(withdrawal.payout_amount || withdrawal.amount);
+    const payoutCurrency = withdrawal.payout_currency || withdrawal.currency || 'USD';
+    const payoutAmount = Number(withdrawal.amount);
 
     return prisma.$transaction(async (tx) => {
       // 1. Debit wallet if not already done (wallet balance is in payout currency)
@@ -50,7 +49,7 @@ export class CommissionPayoutService {
         });
 
         if (!account) throw new HttpException(404, 'Consultant wallet not found');
-        if (Number(account.balance) < walletDebitAmount) {
+        if (Number(account.balance) < payoutAmount) {
           throw new HttpException(400, 'Insufficient wallet balance');
         }
 
@@ -58,8 +57,8 @@ export class CommissionPayoutService {
           data: {
             virtual_account_id: account.id,
             type: 'COMMISSION_WITHDRAWAL',
-            amount: walletDebitAmount,
-            balance_after: Number(account.balance) - walletDebitAmount,
+            amount: payoutAmount,
+            balance_after: Number(account.balance) - payoutAmount,
             direction: 'DEBIT',
             status: 'COMPLETED',
             description: `Payout withdrawal: ${withdrawal.id}`,
@@ -72,7 +71,7 @@ export class CommissionPayoutService {
 
         await tx.virtualAccount.update({
           where: { id: account.id },
-          data: { balance: { decrement: walletDebitAmount }, total_debits: { increment: walletDebitAmount } },
+          data: { balance: { decrement: payoutAmount }, total_debits: { increment: payoutAmount } },
         });
 
         await tx.commissionWithdrawal.update({
@@ -90,23 +89,23 @@ export class CommissionPayoutService {
       const xeroBill = XeroService.createBill({
         contactName: `${consultant.first_name} ${consultant.last_name}`,
         contactEmail: consultant.email,
-        amount: transferAmount,
+        amount: payoutAmount,
         currency: payoutCurrency,
         description: `Commission payout for withdrawal ${withdrawal.id}`,
         reference: withdrawal.id,
         lineItems: [{
           description: `Commission payout (${withdrawal.commission_ids.length} commissions)`,
-          amount: transferAmount,
+          amount: payoutAmount,
           accountCode: '400',
         }],
       });
 
-      log.info('Xero ACCPAY bill created', { xeroBillId: xeroBill.billId, amount: transferAmount, currency: payoutCurrency });
+      log.info('Xero ACCPAY bill created', { xeroBillId: xeroBill.billId, amount: payoutAmount, currency: payoutCurrency });
 
       // 3. Execute Airwallex transfer
       const transferInput: AirwallexTransferInput = {
         beneficiaryId,
-        amount: transferAmount,
+        amount: payoutAmount,
         currency: payoutCurrency,
         reference: `HRM8-PAYOUT-${withdrawal.id.slice(0, 8)}`,
         reason: 'COMMISSION_PAYMENT',
@@ -125,7 +124,7 @@ export class CommissionPayoutService {
       if (transfer.status === 'COMPLETED') {
         const payment = XeroService.createPayment({
           invoiceId: xeroBill.billId,
-          amount: transferAmount,
+          amount: payoutAmount,
           currency: payoutCurrency,
           accountCode: '090',
           reference: transfer.transferId,
@@ -146,7 +145,7 @@ export class CommissionPayoutService {
           transfer_initiated_at: new Date(),
           ...(finalStatus === 'COMPLETED' ? { transfer_completed_at: new Date(), processed_at: new Date() } : {}),
           payout_currency: payoutCurrency,
-          payout_amount: transferAmount,
+          payout_amount: payoutAmount,
         },
       });
 

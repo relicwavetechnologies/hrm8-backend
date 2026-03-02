@@ -4,7 +4,6 @@ import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { normalizeConversionIntentSnapshot } from '../sales/conversion-intent.util';
 import { CommissionPayoutService } from '../payouts/commission-payout.service';
-import { AirwallexFxService } from '../airwallex/airwallex-fx.service';
 
 export class Consultant360Service extends BaseService {
   constructor(private repository: Consultant360Repository) {
@@ -375,26 +374,20 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Insufficient balance for withdrawal');
     }
 
-    const payoutCurrency = consultant.payout_currency || 'USD';
     const commissionRecords = await prisma.commission.findMany({
       where: { id: { in: commissionIds }, consultant_id: consultantId, status: 'CONFIRMED' },
       select: { id: true, amount: true, currency: true }
     });
     const totalAmount = commissionRecords.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-    const primarySourceCurrency = commissionRecords[0]?.currency || 'USD';
-
-    const fxQuote = await AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
-    const { payoutAmount, fxRate } = AirwallexFxService.resolveFxFields(
-      primarySourceCurrency, payoutCurrency, totalAmount, fxQuote
-    );
+    const commissionCurrency = commissionRecords[0]?.currency || 'USD';
 
     return this.repository.createWithdrawal({
       consultant: { connect: { id: consultantId } },
       amount: totalAmount,
-      currency: primarySourceCurrency,
-      payout_currency: payoutCurrency,
-      payout_amount: payoutAmount,
-      fx_rate_used: fxRate,
+      currency: commissionCurrency,
+      payout_currency: commissionCurrency,
+      payout_amount: totalAmount,
+      fx_rate_used: 1.0,
       payment_method: paymentMethod,
       payment_details: paymentDetails,
       commission_ids: commissionIds,

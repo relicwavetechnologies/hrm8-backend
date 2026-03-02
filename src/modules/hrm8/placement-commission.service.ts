@@ -1,10 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { toCommissionRateDecimal } from './commission-rate.util';
-import { AirwallexFxService } from '../airwallex/airwallex-fx.service';
-import { Logger } from '../../utils/logger';
-
-const log = Logger.create('placement-commission');
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -118,7 +114,7 @@ export class PlacementCommissionService {
 
     const consultant = await db.consultant.findUnique({
       where: { id: consultantId },
-      select: { id: true, region_id: true, default_commission_rate: true, payout_currency: true },
+      select: { id: true, region_id: true, default_commission_rate: true },
     });
 
     if (!consultant) {
@@ -138,16 +134,7 @@ export class PlacementCommissionService {
       return { created: false, reason: 'Calculated commission amount is zero' };
     }
 
-    const sourceCurrency = job.payment_currency || 'USD';
-    const payoutCurrency = (consultant as any).payout_currency || 'USD';
-    const fxQuote = await AirwallexFxService.getQuote(sourceCurrency, payoutCurrency);
-    const { payoutAmount, fxRate, fxSource } = AirwallexFxService.resolveFxFields(
-      sourceCurrency, payoutCurrency, commissionAmount, fxQuote
-    );
-
-    log.info('Placement commission FX resolved', {
-      consultantId: consultant.id, sourceCurrency, payoutCurrency, commissionAmount, fxRate, payoutAmount
-    });
+    const commissionCurrency = job.payment_currency || 'USD';
 
     const commission = await db.commission.create({
       data: {
@@ -156,12 +143,11 @@ export class PlacementCommissionService {
         job_id: job.id,
         type: 'PLACEMENT',
         amount: commissionAmount,
-        currency: sourceCurrency,
-        payout_currency: payoutCurrency,
-        payout_amount: payoutAmount,
-        fx_rate: fxRate,
-        fx_rate_locked_at: new Date(),
-        fx_source: fxSource,
+        currency: commissionCurrency,
+        payout_currency: commissionCurrency,
+        payout_amount: commissionAmount,
+        fx_rate: 1.0,
+        fx_source: 'SAME_REGION',
         rate: commissionRate,
         description: `Placement commission for hired candidate on job: ${job.title}`,
         status: 'PENDING',

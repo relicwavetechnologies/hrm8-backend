@@ -2,7 +2,6 @@ import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 import { WithdrawalStatus } from '@prisma/client';
 import { CommissionPayoutService } from '../payouts/commission-payout.service';
-import { AirwallexFxService } from '../airwallex/airwallex-fx.service';
 
 export class ConsultantWithdrawalService {
 
@@ -118,28 +117,16 @@ export class ConsultantWithdrawalService {
             throw new HttpException(400, `Amount mismatch: selected commissions total ${totalAmount}, requested ${data.amount}`);
         }
 
-        const consultant = await prisma.consultant.findUnique({
-            where: { id: consultantId },
-            select: { payout_currency: true, region_id: true }
-        });
-        const payoutCurrency = consultant?.payout_currency || 'USD';
-
-        const sourceCurrencies = [...new Set(commissions.map(c => (c as any).currency || 'USD'))];
-        const primarySourceCurrency = sourceCurrencies[0] || 'USD';
-
-        const fxQuote = await AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
-        const { payoutAmount, fxRate } = AirwallexFxService.resolveFxFields(
-            primarySourceCurrency, payoutCurrency, totalAmount, fxQuote
-        );
+        const commissionCurrency = (commissions[0] as any)?.currency || 'USD';
 
         const withdrawal = await prisma.commissionWithdrawal.create({
             data: {
                 consultant_id: consultantId,
                 amount: totalAmount,
-                currency: primarySourceCurrency,
-                payout_currency: payoutCurrency,
-                payout_amount: payoutAmount,
-                fx_rate_used: fxRate,
+                currency: commissionCurrency,
+                payout_currency: commissionCurrency,
+                payout_amount: totalAmount,
+                fx_rate_used: 1.0,
                 payment_method: data.paymentMethod,
                 payment_details: data.paymentDetails || {},
                 commission_ids: data.commissionIds,

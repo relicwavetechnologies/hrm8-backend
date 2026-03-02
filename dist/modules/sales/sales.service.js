@@ -194,13 +194,14 @@ class SalesService extends service_1.BaseService {
             throw new http_exception_1.HttpException(404, 'Lead not found');
         if (lead.status === 'CONVERTED')
             throw new http_exception_1.HttpException(400, 'Lead is already converted');
-        // Create company from lead data
+        // Create company from lead data — inherit region from the lead
         const company = await prisma_1.prisma.company.create({
             data: {
                 name: companyData.company_name || lead.company_name,
                 domain: companyData.website ? new URL(companyData.website).hostname : '',
                 website: companyData.website || lead.website || '',
                 country_or_region: companyData.country || lead.country || '',
+                region_id: lead.region_id || undefined,
                 verification_status: 'PENDING'
             }
         });

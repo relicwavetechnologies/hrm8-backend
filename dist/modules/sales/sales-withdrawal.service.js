@@ -4,7 +4,6 @@ exports.SalesWithdrawalService = void 0;
 const prisma_1 = require("../../utils/prisma");
 const http_exception_1 = require("../../core/http-exception");
 const commission_payout_service_1 = require("../payouts/commission-payout.service");
-const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
 class SalesWithdrawalService {
     constructor() {
         this.LOCKED_WITHDRAWAL_STATUSES = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
@@ -130,23 +129,15 @@ class SalesWithdrawalService {
         if (Math.abs(totalAmount - data.amount) > 0.01) {
             throw new http_exception_1.HttpException(400, `Amount mismatch: selected commissions total ${totalAmount}, requested ${data.amount}`);
         }
-        const consultant = await prisma_1.prisma.consultant.findUnique({
-            where: { id: consultantId },
-            select: { payout_currency: true }
-        });
-        const payoutCurrency = consultant?.payout_currency || 'USD';
-        const sourceCurrencies = [...new Set(commissions.map(c => c.currency || 'USD'))];
-        const primarySourceCurrency = sourceCurrencies[0] || 'USD';
-        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
-        const { payoutAmount, fxRate } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(primarySourceCurrency, payoutCurrency, totalAmount, fxQuote);
+        const commissionCurrency = commissions[0]?.currency || 'USD';
         const withdrawal = await prisma_1.prisma.commissionWithdrawal.create({
             data: {
                 consultant_id: consultantId,
                 amount: totalAmount,
-                currency: primarySourceCurrency,
-                payout_currency: payoutCurrency,
-                payout_amount: payoutAmount,
-                fx_rate_used: fxRate,
+                currency: commissionCurrency,
+                payout_currency: commissionCurrency,
+                payout_amount: totalAmount,
+                fx_rate_used: 1.0,
                 payment_method: data.paymentMethod,
                 payment_details: data.paymentDetails || {},
                 commission_ids: data.commissionIds,

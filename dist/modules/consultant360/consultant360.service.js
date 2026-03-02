@@ -39,7 +39,6 @@ const http_exception_1 = require("../../core/http-exception");
 const prisma_1 = require("../../utils/prisma");
 const conversion_intent_util_1 = require("../sales/conversion-intent.util");
 const commission_payout_service_1 = require("../payouts/commission-payout.service");
-const airwallex_fx_service_1 = require("../airwallex/airwallex-fx.service");
 class Consultant360Service extends service_1.BaseService {
     constructor(repository) {
         super();
@@ -367,22 +366,19 @@ class Consultant360Service extends service_1.BaseService {
         if (account.balance < amount) {
             throw new http_exception_1.HttpException(400, 'Insufficient balance for withdrawal');
         }
-        const payoutCurrency = consultant.payout_currency || 'USD';
         const commissionRecords = await prisma_1.prisma.commission.findMany({
             where: { id: { in: commissionIds }, consultant_id: consultantId, status: 'CONFIRMED' },
             select: { id: true, amount: true, currency: true }
         });
         const totalAmount = commissionRecords.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-        const primarySourceCurrency = commissionRecords[0]?.currency || 'USD';
-        const fxQuote = await airwallex_fx_service_1.AirwallexFxService.getQuote(primarySourceCurrency, payoutCurrency);
-        const { payoutAmount, fxRate } = airwallex_fx_service_1.AirwallexFxService.resolveFxFields(primarySourceCurrency, payoutCurrency, totalAmount, fxQuote);
+        const commissionCurrency = commissionRecords[0]?.currency || 'USD';
         return this.repository.createWithdrawal({
             consultant: { connect: { id: consultantId } },
             amount: totalAmount,
-            currency: primarySourceCurrency,
-            payout_currency: payoutCurrency,
-            payout_amount: payoutAmount,
-            fx_rate_used: fxRate,
+            currency: commissionCurrency,
+            payout_currency: commissionCurrency,
+            payout_amount: totalAmount,
+            fx_rate_used: 1.0,
             payment_method: paymentMethod,
             payment_details: paymentDetails,
             commission_ids: commissionIds,
