@@ -393,7 +393,7 @@ export class LeadConversionService extends BaseService {
       throw new HttpException(400, `Request cannot be approved in ${request.status} status`);
     }
 
-    const tempPassword = request.temp_password || 'vAbhi2678';
+    const tempPassword = request.temp_password || require('crypto').randomBytes(12).toString('base64url');
     const baseDomain = request.website
       ? request.website.replace(/^https?:\/\//, '').split('/')[0].replace(/\./g, '-')
       : 'company';

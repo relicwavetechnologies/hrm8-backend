@@ -11,8 +11,10 @@ const airwallex_service_1 = require("../airwallex/airwallex.service");
 const xero_service_1 = require("../xero/xero.service");
 const billing_logger_1 = require("../../utils/billing-logger");
 const logger_1 = require("../../utils/logger");
+const job_allocation_service_1 = require("../job/job-allocation.service");
+const commission_rate_util_1 = require("../hrm8/commission-rate.util");
 const log = logger_1.Logger.create('billing');
-const BILLING_AUTO_CONFIRM = process.env.BILLING_AUTO_CONFIRM !== 'false';
+const BILLING_AUTO_CONFIRM = process.env.BILLING_AUTO_CONFIRM === 'true';
 const toObject = (value) => {
     if (!value || typeof value !== 'object' || Array.isArray(value))
         return {};
@@ -199,6 +201,61 @@ class BillingService {
                 jobQuota: jobQuota ?? undefined,
             });
             subscriptionId = created.id;
+            // Create commission for the sales agent who brought this company
+            try {
+                const company = await prisma_1.prisma.company.findUnique({
+                    where: { id: bill.company_id },
+                    select: { sales_agent_id: true },
+                });
+                if (company?.sales_agent_id) {
+                    const salesAgent = await prisma_1.prisma.consultant.findUnique({
+                        where: { id: company.sales_agent_id },
+                        select: { id: true, region_id: true, default_commission_rate: true },
+                    });
+                    if (salesAgent?.region_id) {
+                        const existing = await prisma_1.prisma.commission.findFirst({
+                            where: {
+                                consultant_id: salesAgent.id,
+                                subscription_id: created.id,
+                                type: 'SUBSCRIPTION_SALE',
+                            },
+                            select: { id: true },
+                        });
+                        if (!existing) {
+                            const subAmount = Number(bill.total_amount || bill.amount);
+                            const rate = (0, commission_rate_util_1.toCommissionRateDecimal)(salesAgent.default_commission_rate, 0.10);
+                            const commissionAmount = Number((subAmount * rate).toFixed(2));
+                            if (commissionAmount > 0) {
+                                await prisma_1.prisma.commission.create({
+                                    data: {
+                                        consultant_id: salesAgent.id,
+                                        region_id: salesAgent.region_id,
+                                        subscription_id: created.id,
+                                        type: 'SUBSCRIPTION_SALE',
+                                        amount: commissionAmount,
+                                        currency: bill.currency,
+                                        payout_currency: bill.currency,
+                                        payout_amount: commissionAmount,
+                                        fx_rate: 1.0,
+                                        fx_source: 'SAME_REGION',
+                                        rate,
+                                        status: 'PENDING',
+                                        description: `Sales commission for subscription: ${planName}`,
+                                    },
+                                });
+                                log.info('Sales agent commission created for subscription', {
+                                    salesAgentId: salesAgent.id, subscriptionId: created.id, commissionAmount,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch (commErr) {
+                log.error('Failed to create sales agent commission for subscription', {
+                    subscriptionId: created.id, error: commErr.message,
+                });
+            }
         }
         if (checkoutType === 'wallet_recharge') {
             const existingCredit = await prisma_1.prisma.virtualTransaction.findFirst({
@@ -259,6 +316,69 @@ class BillingService {
                     pricing_peg: asString(metadata.pricingPeg) || undefined,
                 },
             });
+            // Auto-assign consultant (same logic as synchronous upgrade path)
+            try {
+                const freshJob = await prisma_1.prisma.job.findUnique({
+                    where: { id: jobId },
+                    select: { assigned_consultant_id: true },
+                });
+                if (!freshJob?.assigned_consultant_id) {
+                    const assignResult = await job_allocation_service_1.jobAllocationService.autoAssignJob(jobId);
+                    if (assignResult.success && assignResult.consultantId) {
+                        log.info('Webhook: consultant auto-assigned after managed-service payment', {
+                            jobId, consultantId: assignResult.consultantId, servicePackage,
+                        });
+                        // Create managed-service commission
+                        const paymentAmount = Number(bill.total_amount || bill.amount);
+                        const consultant = await prisma_1.prisma.consultant.findUnique({
+                            where: { id: assignResult.consultantId },
+                            select: { id: true, region_id: true, default_commission_rate: true },
+                        });
+                        if (consultant?.region_id && paymentAmount > 0) {
+                            const existing = await prisma_1.prisma.commission.findFirst({
+                                where: { job_id: jobId, consultant_id: consultant.id, type: 'RECRUITMENT_SERVICE' },
+                                select: { id: true },
+                            });
+                            if (!existing) {
+                                const rate = (0, commission_rate_util_1.toCommissionRateDecimal)(consultant.default_commission_rate, 0.20);
+                                const commissionAmount = Number((paymentAmount * rate).toFixed(2));
+                                if (commissionAmount > 0) {
+                                    await prisma_1.prisma.commission.create({
+                                        data: {
+                                            consultant_id: consultant.id,
+                                            region_id: consultant.region_id,
+                                            job_id: jobId,
+                                            type: 'RECRUITMENT_SERVICE',
+                                            amount: commissionAmount,
+                                            currency: bill.currency,
+                                            payout_currency: bill.currency,
+                                            payout_amount: commissionAmount,
+                                            fx_rate: 1.0,
+                                            fx_source: 'SAME_REGION',
+                                            rate,
+                                            status: 'PENDING',
+                                            description: `Managed service commission for job (webhook payment)`,
+                                        },
+                                    });
+                                    log.info('Webhook: managed-service commission created', {
+                                        jobId, consultantId: consultant.id, commissionAmount,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        log.warn('Webhook: consultant auto-assignment failed after managed-service payment', {
+                            jobId, error: assignResult.error,
+                        });
+                    }
+                }
+            }
+            catch (assignErr) {
+                log.error('Webhook: post-payment assignment/commission failed', {
+                    jobId, error: assignErr.message,
+                });
+            }
         }
         await prisma_1.prisma.bill.update({
             where: { id: bill.id },
@@ -293,10 +413,14 @@ class BillingService {
         if (!bill) {
             throw new http_exception_1.HttpException(404, 'Payment attempt not found');
         }
+        if (bill.status === client_1.BillStatus.PAID || bill.status === client_1.BillStatus.REFUNDED) {
+            return { status: bill.status, billId: bill.id };
+        }
         const payload = parseNotesPayload(bill.notes);
         await prisma_1.prisma.bill.update({
             where: { id: bill.id },
             data: {
+                status: client_1.BillStatus.CANCELLED,
                 notes: JSON.stringify({
                     ...(payload || {
                         checkoutType: 'wallet_recharge',
@@ -439,6 +563,10 @@ class BillingService {
         if (bill.status === client_1.BillStatus.PAID) {
             log.info('Webhook for already-paid bill (idempotent)', { billId: bill.id });
             return { status: 'ALREADY_PAID', billId: bill.id };
+        }
+        if (bill.status === client_1.BillStatus.REFUNDED) {
+            log.warn('Webhook for already-refunded bill — ignoring', { billId: bill.id });
+            return { status: 'ALREADY_REFUNDED', billId: bill.id };
         }
         if (parsed.status === 'SUCCEEDED') {
             billing_logger_1.BillingLogger.paymentCompleted({

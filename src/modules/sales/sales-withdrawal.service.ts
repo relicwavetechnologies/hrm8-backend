@@ -47,33 +47,27 @@ export class SalesWithdrawalService {
     }
 
     async calculateBalance(consultantId: string) {
-        // 1. Get all commissions
+        const account = await prisma.virtualAccount.findUnique({
+            where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } },
+            select: { balance: true },
+        });
+        const balance = Number(account?.balance || 0);
+
         const allCommissions = await prisma.commission.findMany({
             where: { consultant_id: consultantId }
         });
 
-        // 2. Calculate Available Balance (Confirmed and NOT locked in active withdrawals)
         const confirmedCommissions = allCommissions.filter(c => c.status === 'CONFIRMED');
 
-        // Find commissions currently locked in active withdrawals
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
-            where: {
-                consultant_id: consultantId,
-                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
-            },
+            where: { consultant_id: consultantId, status: { in: this.LOCKED_WITHDRAWAL_STATUSES } },
             select: { commission_ids: true }
         });
-
         const lockedCommissionIds = new Set<string>();
-        activeWithdrawals.forEach(w => {
-            w.commission_ids.forEach(id => lockedCommissionIds.add(id));
-        });
+        activeWithdrawals.forEach(w => w.commission_ids.forEach(id => lockedCommissionIds.add(id)));
 
         const availableCommissions = confirmedCommissions.filter(c => !lockedCommissionIds.has(c.id));
-        const balance = availableCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
-        // 3. Calculate Pending (Status = PENDING or CONFIRMED but locked?) 
-        // Typically Pending means status='PENDING'. Confirmed means ready for withdrawal.
         const pendingCommissions = allCommissions.filter(c => c.status === 'PENDING');
         const pendingBalance = pendingCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 

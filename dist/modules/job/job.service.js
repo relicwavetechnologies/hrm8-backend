@@ -115,7 +115,6 @@ class JobService extends service_1.BaseService {
             setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
             management_type: data.managementType ?? undefined,
             draft_step: data.draftStep,
-            status: data.status,
         };
         // Remove undefined keys
         Object.keys(updateData).forEach(key => {
@@ -533,6 +532,7 @@ class JobService extends service_1.BaseService {
         const amount = Number((job.payment_amount * rate).toFixed(2));
         if (amount <= 0)
             return;
+        const commissionCurrency = job.payment_currency || 'USD';
         await prisma_1.prisma.commission.create({
             data: {
                 consultant_id: consultant.id,
@@ -540,13 +540,15 @@ class JobService extends service_1.BaseService {
                 job_id: job.id,
                 type: 'RECRUITMENT_SERVICE',
                 amount,
+                currency: commissionCurrency,
+                payout_currency: commissionCurrency,
+                payout_amount: amount,
+                fx_rate: 1.0,
+                fx_source: 'SAME_REGION',
                 rate,
                 status: 'PENDING',
                 description: `Managed service commission for job: ${job.title}`,
-                notes: JSON.stringify({
-                    source: 'MANAGED_SERVICE_PAYMENT',
-                    currency: job.payment_currency || null,
-                }),
+                notes: JSON.stringify({ source: 'MANAGED_SERVICE_PAYMENT' }),
             },
         });
     }
@@ -660,28 +662,11 @@ class JobService extends service_1.BaseService {
             }
             let consultantId = job.assigned_consultant_id || null;
             if (!consultantId) {
-                try {
-                    const assignResult = await job_allocation_service_1.jobAllocationService.autoAssignJob(id);
-                    consultantId = assignResult?.consultantId || null;
-                }
-                catch (error) {
-                    const assignmentError = error?.message || 'No consultant available for assignment. Please try again later.';
-                    if (paymentAttemptId) {
-                        await billing_service_1.BillingService.refundPayment(paymentAttemptId, assignmentError);
-                        billing_logger_1.BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
-                        billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
-                        await this.jobRepository.update(id, {
-                            payment_status: 'PENDING',
-                            payment_completed_at: null,
-                            payment_failed_at: new Date(),
-                        });
-                        throw new http_exception_1.HttpException(503, `${assignmentError} Invoice payment was reversed automatically. Please retry later.`);
-                    }
-                    billing_logger_1.BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
-                    throw new http_exception_1.HttpException(503, assignmentError);
-                }
+                const assignResult = await job_allocation_service_1.jobAllocationService.autoAssignJob(id);
+                console.log('[upgradeToManagedService] autoAssignJob result:', JSON.stringify(assignResult));
+                consultantId = assignResult?.consultantId || null;
                 if (!consultantId) {
-                    const assignmentError = 'No consultant available for assignment. Please try again later.';
+                    const assignmentError = assignResult?.error || 'No consultant available for assignment. Please try again later.';
                     if (paymentAttemptId) {
                         await billing_service_1.BillingService.refundPayment(paymentAttemptId, assignmentError);
                         billing_logger_1.BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });

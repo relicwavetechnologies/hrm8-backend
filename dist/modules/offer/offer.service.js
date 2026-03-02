@@ -5,6 +5,7 @@ const prisma_1 = require("../../utils/prisma");
 const email_service_1 = require("../email/email.service");
 const cloudinary_service_1 = require("../storage/cloudinary.service");
 const application_activity_service_1 = require("../application/application-activity.service");
+const placement_commission_service_1 = require("../hrm8/placement-commission.service");
 class OfferService {
     static computeCurrentStep(workflow, documentsCount) {
         if (workflow.hiredAt)
@@ -180,6 +181,15 @@ class OfferService {
                 description: 'Offer workflow completed and candidate moved to hired',
                 metadata: { offerId: offer.id },
             });
+            try {
+                const result = await placement_commission_service_1.PlacementCommissionService.createForHiredApplication(applicationId);
+                if (result.created) {
+                    console.log(`[OfferService] Placement commission ${result.commissionId} created for application ${applicationId}`);
+                }
+            }
+            catch (err) {
+                console.error(`[OfferService] Failed to create placement commission for ${applicationId}:`, err);
+            }
         }
         next.currentStep = this.computeCurrentStep(next, docsCount);
         const updated = await prisma_1.prisma.offerLetter.update({

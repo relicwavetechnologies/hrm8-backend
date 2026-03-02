@@ -368,37 +368,52 @@ export class WalletService {
       throw new HttpException(400, 'Amount must be positive');
     }
 
-    const account = await this.getOrCreateAccount(ownerType, ownerId);
+    return prisma.$transaction(async (tx) => {
+      const account = await tx.virtualAccount.findUnique({
+        where: { owner_type_owner_id: { owner_type: ownerType, owner_id: ownerId } },
+      });
 
-    if (account.balance < data.amount) {
-      throw new HttpException(400, 'Insufficient balance for withdrawal');
-    }
-
-    const withdrawal = await prisma.virtualTransaction.create({
-      data: {
-        virtual_account_id: account.id,
-        type: 'COMMISSION_WITHDRAWAL',
-        amount: data.amount,
-        balance_after: account.balance - data.amount,
-        direction: 'DEBIT',
-        status: 'PENDING',
-        description: `Withdrawal request - ${data.paymentMethod}`,
-        reference_type: 'WITHDRAWAL_REQUEST',
-        metadata: {
-          paymentMethod: data.paymentMethod,
-          bankDetails: data.bankDetails,
-          notes: data.notes
-        } as any
+      if (!account) throw new HttpException(404, 'Wallet account not found');
+      if (Number(account.balance) < data.amount) {
+        throw new HttpException(400, 'Insufficient balance for withdrawal');
       }
-    });
 
-    return {
-      id: withdrawal.id,
-      amount: withdrawal.amount,
-      status: withdrawal.status,
-      paymentMethod: data.paymentMethod,
-      createdAt: withdrawal.created_at
-    };
+      const balanceAfter = Number(account.balance) - data.amount;
+
+      const withdrawal = await tx.virtualTransaction.create({
+        data: {
+          virtual_account_id: account.id,
+          type: 'COMMISSION_WITHDRAWAL',
+          amount: data.amount,
+          balance_after: balanceAfter,
+          direction: 'DEBIT',
+          status: 'PENDING',
+          description: `Withdrawal request - ${data.paymentMethod}`,
+          reference_type: 'WITHDRAWAL_REQUEST',
+          metadata: {
+            paymentMethod: data.paymentMethod,
+            bankDetails: data.bankDetails,
+            notes: data.notes
+          } as any
+        }
+      });
+
+      await tx.virtualAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: { decrement: data.amount },
+          total_debits: { increment: data.amount },
+        },
+      });
+
+      return {
+        id: withdrawal.id,
+        amount: withdrawal.amount,
+        status: withdrawal.status,
+        paymentMethod: data.paymentMethod,
+        createdAt: withdrawal.created_at
+      };
+    });
   }
 
   /**
@@ -742,6 +757,7 @@ export class WalletService {
       throw new HttpException(400, 'Only pending withdrawals can be approved');
     }
 
+    // Balance was already debited when the withdrawal was requested.
     const updated = await prisma.virtualTransaction.update({
       where: { id: withdrawalId },
       data: { status: 'COMPLETED' }
@@ -770,29 +786,52 @@ export class WalletService {
       throw new HttpException(400, 'Only pending withdrawals can be rejected');
     }
 
-    // Return funds to account
-    await prisma.virtualAccount.update({
-      where: { id: withdrawal.virtual_account_id },
-      data: {
-        balance: { increment: withdrawal.amount },
-        total_credits: { increment: withdrawal.amount }
-      }
-    });
+    return prisma.$transaction(async (tx) => {
+      const account = await tx.virtualAccount.findUnique({
+        where: { id: withdrawal.virtual_account_id },
+      });
 
-    const updated = await prisma.virtualTransaction.update({
-      where: { id: withdrawalId },
-      data: {
-        status: 'FAILED',
-        failed_reason: reason || 'Rejected: No reason provided'
-      }
-    });
+      if (!account) throw new HttpException(404, 'Wallet account not found');
 
-    return {
-      id: updated.id,
-      status: updated.status,
-      refundedAmount: withdrawal.amount,
-      reason
-    };
+      const balanceAfter = Number(account.balance) + withdrawal.amount;
+
+      await tx.virtualTransaction.create({
+        data: {
+          virtual_account_id: account.id,
+          type: 'COMMISSION_ADJUSTMENT',
+          amount: withdrawal.amount,
+          balance_after: balanceAfter,
+          direction: 'CREDIT',
+          status: 'COMPLETED',
+          description: `Refund: withdrawal rejected — ${reason || 'No reason provided'}`,
+          reference_id: withdrawalId,
+          reference_type: 'WITHDRAWAL_REQUEST',
+        }
+      });
+
+      await tx.virtualAccount.update({
+        where: { id: account.id },
+        data: {
+          balance: { increment: withdrawal.amount },
+          total_credits: { increment: withdrawal.amount },
+        }
+      });
+
+      const updated = await tx.virtualTransaction.update({
+        where: { id: withdrawalId },
+        data: {
+          status: 'FAILED',
+          failed_reason: reason || 'Rejected: No reason provided'
+        }
+      });
+
+      return {
+        id: updated.id,
+        status: updated.status,
+        refundedAmount: withdrawal.amount,
+        reason
+      };
+    });
   }
 
   /**

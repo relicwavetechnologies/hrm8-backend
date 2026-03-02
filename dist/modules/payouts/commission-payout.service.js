@@ -10,11 +10,10 @@ const log = logger_1.Logger.create('commission-payout');
 class CommissionPayoutService {
     /**
      * Full payout pipeline for an approved withdrawal:
-     *   1. Debit consultant virtual wallet
-     *   2. Create Xero ACCPAY bill (commission expense)
-     *   3. Execute Airwallex transfer to beneficiary
-     *   4. Record Xero payment against the bill
-     *   5. Update withdrawal with provider references
+     *   Phase 1 (DB): Debit wallet, set PROCESSING
+     *   Phase 2 (external): Xero bill + Airwallex transfer
+     *   Phase 3 (DB): Record provider refs, finalize status
+     *   On Phase 2 failure: refund wallet
      */
     static async executeWithdrawalPayout(withdrawalId) {
         const withdrawal = await prisma_1.prisma.commissionWithdrawal.findUnique({
@@ -35,9 +34,9 @@ class CommissionPayoutService {
         }
         const payoutCurrency = withdrawal.payout_currency || withdrawal.currency || 'USD';
         const payoutAmount = Number(withdrawal.amount);
-        return prisma_1.prisma.$transaction(async (tx) => {
-            // 1. Debit wallet if not already done (wallet balance is in payout currency)
-            if (!withdrawal.debited_from_wallet) {
+        // --- Phase 1: Debit wallet inside transaction ---
+        if (!withdrawal.debited_from_wallet) {
+            await prisma_1.prisma.$transaction(async (tx) => {
                 const account = await tx.virtualAccount.findUnique({
                     where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultant.id } },
                 });
@@ -74,8 +73,14 @@ class CommissionPayoutService {
                         status: 'PROCESSING',
                     },
                 });
-            }
-            // 2. Create Xero ACCPAY bill (expense)
+            });
+            log.info('Phase 1 complete — wallet debited', { withdrawalId, payoutAmount });
+        }
+        // --- Phase 2: External calls (outside DB transaction) ---
+        let xeroBillId;
+        let transferId;
+        let transferStatus;
+        try {
             const xeroBill = xero_service_1.XeroService.createBill({
                 contactName: `${consultant.first_name} ${consultant.last_name}`,
                 contactEmail: consultant.email,
@@ -89,8 +94,8 @@ class CommissionPayoutService {
                         accountCode: '400',
                     }],
             });
-            log.info('Xero ACCPAY bill created', { xeroBillId: xeroBill.billId, amount: payoutAmount, currency: payoutCurrency });
-            // 3. Execute Airwallex transfer
+            xeroBillId = xeroBill.billId;
+            log.info('Xero ACCPAY bill created', { xeroBillId, amount: payoutAmount, currency: payoutCurrency });
             const transferInput = {
                 beneficiaryId,
                 amount: payoutAmount,
@@ -104,52 +109,85 @@ class CommissionPayoutService {
                 },
             };
             const transfer = await airwallex_service_1.AirwallexService.createTransfer(transferInput);
-            log.info('Airwallex transfer initiated', { transferId: transfer.transferId, status: transfer.status });
-            // 4. Record Xero payment against the bill
-            let xeroPaymentId;
-            if (transfer.status === 'COMPLETED') {
-                const payment = xero_service_1.XeroService.createPayment({
-                    invoiceId: xeroBill.billId,
-                    amount: payoutAmount,
-                    currency: payoutCurrency,
-                    accountCode: '090',
-                    reference: transfer.transferId,
+            transferId = transfer.transferId;
+            transferStatus = transfer.status;
+            log.info('Airwallex transfer initiated', { transferId, status: transferStatus });
+        }
+        catch (externalError) {
+            log.error('Phase 2 failed — refunding wallet', { withdrawalId, error: externalError.message });
+            await prisma_1.prisma.$transaction(async (tx) => {
+                const account = await tx.virtualAccount.findUnique({
+                    where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultant.id } },
                 });
-                xeroPaymentId = payment.paymentId;
-                log.info('Xero payment recorded', { paymentId: payment.paymentId });
-            }
-            // 5. Update withdrawal with all references
-            const finalStatus = transfer.status === 'COMPLETED' ? 'COMPLETED' : 'PROCESSING';
+                if (account) {
+                    await tx.virtualTransaction.create({
+                        data: {
+                            virtual_account_id: account.id,
+                            type: 'COMMISSION_ADJUSTMENT',
+                            amount: payoutAmount,
+                            balance_after: Number(account.balance) + payoutAmount,
+                            direction: 'CREDIT',
+                            status: 'COMPLETED',
+                            description: `Refund: payout failed for withdrawal ${withdrawal.id}`,
+                            reference_id: withdrawal.id,
+                            reference_type: 'COMMISSION_WITHDRAWAL',
+                            billing_currency_used: payoutCurrency,
+                        },
+                    });
+                    await tx.virtualAccount.update({
+                        where: { id: account.id },
+                        data: { balance: { increment: payoutAmount }, total_credits: { increment: payoutAmount } },
+                    });
+                }
+                await tx.commissionWithdrawal.update({
+                    where: { id: withdrawalId },
+                    data: {
+                        status: 'REJECTED',
+                        transfer_failed_reason: externalError.message || 'External provider call failed',
+                    },
+                });
+            });
+            throw new http_exception_1.HttpException(502, `Payout failed: ${externalError.message}. Wallet has been refunded.`);
+        }
+        // --- Phase 3: Record provider references ---
+        let xeroPaymentId;
+        if (transferStatus === 'COMPLETED') {
+            const payment = xero_service_1.XeroService.createPayment({
+                invoiceId: xeroBillId,
+                amount: payoutAmount,
+                currency: payoutCurrency,
+                accountCode: '090',
+                reference: transferId,
+            });
+            xeroPaymentId = payment.paymentId;
+            log.info('Xero payment recorded', { paymentId: payment.paymentId });
+        }
+        const finalStatus = transferStatus === 'COMPLETED' ? 'COMPLETED' : 'PROCESSING';
+        await prisma_1.prisma.$transaction(async (tx) => {
             await tx.commissionWithdrawal.update({
                 where: { id: withdrawalId },
                 data: {
                     status: finalStatus,
-                    airwallex_transfer_id: transfer.transferId,
-                    xero_bill_id: xeroBill.billId,
-                    payment_reference: xeroPaymentId || transfer.transferId,
+                    airwallex_transfer_id: transferId,
+                    xero_bill_id: xeroBillId,
+                    payment_reference: xeroPaymentId || transferId,
                     transfer_initiated_at: new Date(),
                     ...(finalStatus === 'COMPLETED' ? { transfer_completed_at: new Date(), processed_at: new Date() } : {}),
                     payout_currency: payoutCurrency,
                     payout_amount: payoutAmount,
                 },
             });
-            // 6. Mark associated commissions as PAID
             if (finalStatus === 'COMPLETED' && withdrawal.commission_ids.length > 0) {
                 await tx.commission.updateMany({
                     where: { id: { in: withdrawal.commission_ids } },
-                    data: { status: 'PAID', paid_at: new Date(), payment_reference: transfer.transferId },
+                    data: { status: 'PAID', paid_at: new Date(), payment_reference: transferId },
                 });
             }
-            return {
-                transferId: transfer.transferId,
-                xeroBillId: xeroBill.billId,
-                status: finalStatus,
-            };
         });
+        return { transferId, xeroBillId, status: finalStatus };
     }
     /**
      * Handle transfer webhook/status update from Airwallex.
-     * Called when a PROCESSING transfer completes or fails.
      */
     static async handleTransferStatusUpdate(transferId, status, failedReason) {
         const withdrawal = await prisma_1.prisma.commissionWithdrawal.findFirst({
@@ -197,12 +235,13 @@ class CommissionPayoutService {
                     where: { id: withdrawal.id },
                     data: { status: 'REJECTED', transfer_failed_reason: failedReason || 'Transfer failed' },
                 });
-                if (withdrawal.debited_from_wallet && withdrawal.virtual_transaction_id) {
+                // Refund wallet if it was debited
+                if (withdrawal.debited_from_wallet) {
                     const account = await tx.virtualAccount.findUnique({
                         where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: withdrawal.consultant_id } },
                     });
                     if (account) {
-                        const refundAmount = withdrawal.payout_amount || withdrawal.amount;
+                        const refundAmount = Number(withdrawal.payout_amount || withdrawal.amount);
                         await tx.virtualTransaction.create({
                             data: {
                                 virtual_account_id: account.id,
@@ -222,6 +261,13 @@ class CommissionPayoutService {
                             data: { balance: { increment: refundAmount }, total_credits: { increment: refundAmount } },
                         });
                     }
+                }
+                // Revert commissions from PAID back to CONFIRMED
+                if (withdrawal.commission_ids.length > 0) {
+                    await tx.commission.updateMany({
+                        where: { id: { in: withdrawal.commission_ids }, status: 'PAID' },
+                        data: { status: 'CONFIRMED', paid_at: null, payment_reference: null },
+                    });
                 }
             });
             log.error('Withdrawal transfer failed — wallet refunded', { withdrawalId: withdrawal.id, transferId, failedReason });

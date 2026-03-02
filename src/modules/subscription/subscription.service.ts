@@ -265,6 +265,12 @@ export class SubscriptionService {
                 subscription_id: subscription.id,
                 type: 'SUBSCRIPTION_SALE',
                 amount: commissionAmount,
+                currency: billingCurrency,
+                payout_currency: billingCurrency,
+                payout_amount: commissionAmount,
+                fx_rate: 1.0,
+                fx_source: 'SAME_REGION',
+                rate: commissionRate,
                 description: `Subscription sale commission for ${name}`,
                 status: CommissionStatus.PENDING,
               }

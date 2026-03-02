@@ -300,6 +300,14 @@ class CommissionService extends service_1.BaseService {
         if (!amount || amount <= 0)
             throw new http_exception_1.HttpException(400, 'Commission amount must be positive');
         return this.commissionRepository.transaction(async (tx) => {
+            const existingWhere = { consultant_id: consultantId, type };
+            if (jobId)
+                existingWhere.job_id = jobId;
+            if (subscriptionId)
+                existingWhere.subscription_id = subscriptionId;
+            const existing = await tx.commission.findFirst({ where: existingWhere, select: { id: true } });
+            if (existing)
+                throw new http_exception_1.HttpException(409, 'Commission already exists for this consultant and reference');
             const consultant = await tx.consultant.findUnique({
                 where: { id: consultantId },
                 select: { region_id: true, email: true },
@@ -411,6 +419,14 @@ class CommissionService extends service_1.BaseService {
             throw new http_exception_1.HttpException(404, 'Consultant not found');
         if (!consultant.region_id)
             throw new http_exception_1.HttpException(400, 'Consultant must have a region assigned');
+        const existingWhere = { consultant_id: consultantId, type, status: { in: ['PENDING', 'CONFIRMED'] } };
+        if (jobId)
+            existingWhere.job_id = jobId;
+        if (subscriptionId)
+            existingWhere.subscription_id = subscriptionId;
+        const existing = await prisma_1.prisma.commission.findFirst({ where: existingWhere, select: { id: true } });
+        if (existing)
+            throw new http_exception_1.HttpException(409, 'A commission request already exists for this reference');
         return prisma_1.prisma.commission.create({
             data: {
                 consultant_id: consultantId,
@@ -424,6 +440,7 @@ class CommissionService extends service_1.BaseService {
                 payout_amount: amount,
                 fx_rate: 1.0,
                 fx_source: 'SAME_REGION',
+                rate: commissionRate,
                 description: description || `Commission request: ${type}`,
                 status: client_1.CommissionStatus.PENDING
             }
@@ -573,32 +590,44 @@ class CommissionService extends service_1.BaseService {
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
             if (account) {
-                const balanceAfter = Number(account.balance) - walletAmount;
-                await tx.virtualTransaction.create({
-                    data: {
-                        virtual_account_id: account.id,
-                        type: client_1.VirtualTransactionType.COMMISSION_CLAWBACK,
-                        amount: walletAmount,
-                        balance_after: balanceAfter,
-                        direction: 'DEBIT',
-                        status: 'COMPLETED',
-                        description: `Clawback: ${reason}`,
-                        reference_id: commission.id,
-                        reference_type: 'COMMISSION',
-                        commission_id: commission.id,
-                        billing_currency_used: walletCurrency,
-                    }
-                });
-                await tx.virtualAccount.update({
-                    where: { id: account.id },
-                    data: { balance: { decrement: walletAmount } }
-                });
+                const currentBalance = Number(account.balance);
+                const debitAmount = Math.min(walletAmount, currentBalance);
+                const balanceAfter = currentBalance - debitAmount;
+                const shortfall = walletAmount - debitAmount;
+                if (debitAmount > 0) {
+                    await tx.virtualTransaction.create({
+                        data: {
+                            virtual_account_id: account.id,
+                            type: client_1.VirtualTransactionType.COMMISSION_CLAWBACK,
+                            amount: debitAmount,
+                            balance_after: balanceAfter,
+                            direction: 'DEBIT',
+                            status: 'COMPLETED',
+                            description: `Clawback: ${reason}`,
+                            reference_id: commission.id,
+                            reference_type: 'COMMISSION',
+                            commission_id: commission.id,
+                            billing_currency_used: walletCurrency,
+                        }
+                    });
+                    await tx.virtualAccount.update({
+                        where: { id: account.id },
+                        data: { balance: { decrement: debitAmount }, total_debits: { increment: debitAmount } }
+                    });
+                }
+                if (shortfall > 0) {
+                    log.warn('Clawback partial — consultant has insufficient balance', {
+                        commissionId: id, consultantId, walletAmount, debitAmount, shortfall
+                    });
+                }
             }
             return tx.commission.update({
                 where: { id },
                 data: {
                     status: client_1.CommissionStatus.CLAWBACK,
-                    notes: commission.notes ? `${commission.notes}\n[CLAWBACK]: ${reason}` : `[CLAWBACK]: ${reason}`
+                    notes: commission.notes
+                        ? `${commission.notes}\n[CLAWBACK]: ${reason}`
+                        : `[CLAWBACK]: ${reason}`
                 }
             });
         });

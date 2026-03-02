@@ -280,11 +280,22 @@ export class Consultant360Service extends BaseService {
       // Ignore if no wallet
     }
 
+    let totalWithdrawn = 0;
+    try {
+      const result = await prisma.commissionWithdrawal.aggregate({
+        where: { consultant_id: consultantId, status: { in: ['COMPLETED', 'PROCESSING'] } },
+        _sum: { amount: true },
+      });
+      totalWithdrawn = Number(result._sum.amount || 0);
+    } catch {
+      // Ignore
+    }
+
     const combined = {
       availableBalance,
       pendingBalance: recruiterEarnings.pendingCommissions + salesEarnings.pendingCommissions,
       totalEarned,
-      totalWithdrawn: 0, // TODO: Fetch withdrawals to calc this
+      totalWithdrawn,
       availableCommissions: allCommissions.filter(c => c.status === 'CONFIRMED').map(c => ({
         id: c.id,
         amount: c.amount,

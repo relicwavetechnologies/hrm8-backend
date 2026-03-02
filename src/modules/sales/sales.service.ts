@@ -244,36 +244,52 @@ export class SalesService extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    // Create company from lead data — inherit region from the lead
-    const company = await prisma.company.create({
-      data: {
-        name: companyData.company_name || lead.company_name,
-        domain: companyData.website ? new URL(companyData.website).hostname : '',
-        website: companyData.website || lead.website || '',
-        country_or_region: companyData.country || lead.country || '',
-        region_id: lead.region_id || undefined,
-        verification_status: 'PENDING'
-      }
+    let parsedDomain = '';
+    try {
+      parsedDomain = companyData.website ? new URL(companyData.website).hostname : '';
+    } catch {
+      parsedDomain = '';
+    }
+    const safeDomain = parsedDomain || `company-${leadId.slice(0, 8)}.local`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name: companyData.company_name || lead.company_name,
+          domain: safeDomain,
+          website: companyData.website || lead.website || '',
+          country_or_region: companyData.country || lead.country || '',
+          region_id: lead.region_id || undefined,
+          sales_agent_id: consultantId,
+          verification_status: 'PENDING'
+        }
+      });
+
+      await tx.opportunity.create({
+        data: {
+          company_id: company.id,
+          name: `${company.name} Opportunity`,
+          stage: 'NEW',
+          type: 'SUBSCRIPTION',
+          sales_agent_id: consultantId,
+          amount: companyData.estimatedValue || 0,
+          description: companyData.notes || '',
+        }
+      });
+
+      await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          status: 'CONVERTED',
+          converted_to_company_id: company.id,
+          converted_at: new Date()
+        }
+      });
+
+      return { lead, company };
     });
 
-    // Create opportunity
-    await this.createOpportunity({
-      companyId: company.id,
-      name: `${company.name} Opportunity`,
-      type: 'NEW_BUSINESS',
-      salesAgentId: consultantId,
-      amount: companyData.estimatedValue,
-      description: companyData.notes
-    });
-
-    // Update lead status
-    await this.salesRepository.updateLead(leadId, {
-      status: 'CONVERTED',
-      company: { connect: { id: company.id } },
-      converted_at: new Date()
-    } as any);
-
-    return { lead, company };
+    return result;
   }
 
   async submitConversionRequest(consultantId: string, leadId: string, data: any) {
