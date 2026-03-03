@@ -8,6 +8,7 @@ const controller = new consultant360_controller_1.Consultant360Controller();
 // Dashboard & Leads (admin bypass allowed for testing)
 router.get('/dashboard', consultant_auth_middleware_1.authenticateConsultant, controller.getDashboard);
 router.get('/leads', consultant_auth_middleware_1.authenticateConsultant, controller.getLeads);
+router.get('/leads/:leadId/conversion-eligibility', consultant_auth_middleware_1.authenticateConsultant, controller.getConversionEligibility);
 router.post('/leads', consultant_auth_middleware_1.authenticateConsultant, controller.createLead);
 router.post('/leads/:leadId/conversion-request', consultant_auth_middleware_1.authenticateConsultant, controller.submitConversionRequest);
 // Financial routes: strict consultant auth only (no admin masquerade)

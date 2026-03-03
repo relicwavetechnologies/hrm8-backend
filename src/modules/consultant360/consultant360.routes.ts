@@ -8,6 +8,7 @@ const controller = new Consultant360Controller();
 // Dashboard & Leads (admin bypass allowed for testing)
 router.get('/dashboard', authenticateConsultant, controller.getDashboard);
 router.get('/leads', authenticateConsultant, controller.getLeads);
+router.get('/leads/:leadId/conversion-eligibility', authenticateConsultant, controller.getConversionEligibility);
 router.post('/leads', authenticateConsultant, controller.createLead);
 router.post('/leads/:leadId/conversion-request', authenticateConsultant, controller.submitConversionRequest);
 

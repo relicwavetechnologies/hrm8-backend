@@ -49,7 +49,26 @@ export class SalesController extends BaseController {
     }
   };
 
+  getConversionEligibility = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
+      const leadId = Array.isArray(req.params.leadId) ? req.params.leadId[0] : req.params.leadId;
+      const result = await this.salesService.getConversionEligibility(leadId, req.consultant.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   convertLead = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    const { FeatureFlags } = await import('../../config/feature-flags');
+    if (FeatureFlags.FF_DISABLE_DIRECT_CONVERT) {
+      return res.status(410).json({
+        success: false,
+        error: 'Direct conversion is disabled. Please use the conversion request flow.',
+        code: 'DIRECT_CONVERT_DISABLED',
+      });
+    }
     try {
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
       const leadId = Array.isArray(req.params.leadId) ? req.params.leadId[0] : req.params.leadId;

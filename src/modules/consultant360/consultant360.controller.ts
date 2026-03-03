@@ -60,6 +60,18 @@ export class Consultant360Controller extends BaseController {
     }
   };
 
+  getConversionEligibility = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) throw new HttpException(401, 'Unauthorized');
+      const { leadId } = req.params;
+      const result = await this.service.getConversionEligibility(leadId as string, consultantId);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   submitConversionRequest = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;

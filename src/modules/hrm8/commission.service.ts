@@ -7,6 +7,7 @@ import { prisma } from '../../utils/prisma';
 import { toCommissionRateDecimal } from './commission-rate.util';
 import { ConversionCommercialContextService } from './conversion-commercial-context.service';
 import { Logger } from '../../utils/logger';
+import { FeatureFlags } from '../../config/feature-flags';
 
 const log = Logger.create('commission');
 
@@ -14,6 +15,7 @@ export interface AwardCommissionInput {
     consultantId: string;
     jobId?: string;
     subscriptionId?: string;
+    companyId?: string;  // Required for manual commission when FF_COMMISSION_CURRENCY_STRICT
     type: CommissionType;
     amount?: number;  // Optional - can be calculated from job/subscription
     rate?: number;
@@ -336,10 +338,15 @@ export class CommissionService extends BaseService {
             type,
             jobId,
             subscriptionId,
+            companyId,
             description,
             rate,
             calculateFromJob = false
         } = input;
+
+        if (FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !jobId && !subscriptionId && !companyId) {
+            throw new HttpException(422, 'Manual commission requires companyId when strict commission currency is enabled', 'MANUAL_COMMISSION_COMPANY_REQUIRED');
+        }
 
         let amount = providedAmount;
         let commissionCurrency = 'USD';
@@ -381,6 +388,18 @@ export class CommissionService extends BaseService {
                     commissionCurrency = subscription.currency || 'USD';
                 }
             }
+        }
+
+        if (!jobId && !subscriptionId && companyId) {
+            const company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: { billing_currency: true },
+            });
+            if (!company) throw new HttpException(404, 'Company not found');
+            if (FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !company.billing_currency) {
+                throw new HttpException(422, 'Company has no billing currency set; cannot create manual commission', 'COMPANY_CURRENCY_UNSET');
+            }
+            commissionCurrency = company.billing_currency || 'USD';
         }
 
         if (!amount || amount <= 0) throw new HttpException(400, 'Commission amount must be positive');

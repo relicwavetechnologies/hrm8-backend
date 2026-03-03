@@ -189,9 +189,9 @@ export class Consultant360Service extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    if (!consultant.region_id) {
-      throw new HttpException(400, 'Consultant does not have an assigned region');
-    }
+    const { assertLeadInConsultantRegion, validateRegionCurrencyMapping } = await import('../sales/conversion-request-validators');
+    assertLeadInConsultantRegion(lead, consultant);
+    await validateRegionCurrencyMapping(consultant.region_id!);
 
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
@@ -220,6 +220,45 @@ export class Consultant360Service extends BaseService {
       temp_password: data.tempPassword || null,
       status: 'PENDING'
     });
+  }
+
+  async getConversionEligibility(leadId: string, consultantId: string) {
+    const { assertLeadInConsultantRegion } = await import('../sales/conversion-request-validators');
+    const { CurrencyAssignmentService } = await import('../pricing/currency-assignment.service');
+    const { HttpException } = await import('../../core/http-exception');
+    const { prisma } = await import('../../utils/prisma');
+
+    const lead = await this.repository.findLeadById(leadId);
+    const reasons: string[] = [];
+    if (!lead) return { eligible: false, reasons: ['Lead not found'] };
+    if (lead.status === 'CONVERTED') return { eligible: false, reasons: ['Lead is already converted'] };
+
+    const consultant = await this.repository.findConsultant(consultantId);
+    if (!consultant) return { eligible: false, reasons: ['Consultant not found'] };
+
+    try {
+      assertLeadInConsultantRegion(lead, consultant);
+    } catch (e: any) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId: consultant.region_id ?? undefined };
+      }
+      throw e;
+    }
+    const regionId = consultant.region_id!;
+    const region = await prisma.region.findUnique({ where: { id: regionId }, select: { country: true } });
+    let mapping: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null = null;
+    try {
+      const result = await CurrencyAssignmentService.resolveRegionCurrencyOrThrow(regionId);
+      mapping = { pricingPeg: result.pricingPeg, billingCurrency: result.billingCurrency, isActive: result.isActive };
+    } catch (e: any) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId, regionCountry: region?.country };
+      }
+      throw e;
+    }
+    return { eligible: true, reasons: [], regionId, regionCountry: region?.country, mapping };
   }
 
   // --- Earnings ---

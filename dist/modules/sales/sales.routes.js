@@ -10,6 +10,7 @@ router.get('/dashboard/stats', consultant_auth_middleware_1.authenticateConsulta
 // Leads
 router.get('/leads', consultant_auth_middleware_1.authenticateConsultant, salesController.getLeads);
 router.post('/leads', consultant_auth_middleware_1.authenticateConsultant, salesController.createLead);
+router.get('/leads/:leadId/conversion-eligibility', consultant_auth_middleware_1.authenticateConsultant, salesController.getConversionEligibility);
 router.post('/leads/:leadId/convert', consultant_auth_middleware_1.authenticateConsultant, salesController.convertLead);
 router.post('/leads/:leadId/conversion-request', consultant_auth_middleware_1.authenticateConsultant, salesController.submitConversionRequest);
 // Conversion Requests

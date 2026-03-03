@@ -8,6 +8,7 @@ const prisma_1 = require("../../utils/prisma");
 const commission_rate_util_1 = require("./commission-rate.util");
 const conversion_commercial_context_service_1 = require("./conversion-commercial-context.service");
 const logger_1 = require("../../utils/logger");
+const feature_flags_1 = require("../../config/feature-flags");
 const log = logger_1.Logger.create('commission');
 class CommissionService extends service_1.BaseService {
     constructor(commissionRepository) {
@@ -261,7 +262,10 @@ class CommissionService extends service_1.BaseService {
         });
     }
     async create(input) {
-        const { consultantId, amount: providedAmount, type, jobId, subscriptionId, description, rate, calculateFromJob = false } = input;
+        const { consultantId, amount: providedAmount, type, jobId, subscriptionId, companyId, description, rate, calculateFromJob = false } = input;
+        if (feature_flags_1.FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !jobId && !subscriptionId && !companyId) {
+            throw new http_exception_1.HttpException(422, 'Manual commission requires companyId when strict commission currency is enabled', 'MANUAL_COMMISSION_COMPANY_REQUIRED');
+        }
         let amount = providedAmount;
         let commissionCurrency = 'USD';
         let commissionRate = (0, commission_rate_util_1.toCommissionRateDecimal)(rate, 0.20);
@@ -296,6 +300,18 @@ class CommissionService extends service_1.BaseService {
                     commissionCurrency = subscription.currency || 'USD';
                 }
             }
+        }
+        if (!jobId && !subscriptionId && companyId) {
+            const company = await prisma_1.prisma.company.findUnique({
+                where: { id: companyId },
+                select: { billing_currency: true },
+            });
+            if (!company)
+                throw new http_exception_1.HttpException(404, 'Company not found');
+            if (feature_flags_1.FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !company.billing_currency) {
+                throw new http_exception_1.HttpException(422, 'Company has no billing currency set; cannot create manual commission', 'COMPANY_CURRENCY_UNSET');
+            }
+            commissionCurrency = company.billing_currency || 'USD';
         }
         if (!amount || amount <= 0)
             throw new http_exception_1.HttpException(400, 'Commission amount must be positive');

@@ -20,6 +20,9 @@ exports.FeatureFlags = {
     FF_COUNTRY_MAP_UI: bool('FF_COUNTRY_MAP_UI'),
     FF_INTENT_SNAPSHOT_STRICT: bool('FF_INTENT_SNAPSHOT_STRICT'),
     FF_STRIPE_LABEL_CLEANUP: bool('FF_STRIPE_LABEL_CLEANUP'),
+    FF_STRICT_REGION_CURRENCY_GATE: bool('FF_STRICT_REGION_CURRENCY_GATE', false),
+    FF_DISABLE_DIRECT_CONVERT: bool('FF_DISABLE_DIRECT_CONVERT', false),
+    FF_COMMISSION_CURRENCY_STRICT: bool('FF_COMMISSION_CURRENCY_STRICT', false),
 };
 const isFeatureEnabled = (key) => exports.FeatureFlags[key];
 exports.isFeatureEnabled = isFeatureEnabled;

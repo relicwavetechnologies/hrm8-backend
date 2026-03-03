@@ -27,6 +27,15 @@ export abstract class BaseController {
       error: error instanceof Error ? error.message : String(error),
     });
 
+    if (error instanceof HttpException) {
+      const body: { success: false; error: string; code?: string | number; details?: Record<string, unknown> } = {
+        success: false,
+        error: error.message,
+      };
+      if (error.code !== undefined) body.code = error.code;
+      if (error.details) body.details = error.details;
+      return res.status(statusCode).json(body);
+    }
     if (error instanceof Error) {
       return res.status(statusCode).json({ success: false, error: error.message });
     }

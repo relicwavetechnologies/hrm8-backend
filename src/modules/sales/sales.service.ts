@@ -7,6 +7,8 @@ import { SalesValidators } from './sales.validators';
 import { prisma } from '../../utils/prisma';
 import { notifySalesAgent } from '../notification/notification-service-singleton';
 import { normalizeConversionIntentSnapshot } from './conversion-intent.util';
+import { assertLeadInConsultantRegion, validateRegionCurrencyMapping } from './conversion-request-validators';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 export class SalesService extends BaseService {
   private withdrawalService: SalesWithdrawalService;
@@ -297,15 +299,14 @@ export class SalesService extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    // Get the region for the conversion request
     const consultant = await prisma.consultant.findUnique({
       where: { id: consultantId },
-      select: { region_id: true }
+      select: { id: true, region_id: true }
     });
+    if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    if (!consultant?.region_id) {
-      throw new HttpException(400, 'Consultant does not have an assigned region');
-    }
+    assertLeadInConsultantRegion(lead, consultant);
+    await validateRegionCurrencyMapping(consultant.region_id!);
 
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
@@ -336,6 +337,59 @@ export class SalesService extends BaseService {
 
     // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.salesRepository.createConversionRequest(createPayload);
+  }
+
+  async getConversionEligibility(leadId: string, consultantId: string): Promise<{
+    eligible: boolean;
+    reasons: string[];
+    regionId?: string;
+    regionCountry?: string;
+    mapping?: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null;
+  }> {
+    const lead = await this.salesRepository.findLeadById(leadId);
+    const reasons: string[] = [];
+    if (!lead) {
+      return { eligible: false, reasons: ['Lead not found'] };
+    }
+    if (lead.status === 'CONVERTED') {
+      return { eligible: false, reasons: ['Lead is already converted'] };
+    }
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { id: true, region_id: true },
+    });
+    if (!consultant) {
+      return { eligible: false, reasons: ['Consultant not found'] };
+    }
+    try {
+      assertLeadInConsultantRegion(lead, consultant);
+    } catch (e) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId: consultant.region_id ?? undefined };
+      }
+      throw e;
+    }
+    const regionId = consultant.region_id!;
+    const region = await prisma.region.findUnique({ where: { id: regionId }, select: { country: true } });
+    let mapping: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null = null;
+    try {
+      const result = await CurrencyAssignmentService.resolveRegionCurrencyOrThrow(regionId);
+      mapping = { pricingPeg: result.pricingPeg, billingCurrency: result.billingCurrency, isActive: result.isActive };
+    } catch (e) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId, regionCountry: region?.country };
+      }
+      throw e;
+    }
+    return {
+      eligible: true,
+      reasons: [],
+      regionId,
+      regionCountry: region?.country,
+      mapping,
+    };
   }
 
   // --- Conversion Requests ---

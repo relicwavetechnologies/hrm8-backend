@@ -51,6 +51,19 @@ class Consultant360Controller extends controller_1.BaseController {
                 return this.sendError(res, error);
             }
         };
+        this.getConversionEligibility = async (req, res) => {
+            try {
+                const consultantId = req.consultant?.id;
+                if (!consultantId)
+                    throw new http_exception_1.HttpException(401, 'Unauthorized');
+                const { leadId } = req.params;
+                const result = await this.service.getConversionEligibility(leadId, consultantId);
+                return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
         this.submitConversionRequest = async (req, res) => {
             try {
                 const consultantId = req.consultant?.id;

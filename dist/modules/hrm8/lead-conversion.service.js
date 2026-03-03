@@ -12,6 +12,7 @@ const audit_log_service_1 = require("./audit-log.service");
 const audit_log_repository_1 = require("./audit-log.repository");
 const currency_assignment_service_1 = require("../pricing/currency-assignment.service");
 const conversion_commercial_context_service_1 = require("./conversion-commercial-context.service");
+const feature_flags_1 = require("../../config/feature-flags");
 class LeadConversionService extends service_1.BaseService {
     constructor(leadConversionRepository) {
         super();
@@ -302,21 +303,40 @@ class LeadConversionService extends service_1.BaseService {
         if (request.status !== 'PENDING') {
             throw new http_exception_1.HttpException(400, `Request cannot be approved in ${request.status} status`);
         }
+        let mapping = null;
+        if (feature_flags_1.FeatureFlags.FF_STRICT_REGION_CURRENCY_GATE) {
+            if (!request.region_id) {
+                throw new http_exception_1.HttpException(422, 'Conversion request has no region; cannot resolve currency mapping', 'REGION_CURRENCY_MAPPING_MISSING');
+            }
+            const result = await currency_assignment_service_1.CurrencyAssignmentService.resolveRegionCurrencyOrThrow(request.region_id);
+            mapping = {
+                pricingPeg: result.pricingPeg,
+                billingCurrency: result.billingCurrency,
+                countryCode: result.countryCode,
+            };
+        }
         const tempPassword = request.temp_password || require('crypto').randomBytes(12).toString('base64url');
         const baseDomain = request.website
             ? request.website.replace(/^https?:\/\//, '').split('/')[0].replace(/\./g, '-')
             : 'company';
         const domain = `${baseDomain}-${request.lead_id}.local`;
+        const companyCreateData = {
+            name: request.company_name,
+            domain,
+            website: request.website || '',
+            region_id: request.region_id,
+            country_or_region: request.country,
+            sales_agent_id: request.consultant_id,
+        };
+        if (mapping) {
+            companyCreateData.pricing_peg = mapping.pricingPeg;
+            companyCreateData.billing_currency = mapping.billingCurrency;
+            companyCreateData.country = mapping.countryCode.toUpperCase();
+            companyCreateData.currency_locked_at = new Date();
+        }
         const { updatedRequest, company, userId } = await prisma_1.prisma.$transaction(async (tx) => {
             const company = await tx.company.create({
-                data: {
-                    name: request.company_name,
-                    domain,
-                    website: request.website || '',
-                    region_id: request.region_id,
-                    country_or_region: request.country,
-                    sales_agent_id: request.consultant_id,
-                },
+                data: companyCreateData,
             });
             await tx.lead.update({
                 where: { id: request.lead_id },
@@ -379,14 +399,16 @@ class LeadConversionService extends service_1.BaseService {
             }
             return { updatedRequest, company, userId };
         });
-        try {
-            const countryCode = await currency_assignment_service_1.CurrencyAssignmentService.resolveCountryCode(request.country, request.region_id);
-            if (countryCode) {
-                await currency_assignment_service_1.CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+        if (!mapping) {
+            try {
+                const countryCode = await currency_assignment_service_1.CurrencyAssignmentService.resolveCountryCode(request.country, request.region_id);
+                if (countryCode) {
+                    await currency_assignment_service_1.CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+                }
             }
-        }
-        catch (err) {
-            console.warn(`[LeadConversion] Could not assign currency for company ${company.id}:`, err);
+            catch (err) {
+                console.warn(`[LeadConversion] Could not assign currency for company ${company.id}:`, err);
+            }
         }
         if (request.email) {
             await password_reset_service_1.passwordResetService.requestLeadConversionInvite(request.email, company.name, {
