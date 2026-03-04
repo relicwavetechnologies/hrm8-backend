@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PublicService = void 0;
 const service_1 = require("../../core/service");
+const prisma_1 = require("../../utils/prisma");
 class PublicService extends service_1.BaseService {
     constructor(jobRepository, companyRepository) {
         super();
@@ -121,10 +122,37 @@ class PublicService extends service_1.BaseService {
         // Add other filter mappings as needed...
         return this.jobRepository.findPublicJobs(where, limit, offset);
     }
-    async getPublicJob(id) {
+    async getPublicJob(id, opts) {
         const job = await this.jobRepository.findById(id);
-        if (!job || job.status !== 'OPEN' || job.visibility !== 'public') {
+        if (!job || job.status !== 'OPEN') {
             return null;
+        }
+        // If job is private, verify the candidate has a valid invitation
+        if (job.visibility !== 'public') {
+            let hasAccess = false;
+            if (opts?.invitationToken) {
+                const invitation = await prisma_1.prisma.jobInvitation.findFirst({
+                    where: {
+                        job_id: id,
+                        token: opts.invitationToken,
+                        status: { in: ['PENDING', 'ACCEPTED'] },
+                    },
+                });
+                hasAccess = !!invitation;
+            }
+            if (!hasAccess && opts?.candidateEmail) {
+                const invitation = await prisma_1.prisma.jobInvitation.findFirst({
+                    where: {
+                        job_id: id,
+                        email: { equals: opts.candidateEmail, mode: 'insensitive' },
+                        status: { in: ['PENDING', 'ACCEPTED'] },
+                    },
+                });
+                hasAccess = !!invitation;
+            }
+            if (!hasAccess) {
+                return null;
+            }
         }
         // Check expiry
         if (job.expires_at && new Date() > job.expires_at) {
@@ -268,10 +296,29 @@ class PublicService extends service_1.BaseService {
     async getAggregations() {
         return this.jobRepository.getPublicJobAggregations();
     }
-    async getApplicationForm(jobId) {
+    async getApplicationForm(jobId, opts) {
         const job = await this.jobRepository.findById(jobId);
-        if (!job || job.status !== 'OPEN' || job.visibility !== 'public') {
+        if (!job || job.status !== 'OPEN') {
             return null;
+        }
+        // For private jobs, verify invitation access
+        if (job.visibility !== 'public') {
+            let hasAccess = false;
+            if (opts?.invitationToken) {
+                const invitation = await prisma_1.prisma.jobInvitation.findFirst({
+                    where: { job_id: jobId, token: opts.invitationToken, status: { in: ['PENDING', 'ACCEPTED'] } },
+                });
+                hasAccess = !!invitation;
+            }
+            if (!hasAccess && opts?.candidateEmail) {
+                const invitation = await prisma_1.prisma.jobInvitation.findFirst({
+                    where: { job_id: jobId, email: { equals: opts.candidateEmail, mode: 'insensitive' }, status: { in: ['PENDING', 'ACCEPTED'] } },
+                });
+                hasAccess = !!invitation;
+            }
+            if (!hasAccess) {
+                return null;
+            }
         }
         const appForm = job.application_form || {};
         return {
@@ -298,6 +345,24 @@ class PublicService extends service_1.BaseService {
         }
         if (job.status !== 'OPEN') {
             throw new Error('Job is not accepting applications');
+        }
+        // For private jobs, verify invitation
+        if (job.visibility !== 'public') {
+            const invitation = await prisma_1.prisma.jobInvitation.findFirst({
+                where: {
+                    job_id: jobId,
+                    email: { equals: email.toLowerCase(), mode: 'insensitive' },
+                    status: { in: ['PENDING', 'ACCEPTED'] },
+                },
+            });
+            if (!invitation) {
+                throw new Error('This is a private job. You must be invited to apply.');
+            }
+            // Mark invitation as accepted
+            await prisma_1.prisma.jobInvitation.update({
+                where: { id: invitation.id },
+                data: { status: 'ACCEPTED', accepted_at: new Date() },
+            });
         }
         // Check if candidate exists
         let candidate = await candidateRepository.findByEmail(email.toLowerCase());
