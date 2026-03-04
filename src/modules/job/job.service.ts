@@ -148,11 +148,12 @@ export class JobService extends BaseService {
       responsibilities: data.responsibilities,
       promotional_tags: data.tags || data.promotionalTags,
       application_form: data.applicationForm,
-      close_date: data.closeDate || null,
+      close_date: data.closeDate !== undefined ? (data.closeDate || null) : undefined,
       video_interviewing_enabled: data.videoInterviewingEnabled,
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
       management_type: data.managementType ?? undefined,
       draft_step: data.draftStep,
+      visibility: data.visibility,
     };
 
     // Remove undefined keys
