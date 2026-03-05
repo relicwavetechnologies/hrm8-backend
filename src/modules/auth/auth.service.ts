@@ -154,11 +154,16 @@ export class AuthService extends BaseService {
     }
 
     if (!company) {
+      console.warn('[AuthService.signup] No company found for domain', { domain, businessEmail: normalizedBusinessEmail });
       throw new HttpException(404, `Company with domain ${domain} not found. Please contact your administrator or register your company.`);
     }
 
     const existingUser = await this.authRepository.findByEmail(normalizedBusinessEmail);
     if (existingUser) {
+      console.warn('[AuthService.signup] Existing user conflict', {
+        businessEmail: normalizedBusinessEmail,
+        existingUserId: existingUser.id,
+      });
       throw new HttpException(409, 'An account with this email already exists. Please log in or reset your password.');
     }
 
@@ -172,6 +177,11 @@ export class AuthService extends BaseService {
       orderBy: { created_at: 'desc' },
     });
     if (existingPendingRequest) {
+      console.warn('[AuthService.signup] Existing pending signup request', {
+        businessEmail: normalizedBusinessEmail,
+        companyId: company.id,
+        requestId: existingPendingRequest.id,
+      });
       throw new HttpException(409, 'An access request for this email is already pending admin approval.');
     }
 
@@ -238,6 +248,10 @@ export class AuthService extends BaseService {
       select: { id: true },
     });
     if (existingCompany) {
+      console.log('[AuthService.registerCompany] Existing company found for domain', {
+        domain,
+        companyId: existingCompany.id,
+      });
       const existingAdmin = await prisma.user.findFirst({
         where: {
           company_id: existingCompany.id,
@@ -248,6 +262,10 @@ export class AuthService extends BaseService {
       });
 
       if (existingAdmin) {
+        console.log('[AuthService.registerCompany] Existing pending admin found, issuing fresh token', {
+          companyId: existingCompany.id,
+          adminUserId: existingAdmin.id,
+        });
         const token = generateToken();
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24);
@@ -291,6 +309,11 @@ export class AuthService extends BaseService {
           message: 'Registration already exists and is pending verification. A fresh verification email has been sent.',
         };
       }
+      console.warn('[AuthService.registerCompany] Existing company found but no matching pending admin', {
+        domain,
+        companyId: existingCompany.id,
+        adminEmail: normalizedAdminEmail,
+      });
     }
 
     try {
@@ -331,6 +354,10 @@ export class AuthService extends BaseService {
         });
 
         return { company, user, token };
+      });
+      console.log('[AuthService.registerCompany] DB records created', {
+        companyId: result.company.id,
+        adminUserId: result.user.id,
       });
 
       try {
@@ -382,6 +409,11 @@ export class AuthService extends BaseService {
         message: 'Company registered successfully. Please verify your email.',
       };
     } catch (error) {
+      console.error('[AuthService.registerCompany] Failed', {
+        adminEmail: normalizedAdminEmail,
+        domain,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.handleRegistrationError(error, normalizedAdminEmail, domain);
     }
   }
@@ -433,7 +465,9 @@ export class AuthService extends BaseService {
   }
 
   async resendVerification(email: string) {
-    const user = await this.authRepository.findByEmail(normalizeEmail(email));
+    const normalizedEmail = normalizeEmail(email);
+    console.log('[AuthService.resendVerification] Start', { email: normalizedEmail });
+    const user = await this.authRepository.findByEmail(normalizedEmail);
     if (!user) throw new HttpException(404, 'User not found');
 
     if (user.status === 'ACTIVE') {
@@ -460,8 +494,20 @@ export class AuthService extends BaseService {
         strict: true,
       });
     } catch (error) {
+      console.error('[AuthService.resendVerification] Email send failed', {
+        userId: user.id,
+        email: user.email,
+        companyId: user.company_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
     }
+
+    console.log('[AuthService.resendVerification] Success', {
+      userId: user.id,
+      email: user.email,
+      companyId: user.company_id,
+    });
 
     return {
       message: 'Verification email resent successfully',
@@ -526,11 +572,20 @@ export class AuthService extends BaseService {
 
   private async sendVerificationEmailStrict(input: { to: string; name: string; token: string; companyId: string }) {
     const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${input.token}&companyId=${input.companyId}`;
+    console.log('[AuthService.sendVerificationEmailStrict] Sending verification email', {
+      to: input.to,
+      companyId: input.companyId,
+      verificationUrl,
+    });
     await emailService.sendCandidateVerificationEmail({
       to: input.to,
       name: input.name,
       verificationUrl,
       strict: true,
+    });
+    console.log('[AuthService.sendVerificationEmailStrict] Sent verification email', {
+      to: input.to,
+      companyId: input.companyId,
     });
   }
 

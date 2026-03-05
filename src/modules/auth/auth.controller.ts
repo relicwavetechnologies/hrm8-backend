@@ -148,9 +148,18 @@ export class AuthController extends BaseController {
   resendVerification = async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
+      console.log('[AuthController.resendVerification] Incoming request', { email });
       const result = await this.authService.resendVerification(email);
+      console.log('[AuthController.resendVerification] Success', {
+        email: (result as any)?.email,
+        companyId: (result as any)?.companyId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.resendVerification] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        email: req.body?.email,
+      });
       return this.sendError(res, error);
     }
   };
