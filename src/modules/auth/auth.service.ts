@@ -1,13 +1,14 @@
 import { BaseService } from '../../core/service';
 import { AuthRepository } from './auth.repository';
 import { CompanyRepository } from '../company/company.repository';
-import { User, UserRole, UserStatus } from '@prisma/client';
+import { Prisma, User, UserRole, UserStatus } from '@prisma/client';
 import { hashPassword, comparePassword } from '../../utils/password';
 import { normalizeEmail } from '../../utils/email';
 import { HttpException } from '../../core/http-exception';
 import { generateSessionId, getSessionExpiration, generateToken } from '../../utils/session';
 import { emailService } from '../email/email.service';
 import { env } from '../../config/env';
+import { prisma } from '../../utils/prisma';
 
 export class AuthService extends BaseService {
   constructor(
@@ -125,7 +126,7 @@ export class AuthService extends BaseService {
     acceptTerms: boolean;
     companyDomain?: string;
   }) {
-    const domain = data.companyDomain || data.businessEmail.split('@')[1];
+    const domain = (data.companyDomain || data.businessEmail.split('@')[1] || '').trim().toLowerCase();
     let company = await this.companyRepository.findByDomain(domain);
 
     // If not found, try to find by parent domains (e.g., nst.rishihood.edu.in -> rishihood.edu.in)
@@ -144,10 +145,29 @@ export class AuthService extends BaseService {
       throw new HttpException(404, `Company with domain ${domain} not found. Please contact your administrator or register your company.`);
     }
 
+    const normalizedBusinessEmail = normalizeEmail(data.businessEmail);
+    const existingUser = await this.authRepository.findByEmail(normalizedBusinessEmail);
+    if (existingUser) {
+      throw new HttpException(409, 'An account with this email already exists. Please log in or reset your password.');
+    }
+
+    const existingPendingRequest = await prisma.signupRequest.findFirst({
+      where: {
+        company_id: company.id,
+        email: normalizedBusinessEmail,
+        status: 'PENDING',
+      },
+      select: { id: true },
+      orderBy: { created_at: 'desc' },
+    });
+    if (existingPendingRequest) {
+      throw new HttpException(409, 'An access request for this email is already pending admin approval.');
+    }
+
     const passwordHash = await hashPassword(data.password);
 
     const signupRequest = await this.authRepository.createSignupRequest({
-      email: normalizeEmail(data.businessEmail),
+      email: normalizedBusinessEmail,
       name: `${data.firstName} ${data.lastName}`.trim(),
       first_name: data.firstName,
       last_name: data.lastName,
@@ -157,28 +177,14 @@ export class AuthService extends BaseService {
       status: 'PENDING'
     });
 
-    // Notify company admins
-    try {
-      const admins = await this.authRepository.findUsersByCompanyId(company.id);
-      const adminEmails = admins
-        .filter(u => u.role === 'ADMIN' || u.role === 'SUPER_ADMIN')
-        .map(u => u.email);
-
-      if (adminEmails.length > 0) {
-        const title = 'New Access Request';
-        const message = `<strong>${data.firstName} ${data.lastName}</strong> (${data.businessEmail}) has requested access to join <strong>${company.name}</strong> on HRM8. <br/><br/>Please log in to your dashboard to review and approve/reject this request.`;
-
-        console.log(`[AuthService.signup] Sending access request notifications to: ${adminEmails.join(', ')}`);
-        for (const email of adminEmails) {
-          await emailService.sendNotificationEmail(email, title, message, '/users');
-        }
-      } else {
-        console.warn(`[AuthService.signup] No admins found for company ${company.id} to notify about signup request.`);
-      }
-    } catch (error) {
-      console.error('[AuthService.signup] Failed to send notification to admins:', error);
-      // Don't fail the signup if notification fails
-    }
+    // Do not block API response on email provider latency.
+    this.notifyCompanyAdminsAccessRequest({
+      companyId: company.id,
+      companyName: company.name,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      businessEmail: data.businessEmail,
+    });
 
     return {
       requestId: signupRequest.id,
@@ -196,56 +202,119 @@ export class AuthService extends BaseService {
     countryOrRegion: string;
     acceptTerms: boolean;
   }) {
-    const domain = data.companyWebsite.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+    if (!data.acceptTerms) {
+      throw new HttpException(400, 'You must accept the Terms & Conditions and Privacy Policy to continue.');
+    }
 
-    // 1. Create Company
-    const company = await this.companyRepository.create({
-      name: data.companyName,
-      website: data.companyWebsite,
-      domain: domain,
-      country_or_region: data.countryOrRegion,
-      accepted_terms: data.acceptTerms,
-      verification_status: 'PENDING'
-    });
-
-    // 2. Create Admin User
+    const domain = this.extractDomain(data.companyWebsite);
+    const normalizedAdminEmail = normalizeEmail(data.adminEmail);
     const passwordHash = await hashPassword(data.password);
-    const user = await this.authRepository.create({
-      email: normalizeEmail(data.adminEmail),
-      name: `${data.adminFirstName} ${data.adminLastName}`.trim(),
-      password_hash: passwordHash,
-      company: { connect: { id: company.id } },
-      role: 'ADMIN',
-      status: 'PENDING_VERIFICATION'
+
+    // Idempotent recovery for duplicate submits/reloads after slow network.
+    const existingCompany = await prisma.company.findUnique({
+      where: { domain },
+      select: { id: true },
     });
+    if (existingCompany) {
+      const existingAdmin = await prisma.user.findFirst({
+        where: {
+          company_id: existingCompany.id,
+          email: normalizedAdminEmail,
+          status: 'PENDING_VERIFICATION',
+        },
+        select: { id: true, email: true, name: true },
+      });
 
-    // 3. Create Verification Token
-    const token = generateToken();
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
+      if (existingAdmin) {
+        await prisma.$transaction(async (tx) => {
+          const token = generateToken();
+          const expiresAt = new Date();
+          expiresAt.setHours(expiresAt.getHours() + 24);
 
-    await this.authRepository.createVerificationToken({
-      company: { connect: { id: company.id } },
-      email: user.email,
-      token,
-      expires_at: expiresAt
-    });
+          await tx.verificationToken.create({
+            data: {
+              company: { connect: { id: existingCompany.id } },
+              email: existingAdmin.email,
+              token,
+              expires_at: expiresAt,
+            },
+          });
 
-    // 4. Send Verification Email
-    const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${token}&companyId=${company.id}`;
-    await emailService.sendCandidateVerificationEmail({
-      to: user.email,
-      name: user.name,
-      verificationUrl
-    });
+          await this.sendVerificationEmailStrict({
+            to: existingAdmin.email,
+            name: existingAdmin.name,
+            token,
+            companyId: existingCompany.id,
+          });
+        });
 
-    return {
-      companyId: company.id,
-      adminUserId: user.id,
-      verificationRequired: true,
-      verificationMethod: 'EMAIL',
-      message: 'Company registered successfully. Please verify your email.'
-    };
+        return {
+          companyId: existingCompany.id,
+          adminUserId: existingAdmin.id,
+          verificationRequired: true,
+          verificationMethod: 'EMAIL',
+          message: 'Registration already exists and is pending verification. A fresh verification email has been sent.',
+        };
+      }
+    }
+
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const token = generateToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
+        const company = await tx.company.create({
+          data: {
+            name: data.companyName.trim(),
+            website: data.companyWebsite.trim(),
+            domain,
+            country_or_region: data.countryOrRegion,
+            accepted_terms: data.acceptTerms,
+            verification_status: 'PENDING',
+          },
+        });
+
+        const user = await tx.user.create({
+          data: {
+            email: normalizedAdminEmail,
+            name: `${data.adminFirstName} ${data.adminLastName}`.trim(),
+            password_hash: passwordHash,
+            company: { connect: { id: company.id } },
+            role: 'ADMIN',
+            status: 'PENDING_VERIFICATION',
+          },
+        });
+
+        await tx.verificationToken.create({
+          data: {
+            company: { connect: { id: company.id } },
+            email: user.email,
+            token,
+            expires_at: expiresAt,
+          },
+        });
+
+        await this.sendVerificationEmailStrict({
+          to: user.email,
+          name: user.name,
+          token,
+          companyId: company.id,
+        });
+
+        return { company, user };
+      });
+
+      return {
+        companyId: result.company.id,
+        adminUserId: result.user.id,
+        verificationRequired: true,
+        verificationMethod: 'EMAIL',
+        message: 'Company registered successfully. Please verify your email.',
+      };
+    } catch (error) {
+      this.handleRegistrationError(error, normalizedAdminEmail, domain);
+    }
   }
 
   async verifyCompany(token: string, companyId: string) {
@@ -314,11 +383,16 @@ export class AuthService extends BaseService {
     });
 
     const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${token}&companyId=${user.company_id}`;
-    await emailService.sendCandidateVerificationEmail({
-      to: user.email,
-      name: user.name,
-      verificationUrl
-    });
+    try {
+      await emailService.sendCandidateVerificationEmail({
+        to: user.email,
+        name: user.name,
+        verificationUrl,
+        strict: true,
+      });
+    } catch (error) {
+      throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+    }
 
     return {
       message: 'Verification email resent successfully',
@@ -326,5 +400,98 @@ export class AuthService extends BaseService {
       companyId: user.company_id,
       expiresAt: expiresAt.toISOString()
     };
+  }
+
+  private extractDomain(companyWebsite: string): string {
+    const raw = (companyWebsite || '').trim();
+    if (!raw) {
+      throw new HttpException(400, 'Company website is required.');
+    }
+
+    try {
+      const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+      const hostname = new URL(withProtocol).hostname.toLowerCase();
+      const cleaned = hostname.replace(/^www\./, '');
+      if (!cleaned || !cleaned.includes('.')) {
+        throw new HttpException(400, 'Please enter a valid company website.');
+      }
+      return cleaned;
+    } catch {
+      throw new HttpException(400, 'Please enter a valid company website.');
+    }
+  }
+
+  private handleRegistrationError(error: unknown, normalizedEmail: string, domain: string): never {
+    if (error instanceof HttpException) {
+      throw error;
+    }
+
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      if (
+        message.includes('smtp') ||
+        message.includes('send email') ||
+        message.includes('enotfound') ||
+        message.includes('econnrefused') ||
+        message.includes('etimedout')
+      ) {
+        throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+      }
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const target = Array.isArray(error.meta?.target) ? error.meta?.target.join(',') : String(error.meta?.target || '');
+
+      if (target.includes('domain')) {
+        throw new HttpException(409, `A company with domain "${domain}" already exists. If this is your company, please use employee sign-up.`);
+      }
+      if (target.includes('email')) {
+        throw new HttpException(409, `An account with email "${normalizedEmail}" already exists. Please log in or reset your password.`);
+      }
+
+      throw new HttpException(409, 'Registration data conflicts with an existing account. Please review and try again.');
+    }
+
+    throw new HttpException(500, 'Unable to complete registration right now. Please try again.');
+  }
+
+  private async sendVerificationEmailStrict(input: { to: string; name: string; token: string; companyId: string }) {
+    const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${input.token}&companyId=${input.companyId}`;
+    await emailService.sendCandidateVerificationEmail({
+      to: input.to,
+      name: input.name,
+      verificationUrl,
+      strict: true,
+    });
+  }
+
+  private notifyCompanyAdminsAccessRequest(input: {
+    companyId: string;
+    companyName: string;
+    firstName: string;
+    lastName: string;
+    businessEmail: string;
+  }) {
+    void (async () => {
+      try {
+        const admins = await this.authRepository.findUsersByCompanyId(input.companyId);
+        const adminEmails = admins
+          .filter((u) => u.role === 'ADMIN' || u.role === 'SUPER_ADMIN')
+          .map((u) => u.email);
+
+        if (adminEmails.length === 0) {
+          return;
+        }
+
+        const title = 'New Access Request';
+        const message = `<strong>${input.firstName} ${input.lastName}</strong> (${input.businessEmail}) has requested access to join <strong>${input.companyName}</strong> on HRM8. <br/><br/>Please log in to your dashboard to review and approve/reject this request.`;
+
+        await Promise.allSettled(
+          adminEmails.map((email) => emailService.sendNotificationEmail(email, title, message, '/users'))
+        );
+      } catch (error) {
+        console.error('[AuthService.signup] Failed to send notification to admins:', error);
+      }
+    })();
   }
 }
