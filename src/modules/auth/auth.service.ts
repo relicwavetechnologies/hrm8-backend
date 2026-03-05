@@ -577,12 +577,25 @@ export class AuthService extends BaseService {
       companyId: input.companyId,
       verificationUrl,
     });
-    await emailService.sendCandidateVerificationEmail({
-      to: input.to,
-      name: input.name,
-      verificationUrl,
-      strict: true,
-    });
+    try {
+      await emailService.sendCandidateVerificationEmail({
+        to: input.to,
+        name: input.name,
+        verificationUrl,
+        strict: true,
+      });
+    } catch (error) {
+      const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : undefined;
+      const command = typeof error === 'object' && error && 'command' in error ? String((error as any).command) : undefined;
+      console.error('[AuthService.sendVerificationEmailStrict] Failed to send verification email', {
+        to: input.to,
+        companyId: input.companyId,
+        code,
+        command,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+    }
     console.log('[AuthService.sendVerificationEmailStrict] Sent verification email', {
       to: input.to,
       companyId: input.companyId,

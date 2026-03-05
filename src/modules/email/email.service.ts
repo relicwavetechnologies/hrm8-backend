@@ -16,9 +16,11 @@ interface EmailAttachment {
 
 export class EmailService extends BaseService {
   private transporter: nodemailer.Transporter;
+  private readonly emailProvider: 'smtp' | 'resend';
 
   constructor() {
     super();
+    this.emailProvider = (env.EMAIL_PROVIDER || 'smtp').toLowerCase() === 'resend' ? 'resend' : 'smtp';
     this.transporter = nodemailer.createTransport({
       host: env.SMTP_HOST,
       port: parseInt(env.SMTP_PORT || '587'),
@@ -28,6 +30,56 @@ export class EmailService extends BaseService {
         pass: env.SMTP_PASS,
       },
     });
+  }
+
+  private async sendViaResend(
+    to: string,
+    subject: string,
+    html: string,
+    strict: boolean
+  ): Promise<void> {
+    const apiKey = env.RESEND_API_KEY;
+    const fromAddress = env.RESEND_FROM || env.SMTP_FROM || env.SMTP_USER;
+
+    if (!apiKey || !fromAddress) {
+      const reason = `Resend is not configured. Missing ${!apiKey ? 'RESEND_API_KEY' : 'RESEND_FROM/SMTP_FROM'}.`;
+      console.error('[EmailService.sendViaResend] Configuration error', { reason });
+      if (strict) {
+        throw new Error(reason);
+      }
+      return;
+    }
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      const error = `Resend API error ${response.status}: ${body || response.statusText}`;
+      console.error('[EmailService.sendViaResend] Failed', {
+        to,
+        subject,
+        status: response.status,
+        body: body.slice(0, 600),
+      });
+      if (strict) {
+        throw new Error(error);
+      }
+      return;
+    }
+
+    console.log('[EmailService.sendViaResend] Success', { to, subject });
   }
 
   /**
@@ -117,6 +169,7 @@ export class EmailService extends BaseService {
       to,
       subject,
       strict,
+      provider: this.emailProvider,
       smtpHost: env.SMTP_HOST || null,
       smtpPort,
       smtpSecure,
@@ -125,6 +178,30 @@ export class EmailService extends BaseService {
       hasSmtpPass: Boolean(env.SMTP_PASS),
       attachmentCount: attachments.length,
     });
+
+    if (this.emailProvider === 'resend') {
+      const resendStartedAt = Date.now();
+      try {
+        await this.sendViaResend(to, subject, html, strict);
+        console.log('[EmailService.sendEmail] Resend duration', {
+          to,
+          subject,
+          durationMs: Date.now() - resendStartedAt,
+        });
+      } catch (error) {
+        console.error('[EmailService.sendEmail] Resend error', {
+          to,
+          subject,
+          strict,
+          durationMs: Date.now() - resendStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (strict) {
+          throw error instanceof Error ? error : new Error('Failed to send email via Resend');
+        }
+      }
+      return;
+    }
 
     if (!env.SMTP_HOST) {
       console.log(`[EmailService] SMTP not configured. Skipping email to ${to}`);
