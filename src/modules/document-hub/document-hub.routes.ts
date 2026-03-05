@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { DocumentHubController } from './document-hub.controller';
+import { authenticate } from '../../middlewares/auth.middleware';
 import multer from 'multer';
 
 const router = Router();
@@ -11,13 +12,9 @@ const upload = multer({
     limits: { fileSize: 25 * 1024 * 1024 },
 });
 
-// List company documents
-router.get('/', controller.list);
-
-// Upload a document
-router.post('/', upload.single('file'), controller.upload);
-
-// Delete a document
-router.delete('/:id', controller.remove);
+// All routes require authentication
+router.get('/', authenticate, controller.list);
+router.post('/', authenticate, upload.single('file'), controller.upload);
+router.delete('/:id', authenticate, controller.remove);
 
 export default router;
