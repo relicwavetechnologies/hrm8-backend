@@ -41,6 +41,15 @@ export class Consultant360Service extends BaseService {
       || 'USD';
   }
 
+  // --- Profile / Region ---
+  async getMyRegion(consultantId: string): Promise<{ id: string; name: string } | null> {
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { region: { select: { id: true, name: true } } },
+    });
+    return consultant?.region ?? null;
+  }
+
   // --- Dashboard ---
   async getDashboard(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
@@ -426,18 +435,22 @@ export class Consultant360Service extends BaseService {
 
     const commissionRecords = await prisma.commission.findMany({
       where: { id: { in: commissionIds }, consultant_id: consultantId, status: 'CONFIRMED' },
-      select: { id: true, amount: true, currency: true }
+      select: { id: true, amount: true, currency: true, payout_amount: true, payout_currency: true }
     });
-    const totalAmount = commissionRecords.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-    const commissionCurrency = commissionRecords[0]?.currency || 'USD';
+    const totalPayoutAmount = commissionRecords.reduce(
+      (sum: number, c: any) => sum + Number(c.payout_amount ?? c.amount ?? 0),
+      0
+    );
+    const sourceCurrency = commissionRecords[0]?.currency || 'USD';
+    const payoutCurrency = consultant.payout_currency || consultant.default_currency || 'USD';
 
     return this.repository.createWithdrawal({
       consultant: { connect: { id: consultantId } },
-      amount: totalAmount,
-      currency: commissionCurrency,
-      payout_currency: commissionCurrency,
-      payout_amount: totalAmount,
-      fx_rate_used: 1.0,
+      amount: totalPayoutAmount,
+      currency: sourceCurrency,
+      payout_currency: payoutCurrency,
+      payout_amount: totalPayoutAmount,
+      fx_rate_used: sourceCurrency === payoutCurrency ? 1.0 : undefined,
       payment_method: paymentMethod,
       payment_details: paymentDetails,
       commission_ids: commissionIds,

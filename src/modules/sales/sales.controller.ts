@@ -12,6 +12,17 @@ export class SalesController extends BaseController {
     this.salesService = new SalesService(new SalesRepository());
   }
 
+  // --- Profile / Region ---
+  getMyRegion = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.consultant) return this.sendError(res, new Error('Not authenticated'), 401);
+      const region = await this.salesService.getMyRegion(req.consultant.id);
+      return this.sendSuccess(res, { region });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // --- Dashboard ---
   getDashboardStats = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {

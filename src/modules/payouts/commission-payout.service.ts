@@ -188,7 +188,7 @@ export class CommissionPayoutService {
         where: { id: withdrawalId },
         data: {
           status: finalStatus as any,
-          airwallex_transfer_id: transferId,
+          stripe_transfer_id: transferId,
           xero_bill_id: xeroBillId,
           payment_reference: xeroPaymentId || transferId,
           transfer_initiated_at: new Date(),
@@ -214,7 +214,7 @@ export class CommissionPayoutService {
    */
   static async handleTransferStatusUpdate(transferId: string, status: 'COMPLETED' | 'FAILED', failedReason?: string) {
     const withdrawal = await prisma.commissionWithdrawal.findFirst({
-      where: { airwallex_transfer_id: transferId },
+      where: { stripe_transfer_id: transferId },
       include: { consultant: true },
     });
 

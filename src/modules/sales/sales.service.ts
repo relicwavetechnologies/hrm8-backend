@@ -193,6 +193,15 @@ export class SalesService extends BaseService {
     return this.salesRepository.findActivities(where, filters.limit);
   }
 
+  // --- Profile / Region ---
+  async getMyRegion(consultantId: string): Promise<{ id: string; name: string } | null> {
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { region: { select: { id: true, name: true } } },
+    });
+    return consultant?.region ?? null;
+  }
+
   // --- Dashboard ---
   async getDashboardStats(consultantId: string) {
     return this.salesRepository.getDashboardStats(consultantId);

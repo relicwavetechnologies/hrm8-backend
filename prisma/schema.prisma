@@ -910,6 +910,12 @@ model Commission {
   job_id                 String?          @map("job_id")
   type                   CommissionType
   amount                 Float
+  currency               String?          @default("USD") @map("currency")
+  payout_currency        String?          @map("payout_currency")
+  payout_amount          Float?           @map("payout_amount")
+  fx_rate                Float?           @map("fx_rate")
+  fx_rate_locked_at      DateTime?        @map("fx_rate_locked_at")
+  fx_source              String?          @map("fx_source")
   rate                   Float?
   description            String?
   status                 CommissionStatus @default(PENDING)
@@ -938,6 +944,10 @@ model CommissionWithdrawal {
   id                     String           @id @default(uuid())
   consultant_id          String           @map("consultant_id")
   amount                 Float
+  currency               String?          @map("currency")
+  payout_currency        String?          @map("payout_currency")
+  payout_amount          Float?           @map("payout_amount")
+  fx_rate_used           Float?           @map("fx_rate_used")
   status                 WithdrawalStatus @default(PENDING)
   payment_method         String           @map("payment_method")
   payment_details        Json?            @map("payment_details")
@@ -954,6 +964,7 @@ model CommissionWithdrawal {
   updated_at             DateTime         @default(now()) @updatedAt @map("updated_at")
   stripe_payout_id       String?          @map("stripe_payout_id")
   stripe_transfer_id     String?          @map("stripe_transfer_id")
+  xero_bill_id           String?          @map("xero_bill_id")
   transfer_completed_at  DateTime?        @map("transfer_completed_at")
   transfer_failed_reason String?          @map("transfer_failed_reason")
   transfer_initiated_at  DateTime?        @map("transfer_initiated_at")
@@ -1008,6 +1019,9 @@ model Consultant {
   max_leads                  Int                        @default(20)
   payout_enabled             Boolean                    @default(false) @map("payout_enabled")
   payout_currency            String?                    @map("payout_currency")
+  default_currency           String?                    @default("USD") @map("default_currency")
+  payout_currency_confirmed_at DateTime?                @map("payout_currency_confirmed_at")
+  airwallex_beneficiary_id   String?                    @map("airwallex_beneficiary_id")
   stripe_account_id          String?                    @map("stripe_account_id")
   stripe_account_status      String?                    @map("stripe_account_status")
   stripe_onboarded_at        DateTime?                  @map("stripe_onboarded_at")

@@ -73,10 +73,18 @@ export class LeadConversionService extends BaseService {
   private ensureRegionScope(request: ConversionRequestRecord, regionIds?: string[]) {
     if (!regionIds || regionIds.length === 0) return;
     if (!request.region_id) {
-      throw new HttpException(403, 'Unauthorized: request has no region scope');
+      throw new HttpException(
+        403,
+        'Conversion request has no region. Regional admins can only approve requests for leads in their assigned region(s).',
+        'REQUEST_OUTSIDE_REGION_SCOPE'
+      );
     }
     if (!regionIds.includes(request.region_id)) {
-      throw new HttpException(403, 'Unauthorized: request is outside assigned regions');
+      throw new HttpException(
+        403,
+        'This conversion request is for a lead outside your assigned region(s). You can only approve requests for leads in regions assigned to your licensee. Ensure the lead\'s region is assigned to your licensee in Regions settings.',
+        'REQUEST_OUTSIDE_REGION_SCOPE'
+      );
     }
   }
 

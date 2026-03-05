@@ -7,13 +7,13 @@ export type ConsultantForConversion = { id: string; region_id: string | null };
 
 /**
  * Assert lead is in consultant's region scope (strict governance).
- * Rejects with 403 LEAD_OUTSIDE_REGION_SCOPE if not.
+ * Always enforced: sales agents and Consultant360 can only create/submit conversion
+ * requests for leads in their region. Rejects with 403 LEAD_OUTSIDE_REGION_SCOPE if not.
  */
 export function assertLeadInConsultantRegion(
   lead: LeadForConversion,
   consultant: ConsultantForConversion
 ): void {
-  if (!FeatureFlags.FF_STRICT_REGION_CURRENCY_GATE) return;
 
   if (!consultant.region_id) {
     throw new HttpException(

@@ -111,22 +111,30 @@ export class ConsultantWithdrawalService {
             throw new HttpException(400, 'One or more commissions are already in an active withdrawal request');
         }
 
-        const totalAmount = commissions.reduce((sum, c) => sum + c.amount, 0);
+        const totalPayoutAmount = commissions.reduce(
+            (sum, c) => sum + Number((c as any).payout_amount ?? c.amount),
+            0
+        );
 
-        if (Math.abs(totalAmount - data.amount) > 0.01) {
-            throw new HttpException(400, `Amount mismatch: selected commissions total ${totalAmount}, requested ${data.amount}`);
+        if (Math.abs(totalPayoutAmount - data.amount) > 0.01) {
+            throw new HttpException(400, `Amount mismatch: selected commissions total ${totalPayoutAmount}, requested ${data.amount}`);
         }
 
-        const commissionCurrency = (commissions[0] as any)?.currency || 'USD';
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { payout_currency: true, default_currency: true },
+        });
+        const payoutCurrency = consultant?.payout_currency || consultant?.default_currency || 'USD';
+        const sourceCurrency = (commissions[0] as any)?.currency || 'USD';
 
         const withdrawal = await prisma.commissionWithdrawal.create({
             data: {
                 consultant_id: consultantId,
-                amount: totalAmount,
-                currency: commissionCurrency,
-                payout_currency: commissionCurrency,
-                payout_amount: totalAmount,
-                fx_rate_used: 1.0,
+                amount: totalPayoutAmount,
+                currency: sourceCurrency,
+                payout_currency: payoutCurrency,
+                payout_amount: totalPayoutAmount,
+                fx_rate_used: sourceCurrency === payoutCurrency ? 1.0 : undefined,
                 payment_method: data.paymentMethod,
                 payment_details: data.paymentDetails || {},
                 commission_ids: data.commissionIds,

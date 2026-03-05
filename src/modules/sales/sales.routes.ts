@@ -5,6 +5,9 @@ import { authenticateConsultant } from '../../middlewares/consultant-auth.middle
 const router = Router();
 const salesController = new SalesController();
 
+// Profile / Region
+router.get('/me/region', authenticateConsultant, salesController.getMyRegion);
+
 // Dashboard
 router.get('/dashboard/stats', authenticateConsultant, salesController.getDashboardStats);
 

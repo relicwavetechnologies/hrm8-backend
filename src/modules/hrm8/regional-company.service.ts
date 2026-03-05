@@ -14,6 +14,7 @@ type ListCompaniesOptions = CompanyAccessOptions & {
   limit?: number;
   search?: string;
   status?: string;
+  regionId?: string;
 };
 
 type ActivityOptions = CompanyAccessOptions & {
@@ -82,7 +83,19 @@ export class RegionalCompanyService extends BaseService {
 
     const where: any = {};
 
-    if (options.role === 'REGIONAL_LICENSEE') {
+    if (options.regionId) {
+      const regionId = options.regionId;
+      if (options.role === 'REGIONAL_LICENSEE') {
+        const assigned = options.assignedRegionIds || [];
+        if (assigned.length && assigned.includes(regionId)) {
+          where.region_id = regionId;
+        } else if (assigned.length) {
+          where.region_id = { in: assigned };
+        }
+      } else {
+        where.region_id = regionId;
+      }
+    } else if (options.role === 'REGIONAL_LICENSEE') {
       const assignedRegionIds = options.assignedRegionIds || [];
       if (!assignedRegionIds.length) {
         return { companies: [], pagination: { page, limit, total: 0, totalPages: 0 } };

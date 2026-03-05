@@ -628,6 +628,9 @@ export class JobService extends BaseService {
     if (amount <= 0) return;
 
     const commissionCurrency = job.payment_currency || 'USD';
+    const { resolveCommissionFx } = await import('../hrm8/commission-fx.util');
+    const fx = await resolveCommissionFx(consultant.id, commissionCurrency, amount);
+
     await prisma.commission.create({
       data: {
         consultant_id: consultant.id,
@@ -635,14 +638,15 @@ export class JobService extends BaseService {
         job_id: job.id,
         type: 'RECRUITMENT_SERVICE',
         amount,
-        currency: commissionCurrency,
-        payout_currency: commissionCurrency,
-        payout_amount: amount,
-        fx_rate: 1.0,
-        fx_source: 'SAME_REGION',
+        currency: fx.currency,
+        payout_currency: fx.payoutCurrency,
+        payout_amount: fx.payoutAmount,
+        fx_rate: fx.fxRate,
+        fx_rate_locked_at: new Date(),
+        fx_source: fx.fxSource,
         rate,
         status: 'PENDING',
-        description: `Managed service commission for job: ${job.title}`,
+        description: `Managed service commission for job: ${job.title} (${fx.currency})`,
         notes: JSON.stringify({ source: 'MANAGED_SERVICE_PAYMENT' }),
       },
     });

@@ -10,8 +10,16 @@ import { BillingLogger } from '../../utils/billing-logger';
 import { Logger } from '../../utils/logger';
 import { jobAllocationService } from '../job/job-allocation.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
+import { resolveCommissionFx } from '../hrm8/commission-fx.util';
+import { BILLING_PROVIDER_MODE } from '../../config/billing-env';
 
 const log = Logger.create('billing');
+
+/** In mock mode, auto-confirm payment immediately (no webhook) so subscription is created. In live mode, use env BILLING_AUTO_CONFIRM. */
+const BILLING_AUTO_CONFIRM =
+  BILLING_PROVIDER_MODE === 'mock'
+    ? true
+    : process.env.BILLING_AUTO_CONFIRM === 'true';
 
 export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service';
 
@@ -42,8 +50,6 @@ interface BillingEventPayload {
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
 }
-
-const BILLING_AUTO_CONFIRM = process.env.BILLING_AUTO_CONFIRM === 'true';
 
 const toObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -280,6 +286,8 @@ export class BillingService {
               const commissionAmount = Number((subAmount * rate).toFixed(2));
 
               if (commissionAmount > 0) {
+                const commissionCurrency = bill.currency || 'USD';
+                const fx = await resolveCommissionFx(salesAgent.id, commissionCurrency, commissionAmount);
                 await prisma.commission.create({
                   data: {
                     consultant_id: salesAgent.id,
@@ -287,14 +295,15 @@ export class BillingService {
                     subscription_id: created.id,
                     type: 'SUBSCRIPTION_SALE',
                     amount: commissionAmount,
-                    currency: bill.currency,
-                    payout_currency: bill.currency,
-                    payout_amount: commissionAmount,
-                    fx_rate: 1.0,
-                    fx_source: 'SAME_REGION',
+                    currency: fx.currency,
+                    payout_currency: fx.payoutCurrency,
+                    payout_amount: fx.payoutAmount,
+                    fx_rate: fx.fxRate,
+                    fx_rate_locked_at: new Date(),
+                    fx_source: fx.fxSource,
                     rate,
                     status: 'PENDING',
-                    description: `Sales commission for subscription: ${planName}`,
+                    description: `Sales commission for subscription: ${planName} (${fx.currency})`,
                   },
                 });
                 log.info('Sales agent commission created for subscription', {
@@ -406,6 +415,8 @@ export class BillingService {
                 const rate = toCommissionRateDecimal(consultant.default_commission_rate, 0.20);
                 const commissionAmount = Number((paymentAmount * rate).toFixed(2));
                 if (commissionAmount > 0) {
+                  const commissionCurrency = bill.currency || 'USD';
+                  const fx = await resolveCommissionFx(consultant.id, commissionCurrency, commissionAmount);
                   await prisma.commission.create({
                     data: {
                       consultant_id: consultant.id,
@@ -413,14 +424,15 @@ export class BillingService {
                       job_id: jobId,
                       type: 'RECRUITMENT_SERVICE',
                       amount: commissionAmount,
-                      currency: bill.currency,
-                      payout_currency: bill.currency,
-                      payout_amount: commissionAmount,
-                      fx_rate: 1.0,
-                      fx_source: 'SAME_REGION',
+                      currency: fx.currency,
+                      payout_currency: fx.payoutCurrency,
+                      payout_amount: fx.payoutAmount,
+                      fx_rate: fx.fxRate,
+                      fx_rate_locked_at: new Date(),
+                      fx_source: fx.fxSource,
                       rate,
                       status: 'PENDING',
-                      description: `Managed service commission for job (webhook payment)`,
+                      description: `Managed service commission for job (webhook payment) (${fx.currency})`,
                     },
                   });
                   log.info('Webhook: managed-service commission created', {
