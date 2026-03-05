@@ -23,9 +23,6 @@ export const SMTP_USER = getEnv('SMTP_USER', '');
 export const SMTP_PASS = getEnv('SMTP_PASS', '');
 export const SMTP_SECURE = getEnv('SMTP_SECURE', 'false');
 export const SMTP_FROM = getEnv('SMTP_FROM', '');
-export const EMAIL_PROVIDER = getEnv('EMAIL_PROVIDER', 'smtp');
-export const RESEND_API_KEY = getEnv('RESEND_API_KEY', '');
-export const RESEND_FROM = getEnv('RESEND_FROM', '');
 
 // Cloudinary
 export const CLOUDINARY_CLOUD_NAME = getEnv('CLOUDINARY_CLOUD_NAME', '');
@@ -50,9 +47,6 @@ export const env = {
   SMTP_PASS,
   SMTP_SECURE,
   SMTP_FROM,
-  EMAIL_PROVIDER,
-  RESEND_API_KEY,
-  RESEND_FROM,
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
