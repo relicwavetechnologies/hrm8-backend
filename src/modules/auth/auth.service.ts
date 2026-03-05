@@ -19,18 +19,23 @@ export class AuthService extends BaseService {
   }
 
   async login(data: { email: string; password: string }) {
-    const user = await this.authRepository.findByEmail(normalizeEmail(data.email));
+    const normalizedEmail = normalizeEmail(data.email);
+    console.log('[AuthService.login] Attempt', { email: normalizedEmail });
+    const user = await this.authRepository.findByEmail(normalizedEmail);
 
     if (!user) {
+      console.warn('[AuthService.login] User not found', { email: normalizedEmail });
       throw new HttpException(401, 'Invalid credentials');
     }
 
     const isValid = await comparePassword(data.password, user.password_hash);
     if (!isValid) {
+      console.warn('[AuthService.login] Invalid password', { userId: user.id, email: normalizedEmail });
       throw new HttpException(401, 'Invalid credentials');
     }
 
     if (user.status !== 'ACTIVE') {
+      console.warn('[AuthService.login] Blocked by user status', { userId: user.id, status: user.status });
       throw new HttpException(403, `Account status: ${user.status}`);
     }
 
@@ -50,6 +55,7 @@ export class AuthService extends BaseService {
       user_role: user.role
     });
 
+    console.log('[AuthService.login] Session created', { userId: user.id, companyId: user.company_id, role: user.role });
     return { user, sessionId };
   }
 
@@ -126,6 +132,12 @@ export class AuthService extends BaseService {
     acceptTerms: boolean;
     companyDomain?: string;
   }) {
+    const normalizedBusinessEmail = normalizeEmail(data.businessEmail);
+    console.log('[AuthService.signup] Start', {
+      businessEmail: normalizedBusinessEmail,
+      providedCompanyDomain: data.companyDomain || null,
+    });
+
     const domain = (data.companyDomain || data.businessEmail.split('@')[1] || '').trim().toLowerCase();
     let company = await this.companyRepository.findByDomain(domain);
 
@@ -145,7 +157,6 @@ export class AuthService extends BaseService {
       throw new HttpException(404, `Company with domain ${domain} not found. Please contact your administrator or register your company.`);
     }
 
-    const normalizedBusinessEmail = normalizeEmail(data.businessEmail);
     const existingUser = await this.authRepository.findByEmail(normalizedBusinessEmail);
     if (existingUser) {
       throw new HttpException(409, 'An account with this email already exists. Please log in or reset your password.');
@@ -176,6 +187,11 @@ export class AuthService extends BaseService {
       company: { connect: { id: company.id } },
       status: 'PENDING'
     });
+    console.log('[AuthService.signup] Signup request created', {
+      requestId: signupRequest.id,
+      companyId: company.id,
+      businessEmail: normalizedBusinessEmail,
+    });
 
     // Do not block API response on email provider latency.
     this.notifyCompanyAdminsAccessRequest({
@@ -202,13 +218,19 @@ export class AuthService extends BaseService {
     countryOrRegion: string;
     acceptTerms: boolean;
   }) {
+    const normalizedAdminEmail = normalizeEmail(data.adminEmail);
+    console.log('[AuthService.registerCompany] Start', {
+      adminEmail: normalizedAdminEmail,
+      companyWebsite: data.companyWebsite,
+    });
+
     if (!data.acceptTerms) {
       throw new HttpException(400, 'You must accept the Terms & Conditions and Privacy Policy to continue.');
     }
 
     const domain = this.extractDomain(data.companyWebsite);
-    const normalizedAdminEmail = normalizeEmail(data.adminEmail);
     const passwordHash = await hashPassword(data.password);
+    console.log('[AuthService.registerCompany] Normalized payload', { domain, adminEmail: normalizedAdminEmail });
 
     // Idempotent recovery for duplicate submits/reloads after slow network.
     const existingCompany = await prisma.company.findUnique({
@@ -226,27 +248,40 @@ export class AuthService extends BaseService {
       });
 
       if (existingAdmin) {
-        await prisma.$transaction(async (tx) => {
-          const token = generateToken();
-          const expiresAt = new Date();
-          expiresAt.setHours(expiresAt.getHours() + 24);
+        const token = generateToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
 
-          await tx.verificationToken.create({
-            data: {
-              company: { connect: { id: existingCompany.id } },
-              email: existingAdmin.email,
-              token,
-              expires_at: expiresAt,
-            },
-          });
+        const verificationToken = await prisma.verificationToken.create({
+          data: {
+            company: { connect: { id: existingCompany.id } },
+            email: existingAdmin.email,
+            token,
+            expires_at: expiresAt,
+          },
+        });
 
+        try {
           await this.sendVerificationEmailStrict({
             to: existingAdmin.email,
             name: existingAdmin.name,
             token,
             companyId: existingCompany.id,
           });
-        });
+        } catch (error) {
+          console.error('[AuthService.registerCompany] Failed to send idempotent verification email', {
+            companyId: existingCompany.id,
+            adminEmail: existingAdmin.email,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await prisma.verificationToken.delete({ where: { id: verificationToken.id } }).catch((cleanupError) => {
+            console.error('[AuthService.registerCompany] Cleanup failed for idempotent token', {
+              tokenId: verificationToken.id,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          });
+          throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+        }
 
         return {
           companyId: existingCompany.id,
@@ -295,14 +330,48 @@ export class AuthService extends BaseService {
           },
         });
 
+        return { company, user, token };
+      });
+
+      try {
         await this.sendVerificationEmailStrict({
-          to: user.email,
-          name: user.name,
-          token,
-          companyId: company.id,
+          to: result.user.email,
+          name: result.user.name,
+          token: result.token,
+          companyId: result.company.id,
+        });
+      } catch (error) {
+        console.error('[AuthService.registerCompany] Verification email failed after DB create. Rolling back records.', {
+          companyId: result.company.id,
+          adminUserId: result.user.id,
+          adminEmail: result.user.email,
+          error: error instanceof Error ? error.message : String(error),
         });
 
-        return { company, user };
+        await prisma.$transaction(async (tx) => {
+          await tx.verificationToken.deleteMany({
+            where: {
+              company_id: result.company.id,
+              email: result.user.email,
+              token: result.token,
+            },
+          });
+          await tx.user.deleteMany({ where: { id: result.user.id } });
+          await tx.company.deleteMany({ where: { id: result.company.id } });
+        }).catch((cleanupError) => {
+          console.error('[AuthService.registerCompany] Rollback cleanup failed', {
+            companyId: result.company.id,
+            adminUserId: result.user.id,
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          });
+        });
+
+        throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+      }
+
+      console.log('[AuthService.registerCompany] Success', {
+        companyId: result.company.id,
+        adminUserId: result.user.id,
       });
 
       return {
