@@ -210,10 +210,6 @@ export class AuthService extends BaseService {
     const normalizedAdminEmail = normalizeEmail(data.adminEmail);
     const passwordHash = await hashPassword(data.password);
 
-    const token = generateToken();
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
-
     // Idempotent recovery for duplicate submits/reloads after slow network.
     const existingCompany = await prisma.company.findUnique({
       where: { domain },
@@ -230,20 +226,26 @@ export class AuthService extends BaseService {
       });
 
       if (existingAdmin) {
-        await prisma.verificationToken.create({
-          data: {
-            company: { connect: { id: existingCompany.id } },
-            email: existingAdmin.email,
-            token,
-            expires_at: expiresAt,
-          },
-        });
+        await prisma.$transaction(async (tx) => {
+          const token = generateToken();
+          const expiresAt = new Date();
+          expiresAt.setHours(expiresAt.getHours() + 24);
 
-        this.sendVerificationEmailAsync({
-          to: existingAdmin.email,
-          name: existingAdmin.name,
-          token,
-          companyId: existingCompany.id,
+          await tx.verificationToken.create({
+            data: {
+              company: { connect: { id: existingCompany.id } },
+              email: existingAdmin.email,
+              token,
+              expires_at: expiresAt,
+            },
+          });
+
+          await this.sendVerificationEmailStrict({
+            to: existingAdmin.email,
+            name: existingAdmin.name,
+            token,
+            companyId: existingCompany.id,
+          });
         });
 
         return {
@@ -258,6 +260,10 @@ export class AuthService extends BaseService {
 
     try {
       const result = await prisma.$transaction(async (tx) => {
+        const token = generateToken();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
         const company = await tx.company.create({
           data: {
             name: data.companyName.trim(),
@@ -289,14 +295,14 @@ export class AuthService extends BaseService {
           },
         });
 
-        return { company, user };
-      });
+        await this.sendVerificationEmailStrict({
+          to: user.email,
+          name: user.name,
+          token,
+          companyId: company.id,
+        });
 
-      this.sendVerificationEmailAsync({
-        to: result.user.email,
-        name: result.user.name,
-        token,
-        companyId: result.company.id,
+        return { company, user };
       });
 
       return {
@@ -377,11 +383,16 @@ export class AuthService extends BaseService {
     });
 
     const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${token}&companyId=${user.company_id}`;
-    await emailService.sendCandidateVerificationEmail({
-      to: user.email,
-      name: user.name,
-      verificationUrl
-    });
+    try {
+      await emailService.sendCandidateVerificationEmail({
+        to: user.email,
+        name: user.name,
+        verificationUrl,
+        strict: true,
+      });
+    } catch (error) {
+      throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+    }
 
     return {
       message: 'Verification email resent successfully',
@@ -415,6 +426,19 @@ export class AuthService extends BaseService {
       throw error;
     }
 
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase();
+      if (
+        message.includes('smtp') ||
+        message.includes('send email') ||
+        message.includes('enotfound') ||
+        message.includes('econnrefused') ||
+        message.includes('etimedout')
+      ) {
+        throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
+      }
+    }
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       const target = Array.isArray(error.meta?.target) ? error.meta?.target.join(',') : String(error.meta?.target || '');
 
@@ -431,14 +455,13 @@ export class AuthService extends BaseService {
     throw new HttpException(500, 'Unable to complete registration right now. Please try again.');
   }
 
-  private sendVerificationEmailAsync(input: { to: string; name: string; token: string; companyId: string }) {
+  private async sendVerificationEmailStrict(input: { to: string; name: string; token: string; companyId: string }) {
     const verificationUrl = `${env.ATS_FRONTEND_URL}/verify-company?token=${input.token}&companyId=${input.companyId}`;
-    void emailService.sendCandidateVerificationEmail({
+    await emailService.sendCandidateVerificationEmail({
       to: input.to,
       name: input.name,
       verificationUrl,
-    }).catch((error) => {
-      console.error('[AuthService] Failed to send verification email:', error);
+      strict: true,
     });
   }
 
