@@ -47,7 +47,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use(loggingMiddleware);
 
   // CORS setup
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173,https://hrm8-ats-frontend.vercel.app,https://hrm8-candidate-frontend.vercel.app,https://hrm8-admin-and-staff-frontend2.vercel.app';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000,http://localhost:5173,https://hrm8-ats-frontend.vercel.app,https://hrm8-candidate-frontend.vercel.app,https://hrm8-admin-and-staff-frontend2.vercel.app,https://hrm8-ats-frontend-alpha.vercel.app,https://hrm8-candidate-frontend-kohl.vercel.app,https://hrm8-admin-and-staff-frontend-three.vercel.app';
   const allowedOrigins = frontendUrl.includes(',')
     ? frontendUrl.split(',').map(u => u.trim())
     : [frontendUrl]; // Ensure it's always an array for cors middleware
