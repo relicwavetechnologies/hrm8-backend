@@ -116,7 +116,12 @@ class PublicController extends controller_1.BaseController {
         this.getJobDetails = async (req, res) => {
             try {
                 const { id } = req.params;
-                const job = await this.publicService.getPublicJob(id);
+                const invitationToken = req.query.invitation;
+                const candidateEmail = req.query.email;
+                const job = await this.publicService.getPublicJob(id, {
+                    invitationToken,
+                    candidateEmail,
+                });
                 if (!job) {
                     return this.sendError(res, new Error('Job not found or no longer available'));
                 }
@@ -173,7 +178,12 @@ class PublicController extends controller_1.BaseController {
         this.getApplicationForm = async (req, res) => {
             try {
                 const { jobId } = req.params;
-                const form = await this.publicService.getApplicationForm(jobId);
+                const invitationToken = req.query.invitation;
+                const candidateEmail = req.query.email;
+                const form = await this.publicService.getApplicationForm(jobId, {
+                    invitationToken,
+                    candidateEmail,
+                });
                 if (!form) {
                     return this.sendError(res, new Error('Job not found or no longer available'));
                 }

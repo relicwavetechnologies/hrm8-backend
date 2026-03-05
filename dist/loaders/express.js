@@ -37,6 +37,8 @@ const email_template_routes_1 = __importDefault(require("../modules/email/email-
 const messaging_routes_1 = __importDefault(require("../modules/messaging/messaging.routes"));
 const pricing_routes_1 = __importDefault(require("../modules/pricing/pricing.routes"));
 const task_routes_1 = __importDefault(require("../modules/task/task.routes"));
+const talent_pool_routes_1 = __importDefault(require("../modules/talent-pool/talent-pool.routes"));
+const document_hub_routes_1 = __importDefault(require("../modules/document-hub/document-hub.routes"));
 const billing_routes_1 = __importDefault(require("../modules/billing/billing.routes"));
 const payouts_routes_1 = __importDefault(require("../modules/payouts/payouts.routes"));
 const error_middleware_1 = require("../middlewares/error.middleware");
@@ -98,6 +100,11 @@ const expressLoader = async (app) => {
     app.use('/api/messaging', messaging_routes_1.default);
     app.use('/api/pricing', pricing_routes_1.default);
     app.use('/api/tasks', task_routes_1.default);
+    app.use('/api/talent-pool', talent_pool_routes_1.default);
+    app.use('/api/document-hub', document_hub_routes_1.default);
+    // Serve uploaded files statically
+    const pathModule = require('path');
+    app.use('/uploads', require('express').static(pathModule.join(process.cwd(), 'uploads')));
     // Error middleware must be registered last
     app.use(error_middleware_1.errorMiddleware);
 };
