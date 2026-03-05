@@ -2,14 +2,7 @@ import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { AuthenticatedRequest } from '../../types';
 import { prisma } from '../../utils/prisma';
-import path from 'path';
-import fs from 'fs';
-
-// Ensure uploads directory exists
-const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
-if (!fs.existsSync(UPLOAD_DIR)) {
-    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
+import { CloudinaryService } from '../storage/cloudinary.service';
 
 export class DocumentHubController extends BaseController {
     constructor() {
@@ -53,7 +46,7 @@ export class DocumentHubController extends BaseController {
                 }),
             ]);
 
-            const mapped = documents.map((doc) => ({
+            const mapped = documents.map((doc: any) => ({
                 id: doc.id,
                 name: doc.name,
                 description: doc.description,
@@ -76,7 +69,7 @@ export class DocumentHubController extends BaseController {
 
     /**
      * POST /api/document-hub
-     * Upload a new document (multipart form with field 'file').
+     * Upload a new document via Cloudinary.
      */
     upload = async (req: AuthenticatedRequest, res: Response) => {
         try {
@@ -91,16 +84,22 @@ export class DocumentHubController extends BaseController {
             const docName = name || file.originalname;
             const docCategory = category || 'OTHER';
 
-            // Save file to disk
-            const ext = path.extname(file.originalname);
-            const safeFileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}${ext}`;
-            const filePath = path.join(UPLOAD_DIR, safeFileName);
-            fs.writeFileSync(filePath, file.buffer);
+            // Upload to Cloudinary
+            let fileUrl: string;
+            try {
+                const uploadResult = await CloudinaryService.uploadMulterFile(
+                    { buffer: file.buffer, originalname: file.originalname },
+                    { folder: `hrm8/document-hub/${req.user.companyId}`, resourceType: 'auto' }
+                );
+                fileUrl = uploadResult.secureUrl;
+            } catch (uploadError) {
+                this.logger.error('Cloudinary upload failed', { error: uploadError });
+                return this.sendError(res, new Error('File upload failed. Please try again.'), 500);
+            }
 
-            // Build a relative URL (the backend serves /uploads statically)
-            const fileUrl = `/uploads/documents/${safeFileName}`;
-
-            const parsedTags: string[] = tags ? (typeof tags === 'string' ? tags.split(',').map((t: string) => t.trim()).filter(Boolean) : tags) : [];
+            const parsedTags: string[] = tags
+                ? (typeof tags === 'string' ? tags.split(',').map((t: string) => t.trim()).filter(Boolean) : tags)
+                : [];
 
             const doc = await prisma.companyDocument.create({
                 data: {
@@ -140,7 +139,6 @@ export class DocumentHubController extends BaseController {
 
     /**
      * DELETE /api/document-hub/:id
-     * Delete a document owned by this company.
      */
     remove = async (req: AuthenticatedRequest, res: Response) => {
         try {
@@ -156,11 +154,16 @@ export class DocumentHubController extends BaseController {
                 return this.sendError(res, new Error('Document not found'), 404);
             }
 
-            // Delete file from disk
-            if (doc.file_url) {
-                const filePath = path.join(process.cwd(), doc.file_url);
-                if (fs.existsSync(filePath)) {
-                    fs.unlinkSync(filePath);
+            // Try to delete from Cloudinary if it's a Cloudinary URL
+            if (doc.file_url && doc.file_url.includes('cloudinary')) {
+                try {
+                    const parts = doc.file_url.split('/upload/');
+                    if (parts[1]) {
+                        const publicId = parts[1].replace(/^v\d+\//, '').replace(/\.[^/.]+$/, '');
+                        await CloudinaryService.deleteFile(publicId);
+                    }
+                } catch (deleteError) {
+                    this.logger.warn('Failed to delete file from Cloudinary', { error: deleteError });
                 }
             }
 
