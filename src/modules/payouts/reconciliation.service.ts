@@ -91,20 +91,20 @@ export class ReconciliationService {
     const processingWithdrawals = await prisma.commissionWithdrawal.findMany({
       where: {
         status: 'PROCESSING',
-        airwallex_transfer_id: { not: null },
+        stripe_transfer_id: { not: null },
       },
       select: {
         id: true,
-        airwallex_transfer_id: true,
+        stripe_transfer_id: true,
         status: true,
         transfer_initiated_at: true,
       },
     });
 
     for (const w of processingWithdrawals) {
-      if (!w.airwallex_transfer_id) continue;
+      if (!w.stripe_transfer_id) continue;
 
-      const providerStatus = await AirwallexService.getTransferStatus(w.airwallex_transfer_id);
+      const providerStatus = await AirwallexService.getTransferStatus(w.stripe_transfer_id);
       const hoursInProcessing = w.transfer_initiated_at
         ? (Date.now() - w.transfer_initiated_at.getTime()) / (1000 * 60 * 60)
         : 0;
@@ -118,7 +118,7 @@ export class ReconciliationService {
 
       results.push({
         withdrawalId: w.id,
-        transferId: w.airwallex_transfer_id,
+        transferId: w.stripe_transfer_id,
         localStatus: w.status,
         providerStatus: providerStatus.status,
         status,
