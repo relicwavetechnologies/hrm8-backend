@@ -10,35 +10,19 @@ export class Consultant360Service extends BaseService {
     super();
   }
 
+  /** Staff has a single currency: payout_currency (or default_currency from admin). */
   private async resolveConsultantCurrency(consultantId: string): Promise<string> {
-    const account = await this.repository.getAccountBalance(consultantId);
-    if (account?.id) {
-      const latestTxCurrency = await prisma.virtualTransaction.findFirst({
-        where: {
-          virtual_account_id: account.id,
-          billing_currency_used: { not: null }
-        },
-        orderBy: { created_at: 'desc' },
-        select: { billing_currency_used: true }
-      });
-
-      if (latestTxCurrency?.billing_currency_used) {
-        return latestTxCurrency.billing_currency_used;
-      }
-    }
-
-    const latestCommissionCurrency = await prisma.commission.findFirst({
-      where: { consultant_id: consultantId },
-      orderBy: { created_at: 'desc' },
-      select: {
-        subscription: { select: { currency: true } },
-        job: { select: { payment_currency: true } }
-      }
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { payout_currency: true, default_currency: true }
     });
+    if (consultant?.payout_currency) return consultant.payout_currency;
+    if (consultant?.default_currency) return consultant.default_currency;
+    return 'USD';
+  }
 
-    return latestCommissionCurrency?.subscription?.currency
-      || latestCommissionCurrency?.job?.payment_currency
-      || 'USD';
+  private payoutAmount(c: any): number {
+    return Number((c as any).payout_amount ?? c.amount) || 0;
   }
 
   // --- Profile / Region ---
@@ -58,8 +42,8 @@ export class Consultant360Service extends BaseService {
     const dashboard = await this.repository.getDashboardStats(consultantId);
     const commissions = dashboard.commissions;
 
-    // Helper: Sum commissions by type
-    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    // Helper: Sum in consultant's payout currency (staff has single currency)
+    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + this.payoutAmount(item), 0);
 
     // Filter commissions by type (using fixed enums)
     const recruiterCommissions = commissions.filter(c => !c.type || c.type === 'PLACEMENT' || c.type === 'RECRUITMENT_SERVICE');
@@ -120,8 +104,10 @@ export class Consultant360Service extends BaseService {
       });
     }
 
+    const currency = await this.resolveConsultantCurrency(consultantId);
+
     return {
-      stats,
+      stats: { ...stats, currency },
       monthlyTrend,
       activeJobs: dashboard.jobAssignments.map(assignment => ({
         id: assignment.job.id,
@@ -275,28 +261,26 @@ export class Consultant360Service extends BaseService {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    // Fetch all commissions
-    console.log(`[Consultant360Service.getEarnings] Fetching earnings for consultantId: ${consultantId}`);
     const allCommissions = await this.repository.findCommissions({ consultant_id: consultantId });
-    console.log(`[Consultant360Service.getEarnings] Found ${allCommissions.length} commissions`);
+    const currency = await this.resolveConsultantCurrency(consultantId);
 
-    // Helper to calculate totals
+    // Helper: use payout_amount (staff has single currency)
     const calculateStats = (commissions: any[]) => {
       return {
-        totalRevenue: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock revenue as total amount for now
+        totalRevenue: commissions.reduce((sum, c) => sum + this.payoutAmount(c), 0),
         totalPlacements: commissions.length,
-        totalSubscriptionSales: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock sales
+        totalSubscriptionSales: commissions.reduce((sum, c) => sum + this.payoutAmount(c), 0),
         totalServiceFees: 0,
-        pendingCommissions: commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + (c.amount || 0), 0),
-        confirmedCommissions: commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.amount || 0), 0),
-        paidCommissions: commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (c.amount || 0), 0),
+        pendingCommissions: commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + this.payoutAmount(c), 0),
+        confirmedCommissions: commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + this.payoutAmount(c), 0),
+        paidCommissions: commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + this.payoutAmount(c), 0),
         commissions: commissions.map(c => ({
           id: c.id,
-          amount: c.amount,
+          amount: this.payoutAmount(c),
           status: c.status,
           description: c.description || 'Commission',
           createdAt: c.created_at,
-          type: c.type || 'PLACEMENT' // Assuming type field exists or defaulting
+          type: c.type || 'PLACEMENT'
         }))
       };
     };
@@ -344,9 +328,10 @@ export class Consultant360Service extends BaseService {
       pendingBalance: recruiterEarnings.pendingCommissions + salesEarnings.pendingCommissions,
       totalEarned,
       totalWithdrawn,
+      currency,
       availableCommissions: allCommissions.filter(c => c.status === 'CONFIRMED').map(c => ({
         id: c.id,
-        amount: c.amount,
+        amount: this.payoutAmount(c),
         description: c.description || 'Commission',
         date: c.created_at
       }))

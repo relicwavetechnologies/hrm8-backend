@@ -7,8 +7,15 @@ export class ConsultantWithdrawalService {
 
     /**
      * Unified balance using VirtualAccount as single source of truth (aligns with Consultant360).
+     * All amounts are in consultant's payout currency (staff has a single currency).
      */
     async calculateBalance(consultantId: string) {
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { payout_currency: true, default_currency: true }
+        });
+        const currency = consultant?.payout_currency || consultant?.default_currency || 'USD';
+
         const account = await prisma.virtualAccount.findUnique({
             where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
         });
@@ -36,17 +43,17 @@ export class ConsultantWithdrawalService {
         let totalEarned = 0;
 
         allCommissions.forEach(c => {
-            const amount = Number(c.amount) || 0;
-            totalEarned += amount;
+            const payoutAmt = Number((c as any).payout_amount ?? c.amount) || 0;
+            totalEarned += payoutAmt;
             if (c.status === 'CONFIRMED' && !lockedCommissionIds.has(c.id)) {
                 availableCommissionsList.push({
                     id: c.id,
-                    amount,
+                    amount: payoutAmt,
                     description: c.description || 'Commission payment',
                     createdAt: c.created_at
                 });
             } else if (c.status === 'PENDING') {
-                pendingBalance += amount;
+                pendingBalance += payoutAmt;
             }
         });
 
@@ -61,6 +68,7 @@ export class ConsultantWithdrawalService {
             pendingBalance,
             totalEarned,
             totalWithdrawn,
+            currency,
             availableCommissions: availableCommissionsList
         };
     }
