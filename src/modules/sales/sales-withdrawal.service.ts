@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { HttpException } from '../../core/http-exception';
 import { WithdrawalStatus } from '@prisma/client';
+import { CommissionPayoutService } from '../payouts/commission-payout.service';
 
 export class SalesWithdrawalService {
     private readonly LOCKED_WITHDRAWAL_STATUSES: WithdrawalStatus[] = ['PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED'];
@@ -46,33 +47,27 @@ export class SalesWithdrawalService {
     }
 
     async calculateBalance(consultantId: string) {
-        // 1. Get all commissions
+        const account = await prisma.virtualAccount.findUnique({
+            where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } },
+            select: { balance: true },
+        });
+        const balance = Number(account?.balance || 0);
+
         const allCommissions = await prisma.commission.findMany({
             where: { consultant_id: consultantId }
         });
 
-        // 2. Calculate Available Balance (Confirmed and NOT locked in active withdrawals)
         const confirmedCommissions = allCommissions.filter(c => c.status === 'CONFIRMED');
 
-        // Find commissions currently locked in active withdrawals
         const activeWithdrawals = await prisma.commissionWithdrawal.findMany({
-            where: {
-                consultant_id: consultantId,
-                status: { in: this.LOCKED_WITHDRAWAL_STATUSES }
-            },
+            where: { consultant_id: consultantId, status: { in: this.LOCKED_WITHDRAWAL_STATUSES } },
             select: { commission_ids: true }
         });
-
         const lockedCommissionIds = new Set<string>();
-        activeWithdrawals.forEach(w => {
-            w.commission_ids.forEach(id => lockedCommissionIds.add(id));
-        });
+        activeWithdrawals.forEach(w => w.commission_ids.forEach(id => lockedCommissionIds.add(id)));
 
         const availableCommissions = confirmedCommissions.filter(c => !lockedCommissionIds.has(c.id));
-        const balance = availableCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
-        // 3. Calculate Pending (Status = PENDING or CONFIRMED but locked?) 
-        // Typically Pending means status='PENDING'. Confirmed means ready for withdrawal.
         const pendingCommissions = allCommissions.filter(c => c.status === 'PENDING');
         const pendingBalance = pendingCommissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
 
@@ -147,18 +142,30 @@ export class SalesWithdrawalService {
             throw new HttpException(400, 'One or more commissions are already in an active withdrawal request');
         }
 
-        const totalAmount = commissions.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        const totalPayoutAmount = commissions.reduce(
+            (sum, c) => sum + Number((c as any).payout_amount ?? c.amount ?? 0),
+            0
+        );
 
-        // Allow slight float difference
-        if (Math.abs(totalAmount - data.amount) > 0.01) {
-            // Use calculated amount for safety
+        if (Math.abs(totalPayoutAmount - data.amount) > 0.01) {
+            throw new HttpException(400, `Amount mismatch: selected commissions total ${totalPayoutAmount}, requested ${data.amount}`);
         }
 
-        // Create Withdrawal Request
+        const consultant = await prisma.consultant.findUnique({
+            where: { id: consultantId },
+            select: { payout_currency: true, default_currency: true },
+        });
+        const payoutCurrency = consultant?.payout_currency || consultant?.default_currency || 'USD';
+        const sourceCurrency = (commissions[0] as any)?.currency || 'USD';
+
         const withdrawal = await prisma.commissionWithdrawal.create({
             data: {
                 consultant_id: consultantId,
-                amount: totalAmount,
+                amount: totalPayoutAmount,
+                currency: sourceCurrency,
+                payout_currency: payoutCurrency,
+                payout_amount: totalPayoutAmount,
+                fx_rate_used: sourceCurrency === payoutCurrency ? 1.0 : undefined,
                 payment_method: data.paymentMethod,
                 payment_details: data.paymentDetails || {},
                 commission_ids: data.commissionIds,
@@ -208,8 +215,7 @@ export class SalesWithdrawalService {
 
     async executeWithdrawal(withdrawalId: string, consultantId: string) {
         const withdrawal = await prisma.commissionWithdrawal.findUnique({
-            where: { id: withdrawalId },
-            include: { consultant: true }
+            where: { id: withdrawalId }
         });
 
         if (!withdrawal) throw new HttpException(404, 'Withdrawal not found');
@@ -218,78 +224,7 @@ export class SalesWithdrawalService {
             throw new HttpException(400, 'Withdrawal must be approved before execution');
         }
 
-        return prisma.$transaction(async (tx) => {
-            const latest = await tx.commissionWithdrawal.findUnique({
-                where: { id: withdrawalId }
-            });
-
-            if (!latest) {
-                throw new HttpException(404, 'Withdrawal not found');
-            }
-
-            let debitTransaction = await tx.virtualTransaction.findFirst({
-                where: {
-                    reference_type: 'COMMISSION_WITHDRAWAL',
-                    reference_id: withdrawalId,
-                    direction: 'DEBIT',
-                    status: 'COMPLETED'
-                },
-                orderBy: { created_at: 'asc' }
-            });
-
-            if (!latest.debited_from_wallet && !debitTransaction) {
-                const account = await tx.virtualAccount.findUnique({
-                    where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
-                });
-                if (!account) {
-                    throw new HttpException(404, 'Consultant wallet account not found');
-                }
-                if (Number(account.balance) < latest.amount) {
-                    throw new HttpException(400, 'Insufficient wallet balance for withdrawal');
-                }
-
-                debitTransaction = await tx.virtualTransaction.create({
-                    data: {
-                        virtual_account_id: account.id,
-                        type: 'COMMISSION_WITHDRAWAL',
-                        amount: latest.amount,
-                        balance_after: Number(account.balance) - latest.amount,
-                        direction: 'DEBIT',
-                        status: 'COMPLETED',
-                        description: 'Withdrawal executed',
-                        reference_id: withdrawalId,
-                        reference_type: 'COMMISSION_WITHDRAWAL',
-                        withdrawal_request_id: withdrawalId
-                    }
-                });
-
-                await tx.virtualAccount.update({
-                    where: { id: account.id },
-                    data: { balance: { decrement: latest.amount }, total_debits: { increment: latest.amount } }
-                });
-            }
-
-            if (!debitTransaction && latest.virtual_transaction_id) {
-                debitTransaction = await tx.virtualTransaction.findUnique({
-                    where: { id: latest.virtual_transaction_id }
-                });
-            }
-
-            if (!debitTransaction) {
-                throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
-            }
-
-            return tx.commissionWithdrawal.update({
-                where: { id: withdrawalId },
-                data: {
-                    status: 'PROCESSING',
-                    processed_at: latest.processed_at || new Date(),
-                    debited_from_wallet: true,
-                    virtual_transaction_id: debitTransaction.id,
-                    wallet_debit_at: debitTransaction.created_at
-                }
-            });
-        });
+        return CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
     }
 
     async getStripeStatus(consultantId: string) {

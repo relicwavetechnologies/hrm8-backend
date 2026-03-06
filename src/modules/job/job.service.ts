@@ -153,13 +153,12 @@ export class JobService extends BaseService {
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
       management_type: data.managementType ?? undefined,
       draft_step: data.draftStep,
-      status: data.status,
       visibility: data.visibility,
     };
 
     // Remove undefined keys
     Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) delete updateData[key];
+      if ((updateData as any)[key] === undefined) delete (updateData as any)[key];
     });
 
     const updatedJob = await this.jobRepository.update(id, updateData);
@@ -628,6 +627,10 @@ export class JobService extends BaseService {
     const amount = Number((job.payment_amount * rate).toFixed(2));
     if (amount <= 0) return;
 
+    const commissionCurrency = job.payment_currency || 'USD';
+    const { resolveCommissionFx } = await import('../hrm8/commission-fx.util');
+    const fx = await resolveCommissionFx(consultant.id, commissionCurrency, amount);
+
     await prisma.commission.create({
       data: {
         consultant_id: consultant.id,
@@ -635,13 +638,16 @@ export class JobService extends BaseService {
         job_id: job.id,
         type: 'RECRUITMENT_SERVICE',
         amount,
+        currency: fx.currency,
+        payout_currency: fx.payoutCurrency,
+        payout_amount: fx.payoutAmount,
+        fx_rate: fx.fxRate,
+        fx_rate_locked_at: new Date(),
+        fx_source: fx.fxSource,
         rate,
         status: 'PENDING',
-        description: `Managed service commission for job: ${job.title}`,
-        notes: JSON.stringify({
-          source: 'MANAGED_SERVICE_PAYMENT',
-          currency: job.payment_currency || null,
-        }),
+        description: `Managed service commission for job: ${job.title} (${fx.currency})`,
+        notes: JSON.stringify({ source: 'MANAGED_SERVICE_PAYMENT' }),
       },
     });
   }
@@ -785,32 +791,12 @@ export class JobService extends BaseService {
 
       let consultantId = job.assigned_consultant_id || null;
       if (!consultantId) {
-        try {
-          const assignResult = await jobAllocationService.autoAssignJob(id);
-          consultantId = assignResult?.consultantId || null;
-        } catch (error: any) {
-          const assignmentError =
-            error?.message || 'No consultant available for assignment. Please try again later.';
-          if (paymentAttemptId) {
-            await BillingService.refundPayment(paymentAttemptId, assignmentError);
-            BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
-            BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
-            await this.jobRepository.update(id, {
-              payment_status: 'PENDING',
-              payment_completed_at: null,
-              payment_failed_at: new Date(),
-            });
-            throw new HttpException(
-              503,
-              `${assignmentError} Invoice payment was reversed automatically. Please retry later.`
-            );
-          }
-          BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
-          throw new HttpException(503, assignmentError);
-        }
+        const assignResult = await jobAllocationService.autoAssignJob(id);
+        console.log('[upgradeToManagedService] autoAssignJob result:', JSON.stringify(assignResult));
+        consultantId = assignResult?.consultantId || null;
 
         if (!consultantId) {
-          const assignmentError = 'No consultant available for assignment. Please try again later.';
+          const assignmentError = assignResult?.error || 'No consultant available for assignment. Please try again later.';
           if (paymentAttemptId) {
             await BillingService.refundPayment(paymentAttemptId, assignmentError);
             BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });

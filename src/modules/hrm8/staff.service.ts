@@ -6,6 +6,8 @@ import { ConsultantRole, ConsultantStatus } from '@prisma/client';
 import { hashPassword } from '../../utils/password';
 import { toCommissionRateDecimal, toCommissionRatePercent } from './commission-rate.util';
 
+const SUPPORTED_CURRENCIES = ['USD', 'GBP', 'EUR', 'AUD', 'INR', 'NZD', 'SGD', 'CAD'] as const;
+
 export class StaffService extends BaseService {
     constructor(private staffRepository: StaffRepository) {
         super();
@@ -53,12 +55,17 @@ export class StaffService extends BaseService {
             status: consultant.status,
             address: consultant.address,
             availability: consultant.availability,
-            languages: consultant.languages
+            languages: consultant.languages,
+
+            defaultCurrency: consultant.default_currency ?? 'USD',
+            payoutCurrency: consultant.payout_currency ?? null,
+            payoutCurrencyConfirmedAt: consultant.payout_currency_confirmed_at ?? null,
         };
 
         // Remove snake_case fields and sensitive data
         const keysToDelete = [
             'first_name', 'last_name', 'region_id', 'default_commission_rate',
+            'default_currency', 'payout_currency', 'payout_currency_confirmed_at',
             'created_at', 'updated_at', 'password_hash', 'total_commissions_paid',
             'pending_commissions', 'total_revenue', 'total_placements', 'success_rate',
             'average_days_to_fill', 'current_jobs', 'max_jobs', 'current_employers',
@@ -247,10 +254,15 @@ export class StaffService extends BaseService {
             lastName,
             regionId,
             defaultCommissionRate,
+            defaultCurrency,
             ...rest
         } = data;
 
         this.assertRegionScope(regionId, allowedRegionIds);
+
+        const currency = (defaultCurrency && SUPPORTED_CURRENCIES.includes(defaultCurrency as any))
+            ? defaultCurrency
+            : 'USD';
 
         const passwordHash = await hashPassword(password);
         const normalizedRate = defaultCommissionRate === undefined
@@ -263,6 +275,7 @@ export class StaffService extends BaseService {
             last_name: lastName,
             region_id: regionId,
             default_commission_rate: normalizedRate,
+            default_currency: currency,
             password_hash: passwordHash,
             status: 'ACTIVE',
         });
@@ -301,6 +314,11 @@ export class StaffService extends BaseService {
                 ? null
                 : toCommissionRateDecimal(rawRate, 0);
             delete mappedData.defaultCommissionRate;
+        }
+        if (Object.prototype.hasOwnProperty.call(data, 'defaultCurrency')) {
+            const c = data.defaultCurrency;
+            mappedData.default_currency = (c && SUPPORTED_CURRENCIES.includes(c as any)) ? c : 'USD';
+            delete mappedData.defaultCurrency;
         }
 
         const updated = await this.staffRepository.update(id, mappedData);

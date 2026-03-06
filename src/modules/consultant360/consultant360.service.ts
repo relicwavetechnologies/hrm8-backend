@@ -3,41 +3,35 @@ import { Consultant360Repository } from './consultant360.repository';
 import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { normalizeConversionIntentSnapshot } from '../sales/conversion-intent.util';
+import { CommissionPayoutService } from '../payouts/commission-payout.service';
 
 export class Consultant360Service extends BaseService {
   constructor(private repository: Consultant360Repository) {
     super();
   }
 
+  /** Staff has a single currency: payout_currency (or default_currency from admin). */
   private async resolveConsultantCurrency(consultantId: string): Promise<string> {
-    const account = await this.repository.getAccountBalance(consultantId);
-    if (account?.id) {
-      const latestTxCurrency = await prisma.virtualTransaction.findFirst({
-        where: {
-          virtual_account_id: account.id,
-          billing_currency_used: { not: null }
-        },
-        orderBy: { created_at: 'desc' },
-        select: { billing_currency_used: true }
-      });
-
-      if (latestTxCurrency?.billing_currency_used) {
-        return latestTxCurrency.billing_currency_used;
-      }
-    }
-
-    const latestCommissionCurrency = await prisma.commission.findFirst({
-      where: { consultant_id: consultantId },
-      orderBy: { created_at: 'desc' },
-      select: {
-        subscription: { select: { currency: true } },
-        job: { select: { payment_currency: true } }
-      }
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { payout_currency: true, default_currency: true }
     });
+    if (consultant?.payout_currency) return consultant.payout_currency;
+    if (consultant?.default_currency) return consultant.default_currency;
+    return 'USD';
+  }
 
-    return latestCommissionCurrency?.subscription?.currency
-      || latestCommissionCurrency?.job?.payment_currency
-      || 'USD';
+  private payoutAmount(c: any): number {
+    return Number((c as any).payout_amount ?? c.amount) || 0;
+  }
+
+  // --- Profile / Region ---
+  async getMyRegion(consultantId: string): Promise<{ id: string; name: string } | null> {
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { region: { select: { id: true, name: true } } },
+    });
+    return consultant?.region ?? null;
   }
 
   // --- Dashboard ---
@@ -48,8 +42,8 @@ export class Consultant360Service extends BaseService {
     const dashboard = await this.repository.getDashboardStats(consultantId);
     const commissions = dashboard.commissions;
 
-    // Helper: Sum commissions by type
-    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    // Helper: Sum in consultant's payout currency (staff has single currency)
+    const sumAmount = (items: any[]) => items.reduce((sum, item) => sum + this.payoutAmount(item), 0);
 
     // Filter commissions by type (using fixed enums)
     const recruiterCommissions = commissions.filter(c => !c.type || c.type === 'PLACEMENT' || c.type === 'RECRUITMENT_SERVICE');
@@ -110,8 +104,10 @@ export class Consultant360Service extends BaseService {
       });
     }
 
+    const currency = await this.resolveConsultantCurrency(consultantId);
+
     return {
-      stats,
+      stats: { ...stats, currency },
       monthlyTrend,
       activeJobs: dashboard.jobAssignments.map(assignment => ({
         id: assignment.job.id,
@@ -188,9 +184,9 @@ export class Consultant360Service extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    if (!consultant.region_id) {
-      throw new HttpException(400, 'Consultant does not have an assigned region');
-    }
+    const { assertLeadInConsultantRegion, validateRegionCurrencyMapping } = await import('../sales/conversion-request-validators');
+    assertLeadInConsultantRegion(lead, consultant);
+    await validateRegionCurrencyMapping(consultant.region_id!);
 
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
@@ -221,33 +217,70 @@ export class Consultant360Service extends BaseService {
     });
   }
 
+  async getConversionEligibility(leadId: string, consultantId: string) {
+    const { assertLeadInConsultantRegion } = await import('../sales/conversion-request-validators');
+    const { CurrencyAssignmentService } = await import('../pricing/currency-assignment.service');
+    const { HttpException } = await import('../../core/http-exception');
+    const { prisma } = await import('../../utils/prisma');
+
+    const lead = await this.repository.findLeadById(leadId);
+    const reasons: string[] = [];
+    if (!lead) return { eligible: false, reasons: ['Lead not found'] };
+    if (lead.status === 'CONVERTED') return { eligible: false, reasons: ['Lead is already converted'] };
+
+    const consultant = await this.repository.findConsultant(consultantId);
+    if (!consultant) return { eligible: false, reasons: ['Consultant not found'] };
+
+    try {
+      assertLeadInConsultantRegion(lead, consultant);
+    } catch (e: any) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId: consultant.region_id ?? undefined };
+      }
+      throw e;
+    }
+    const regionId = consultant.region_id!;
+    const region = await prisma.region.findUnique({ where: { id: regionId }, select: { country: true } });
+    let mapping: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null = null;
+    try {
+      const result = await CurrencyAssignmentService.resolveRegionCurrencyOrThrow(regionId);
+      mapping = { pricingPeg: result.pricingPeg, billingCurrency: result.billingCurrency, isActive: result.isActive };
+    } catch (e: any) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId, regionCountry: region?.country };
+      }
+      throw e;
+    }
+    return { eligible: true, reasons: [], regionId, regionCountry: region?.country, mapping };
+  }
+
   // --- Earnings ---
   async getEarnings(consultantId: string) {
     const consultant = await this.repository.findConsultant(consultantId);
     if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    // Fetch all commissions
-    console.log(`[Consultant360Service.getEarnings] Fetching earnings for consultantId: ${consultantId}`);
     const allCommissions = await this.repository.findCommissions({ consultant_id: consultantId });
-    console.log(`[Consultant360Service.getEarnings] Found ${allCommissions.length} commissions`);
+    const currency = await this.resolveConsultantCurrency(consultantId);
 
-    // Helper to calculate totals
+    // Helper: use payout_amount (staff has single currency)
     const calculateStats = (commissions: any[]) => {
       return {
-        totalRevenue: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock revenue as total amount for now
+        totalRevenue: commissions.reduce((sum, c) => sum + this.payoutAmount(c), 0),
         totalPlacements: commissions.length,
-        totalSubscriptionSales: commissions.reduce((sum, c) => sum + (c.amount || 0), 0), // Mock sales
+        totalSubscriptionSales: commissions.reduce((sum, c) => sum + this.payoutAmount(c), 0),
         totalServiceFees: 0,
-        pendingCommissions: commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + (c.amount || 0), 0),
-        confirmedCommissions: commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + (c.amount || 0), 0),
-        paidCommissions: commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + (c.amount || 0), 0),
+        pendingCommissions: commissions.filter(c => c.status === 'PENDING').reduce((sum, c) => sum + this.payoutAmount(c), 0),
+        confirmedCommissions: commissions.filter(c => c.status === 'CONFIRMED').reduce((sum, c) => sum + this.payoutAmount(c), 0),
+        paidCommissions: commissions.filter(c => c.status === 'PAID').reduce((sum, c) => sum + this.payoutAmount(c), 0),
         commissions: commissions.map(c => ({
           id: c.id,
-          amount: c.amount,
+          amount: this.payoutAmount(c),
           status: c.status,
           description: c.description || 'Commission',
           createdAt: c.created_at,
-          type: c.type || 'PLACEMENT' // Assuming type field exists or defaulting
+          type: c.type || 'PLACEMENT'
         }))
       };
     };
@@ -279,14 +312,26 @@ export class Consultant360Service extends BaseService {
       // Ignore if no wallet
     }
 
+    let totalWithdrawn = 0;
+    try {
+      const result = await prisma.commissionWithdrawal.aggregate({
+        where: { consultant_id: consultantId, status: { in: ['COMPLETED', 'PROCESSING'] } },
+        _sum: { amount: true },
+      });
+      totalWithdrawn = Number(result._sum.amount || 0);
+    } catch {
+      // Ignore
+    }
+
     const combined = {
       availableBalance,
       pendingBalance: recruiterEarnings.pendingCommissions + salesEarnings.pendingCommissions,
       totalEarned,
-      totalWithdrawn: 0, // TODO: Fetch withdrawals to calc this
+      totalWithdrawn,
+      currency,
       availableCommissions: allCommissions.filter(c => c.status === 'CONFIRMED').map(c => ({
         id: c.id,
-        amount: c.amount,
+        amount: this.payoutAmount(c),
         description: c.description || 'Commission',
         date: c.created_at
       }))
@@ -373,9 +418,24 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Insufficient balance for withdrawal');
     }
 
+    const commissionRecords = await prisma.commission.findMany({
+      where: { id: { in: commissionIds }, consultant_id: consultantId, status: 'CONFIRMED' },
+      select: { id: true, amount: true, currency: true, payout_amount: true, payout_currency: true }
+    });
+    const totalPayoutAmount = commissionRecords.reduce(
+      (sum: number, c: any) => sum + Number(c.payout_amount ?? c.amount ?? 0),
+      0
+    );
+    const sourceCurrency = commissionRecords[0]?.currency || 'USD';
+    const payoutCurrency = consultant.payout_currency || consultant.default_currency || 'USD';
+
     return this.repository.createWithdrawal({
       consultant: { connect: { id: consultantId } },
-      amount,
+      amount: totalPayoutAmount,
+      currency: sourceCurrency,
+      payout_currency: payoutCurrency,
+      payout_amount: totalPayoutAmount,
+      fx_rate_used: sourceCurrency === payoutCurrency ? 1.0 : undefined,
       payment_method: paymentMethod,
       payment_details: paymentDetails,
       commission_ids: commissionIds,
@@ -421,88 +481,7 @@ export class Consultant360Service extends BaseService {
       throw new HttpException(400, 'Withdrawal must be approved before execution');
     }
 
-    return prisma.$transaction(async (tx) => {
-      const latest = await tx.commissionWithdrawal.findUnique({
-        where: { id: withdrawalId }
-      });
-
-      if (!latest) {
-        throw new HttpException(404, 'Withdrawal not found');
-      }
-
-      let debitTransaction = await tx.virtualTransaction.findFirst({
-        where: {
-          reference_type: 'COMMISSION_WITHDRAWAL',
-          reference_id: withdrawalId,
-          direction: 'DEBIT',
-          status: 'COMPLETED'
-        },
-        orderBy: { created_at: 'asc' }
-      });
-
-      if (!latest.debited_from_wallet && !debitTransaction) {
-        const account = await tx.virtualAccount.findUnique({
-          where: {
-            owner_type_owner_id: {
-              owner_type: 'CONSULTANT',
-              owner_id: consultantId
-            }
-          }
-        });
-
-        if (!account) {
-          throw new HttpException(404, 'Consultant wallet account not found');
-        }
-
-        if (Number(account.balance) < latest.amount) {
-          throw new HttpException(400, 'Insufficient wallet balance for withdrawal');
-        }
-
-        debitTransaction = await tx.virtualTransaction.create({
-          data: {
-            virtual_account_id: account.id,
-            type: 'COMMISSION_WITHDRAWAL',
-            amount: latest.amount,
-            balance_after: Number(account.balance) - latest.amount,
-            direction: 'DEBIT',
-            status: 'COMPLETED',
-            description: 'Withdrawal executed',
-            reference_id: withdrawalId,
-            reference_type: 'COMMISSION_WITHDRAWAL',
-            withdrawal_request_id: withdrawalId
-          }
-        });
-
-        await tx.virtualAccount.update({
-          where: { id: account.id },
-          data: {
-            balance: { decrement: latest.amount },
-            total_debits: { increment: latest.amount }
-          }
-        });
-      }
-
-      if (!debitTransaction && latest.virtual_transaction_id) {
-        debitTransaction = await tx.virtualTransaction.findUnique({
-          where: { id: latest.virtual_transaction_id }
-        });
-      }
-
-      if (!debitTransaction) {
-        throw new HttpException(500, 'Withdrawal debit transaction missing. Cannot continue processing.');
-      }
-
-      return tx.commissionWithdrawal.update({
-        where: { id: withdrawalId },
-        data: {
-          status: 'PROCESSING',
-          processed_at: latest.processed_at || new Date(),
-          debited_from_wallet: true,
-          virtual_transaction_id: debitTransaction.id,
-          wallet_debit_at: debitTransaction.created_at
-        }
-      });
-    });
+    return CommissionPayoutService.executeWithdrawalPayout(withdrawalId);
   }
 
   // --- Payout Provider (Airwallex) – provider-neutral method names ---

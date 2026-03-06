@@ -240,6 +240,79 @@ export class CurrencyAssignmentService {
   }
   
   /**
+   * Resolve region currency from Region.country -> CountryPricingMap (strict, throws on missing)
+   * Use for conversion request validation and approval.
+   */
+  static async resolveRegionCurrencyOrThrow(regionId: string): Promise<{
+    pricingPeg: string;
+    billingCurrency: string;
+    countryCode: string;
+    isActive: boolean;
+  }> {
+    const region = await prisma.region.findUnique({
+      where: { id: regionId },
+      select: { country: true, name: true },
+    });
+    if (!region) {
+      throw new HttpException(404, `Region not found: ${regionId}`, 'REGION_NOT_FOUND');
+    }
+    const countryCode = COUNTRY_NAME_TO_CODE[region.country] ??
+      (region.country.length === 2 ? region.country.toUpperCase() : null) ??
+      (await prisma.countryPricingMap.findFirst({
+        where: {
+          OR: [
+            { country_name: { equals: region.country, mode: 'insensitive' } },
+            { country_name: { contains: region.country, mode: 'insensitive' } },
+          ],
+          is_active: true,
+        },
+        select: { country_code: true },
+      }))?.country_code ?? null;
+    if (!countryCode) {
+      throw new HttpException(422, `Region country "${region.country}" could not be resolved to a currency mapping`, 'REGION_COUNTRY_UNRESOLVABLE');
+    }
+    const mapping = await prisma.countryPricingMap.findUnique({
+      where: { country_code: countryCode },
+    });
+    if (!mapping || !mapping.is_active) {
+      throw new HttpException(422, `No active currency mapping for country ${countryCode} (region: ${region.name})`, 'REGION_CURRENCY_MAPPING_MISSING');
+    }
+    return {
+      pricingPeg: mapping.pricing_peg,
+      billingCurrency: mapping.billing_currency,
+      countryCode: mapping.country_code,
+      isActive: mapping.is_active,
+    };
+  }
+
+  /**
+   * Assign pricing peg and billing currency to a company with immediate lock (no USD fallback).
+   * Use for new converted companies.
+   */
+  static async assignCurrencyToCompanyStrict(
+    companyId: string,
+    params: { pricingPeg: string; billingCurrency: string; countryCode: string }
+  ): Promise<void> {
+    const { pricingPeg, billingCurrency, countryCode } = params;
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { id: true },
+    });
+    if (!company) {
+      throw new HttpException(404, 'Company not found');
+    }
+    await prisma.company.update({
+      where: { id: companyId },
+      data: {
+        pricing_peg: pricingPeg,
+        billing_currency: billingCurrency,
+        country: countryCode.toUpperCase(),
+        currency_locked_at: new Date(),
+      },
+    });
+  }
+
+  /**
    * Emergency override - change currency (admin only, requires approval)
    * Creates audit trail via EnterpriseOverride
    */

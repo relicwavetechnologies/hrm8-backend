@@ -13,6 +13,18 @@ export class Consultant360Controller extends BaseController {
     this.service = new Consultant360Service(new Consultant360Repository());
   }
 
+  // Profile / Region
+  getMyRegion = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) throw new HttpException(401, 'Unauthorized');
+      const region = await this.service.getMyRegion(consultantId);
+      return this.sendSuccess(res, { region });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Dashboard
   getDashboard = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
@@ -55,6 +67,18 @@ export class Consultant360Controller extends BaseController {
 
       const lead = await this.service.createLead(consultantId, req.body);
       return this.sendSuccess(res, { lead });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getConversionEligibility = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) throw new HttpException(401, 'Unauthorized');
+      const { leadId } = req.params;
+      const result = await this.service.getConversionEligibility(leadId as string, consultantId);
+      return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);
     }

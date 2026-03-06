@@ -18,6 +18,7 @@ import { AuditLogService } from './audit-log.service';
 import { AuditLogRepository } from './audit-log.repository';
 import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 import { ConversionCommercialContextService } from './conversion-commercial-context.service';
+import { FeatureFlags } from '../../config/feature-flags';
 
 type ConversionRequestRecord = any;
 
@@ -72,10 +73,18 @@ export class LeadConversionService extends BaseService {
   private ensureRegionScope(request: ConversionRequestRecord, regionIds?: string[]) {
     if (!regionIds || regionIds.length === 0) return;
     if (!request.region_id) {
-      throw new HttpException(403, 'Unauthorized: request has no region scope');
+      throw new HttpException(
+        403,
+        'Conversion request has no region. Regional admins can only approve requests for leads in their assigned region(s).',
+        'REQUEST_OUTSIDE_REGION_SCOPE'
+      );
     }
     if (!regionIds.includes(request.region_id)) {
-      throw new HttpException(403, 'Unauthorized: request is outside assigned regions');
+      throw new HttpException(
+        403,
+        'This conversion request is for a lead outside your assigned region(s). You can only approve requests for leads in regions assigned to your licensee. Ensure the lead\'s region is assigned to your licensee in Regions settings.',
+        'REQUEST_OUTSIDE_REGION_SCOPE'
+      );
     }
   }
 
@@ -393,22 +402,43 @@ export class LeadConversionService extends BaseService {
       throw new HttpException(400, `Request cannot be approved in ${request.status} status`);
     }
 
-    const tempPassword = request.temp_password || 'vAbhi2678';
+    let mapping: { pricingPeg: string; billingCurrency: string; countryCode: string } | null = null;
+    if (FeatureFlags.FF_STRICT_REGION_CURRENCY_GATE) {
+      if (!request.region_id) {
+        throw new HttpException(422, 'Conversion request has no region; cannot resolve currency mapping', 'REGION_CURRENCY_MAPPING_MISSING');
+      }
+      const result = await CurrencyAssignmentService.resolveRegionCurrencyOrThrow(request.region_id);
+      mapping = {
+        pricingPeg: result.pricingPeg,
+        billingCurrency: result.billingCurrency,
+        countryCode: result.countryCode,
+      };
+    }
+
+    const tempPassword = request.temp_password || require('crypto').randomBytes(12).toString('base64url');
     const baseDomain = request.website
       ? request.website.replace(/^https?:\/\//, '').split('/')[0].replace(/\./g, '-')
       : 'company';
     const domain = `${baseDomain}-${request.lead_id}.local`;
 
+    const companyCreateData: Record<string, unknown> = {
+      name: request.company_name,
+      domain,
+      website: request.website || '',
+      region_id: request.region_id,
+      country_or_region: request.country,
+      sales_agent_id: request.consultant_id,
+    };
+    if (mapping) {
+      (companyCreateData as any).pricing_peg = mapping.pricingPeg;
+      (companyCreateData as any).billing_currency = mapping.billingCurrency;
+      (companyCreateData as any).country = mapping.countryCode.toUpperCase();
+      (companyCreateData as any).currency_locked_at = new Date();
+    }
+
     const { updatedRequest, company, userId } = await prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
-        data: {
-          name: request.company_name,
-          domain,
-          website: request.website || '',
-          region_id: request.region_id,
-          country_or_region: request.country,
-          sales_agent_id: request.consultant_id,
-        },
+        data: companyCreateData as any,
       });
 
       await tx.lead.update({
@@ -475,16 +505,18 @@ export class LeadConversionService extends BaseService {
       return { updatedRequest, company, userId };
     });
 
-    try {
-      const countryCode = await CurrencyAssignmentService.resolveCountryCode(
-        request.country,
-        request.region_id
-      );
-      if (countryCode) {
-        await CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+    if (!mapping) {
+      try {
+        const countryCode = await CurrencyAssignmentService.resolveCountryCode(
+          request.country,
+          request.region_id
+        );
+        if (countryCode) {
+          await CurrencyAssignmentService.assignCurrencyToCompany(company.id, countryCode);
+        }
+      } catch (err) {
+        console.warn(`[LeadConversion] Could not assign currency for company ${company.id}:`, err);
       }
-    } catch (err) {
-      console.warn(`[LeadConversion] Could not assign currency for company ${company.id}:`, err);
     }
 
     if (request.email) {

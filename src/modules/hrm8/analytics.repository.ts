@@ -101,8 +101,7 @@ export class AnalyticsRepository {
         });
     }
 
-    async getPlatformOverview(startDate?: Date, endDate?: Date, companyId?: string, regionId?: string) {
-        // Build filters
+    async getPlatformOverview(startDate?: Date, endDate?: Date, companyId?: string, regionId?: string, regionIds?: string[]) {
         const dateFilter: any = {};
         if (startDate) dateFilter.gte = startDate;
         if (endDate) dateFilter.lte = endDate;
@@ -111,6 +110,7 @@ export class AnalyticsRepository {
         const jobFilter: any = {};
         if (companyId) jobFilter.company_id = companyId;
         if (regionId) jobFilter.region_id = regionId;
+        else if (regionIds && regionIds.length > 0) jobFilter.region_id = { in: regionIds };
 
         // Get jobs
         const jobs = await prisma.job.findMany({
@@ -154,10 +154,11 @@ export class AnalyticsRepository {
         };
     }
 
-    async getPlatformTrends(startDate: Date, endDate: Date, companyId?: string, regionId?: string) {
+    async getPlatformTrends(startDate: Date, endDate: Date, companyId?: string, regionId?: string, regionIds?: string[]) {
         const jobFilter: any = {};
         if (companyId) jobFilter.company_id = companyId;
         if (regionId) jobFilter.region_id = regionId;
+        else if (regionIds && regionIds.length > 0) jobFilter.region_id = { in: regionIds };
 
         const jobs = await prisma.job.findMany({
             where: jobFilter,
@@ -187,9 +188,10 @@ export class AnalyticsRepository {
         return { analytics, applications };
     }
 
-    async getTopPerformingCompanies(limit: number, regionId?: string) {
+    async getTopPerformingCompanies(limit: number, regionId?: string, regionIds?: string[]) {
         const jobFilter: any = {};
         if (regionId) jobFilter.region_id = regionId;
+        else if (regionIds && regionIds.length > 0) jobFilter.region_id = { in: regionIds };
 
         return prisma.job.groupBy({
             by: ['company_id'],
@@ -251,8 +253,18 @@ export class AnalyticsRepository {
 
     async getJobBoardStats(params: { regionId?: string; search?: string; regionIds?: string[]; page: number; limit: number }) {
         const where: any = {};
+
         if (params.regionId) {
-            where.region_id = params.regionId;
+            // Include all companies in regions sharing the same country (e.g. India has Mumbai, Delhi, etc.)
+            const selectedRegion = await prisma.region.findUnique({
+                where: { id: params.regionId },
+                select: { country: true },
+            });
+            if (selectedRegion?.country) {
+                where.region = { country: selectedRegion.country };
+            } else {
+                where.region_id = params.regionId;
+            }
         } else if (params.regionIds && params.regionIds.length > 0) {
             where.region_id = { in: params.regionIds };
         }

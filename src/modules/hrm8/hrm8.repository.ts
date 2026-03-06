@@ -67,9 +67,32 @@ export class Hrm8Repository extends BaseRepository {
 
   // Licensee & Regions
   async getRegionsForLicensee(licenseeId: string) {
-    return this.prisma.region.findMany({
+    // Regions directly owned by licensee (region.licensee_id = licenseeId)
+    const fromOwnership = await this.prisma.region.findMany({
       where: { licensee_id: licenseeId },
     });
+    const seen = new Set(fromOwnership.map((r) => r.id));
+
+    // Also include regions where licensee has revenue share (RegionalRevenue) in case
+    // region.licensee_id is not set but licensee operates there
+    const revenueLinks = await this.prisma.regionalRevenue.findMany({
+      where: { licensee_id: licenseeId },
+      select: { region_id: true },
+      distinct: ['region_id'],
+    });
+    const extraIds = revenueLinks.map((r) => r.region_id).filter((id) => id && !seen.has(id));
+    if (extraIds.length > 0) {
+      const extra = await this.prisma.region.findMany({
+        where: { id: { in: extraIds } },
+      });
+      for (const r of extra) {
+        if (!seen.has(r.id)) {
+          fromOwnership.push(r);
+          seen.add(r.id);
+        }
+      }
+    }
+    return fromOwnership;
   }
 
   async findLicenseeById(licenseeId: string) {
