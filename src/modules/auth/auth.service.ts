@@ -360,6 +360,9 @@ export class AuthService extends BaseService {
         adminUserId: result.user.id,
       });
 
+      // Attempt to send verification email. If it fails, DO NOT roll back — the user
+      // remains in PENDING_VERIFICATION and can use "Resend Verification" to try again.
+      let emailSent = true;
       try {
         await this.sendVerificationEmailStrict({
           to: result.user.email,
@@ -368,37 +371,19 @@ export class AuthService extends BaseService {
           companyId: result.company.id,
         });
       } catch (error) {
-        console.error('[AuthService.registerCompany] Verification email failed after DB create. Rolling back records.', {
+        emailSent = false;
+        console.error('[AuthService.registerCompany] Verification email failed — keeping DB records, user can resend.', {
           companyId: result.company.id,
           adminUserId: result.user.id,
           adminEmail: result.user.email,
           error: error instanceof Error ? error.message : String(error),
         });
-
-        await prisma.$transaction(async (tx) => {
-          await tx.verificationToken.deleteMany({
-            where: {
-              company_id: result.company.id,
-              email: result.user.email,
-              token: result.token,
-            },
-          });
-          await tx.user.deleteMany({ where: { id: result.user.id } });
-          await tx.company.deleteMany({ where: { id: result.company.id } });
-        }).catch((cleanupError) => {
-          console.error('[AuthService.registerCompany] Rollback cleanup failed', {
-            companyId: result.company.id,
-            adminUserId: result.user.id,
-            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-          });
-        });
-
-        throw new HttpException(503, 'Unable to send verification email right now. Please try again in a few minutes.');
       }
 
       console.log('[AuthService.registerCompany] Success', {
         companyId: result.company.id,
         adminUserId: result.user.id,
+        emailSent,
       });
 
       return {
@@ -406,7 +391,10 @@ export class AuthService extends BaseService {
         adminUserId: result.user.id,
         verificationRequired: true,
         verificationMethod: 'EMAIL',
-        message: 'Company registered successfully. Please verify your email.',
+        emailSent,
+        message: emailSent
+          ? 'Company registered successfully. Please verify your email.'
+          : 'Company registered successfully. We could not send a verification email right now — please use the \'Resend Verification\' option on the login page.',
       };
     } catch (error) {
       console.error('[AuthService.registerCompany] Failed', {
