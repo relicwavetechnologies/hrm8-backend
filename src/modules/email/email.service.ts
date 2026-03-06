@@ -100,27 +100,71 @@ export class EmailService extends BaseService {
     return variables;
   }
 
-  private async sendEmail(to: string, subject: string, html: string, attachments: EmailAttachment[] = []) {
+  private async sendEmail(
+    to: string,
+    subject: string,
+    html: string,
+    attachments: EmailAttachment[] = [],
+    options: { strict?: boolean } = {}
+  ) {
+    const strict = options.strict === true;
+    const startedAt = Date.now();
+    const smtpPort = parseInt(env.SMTP_PORT || '587');
+    const smtpSecure = env.SMTP_SECURE === 'true';
+    const fromAddress = env.SMTP_FROM || env.SMTP_USER;
+
+    console.log('[EmailService.sendEmail] Attempt', {
+      to,
+      subject,
+      strict,
+      smtpHost: env.SMTP_HOST || null,
+      smtpPort,
+      smtpSecure,
+      fromAddress: fromAddress || null,
+      hasSmtpUser: Boolean(env.SMTP_USER),
+      hasSmtpPass: Boolean(env.SMTP_PASS),
+      attachmentCount: attachments.length,
+    });
+
     if (!env.SMTP_HOST) {
       console.log(`[EmailService] SMTP not configured. Skipping email to ${to}`);
       console.log(`Subject: ${subject}`);
-      console.log(`Body: ${html}`);
+      console.log(`Body length: ${html.length}`);
       if (attachments.length) console.log(`Attachments: ${attachments.length} files`);
+      if (strict) {
+        throw new Error('SMTP is not configured. Unable to send email.');
+      }
       return;
     }
 
     try {
       await this.transporter.sendMail({
-        from: env.SMTP_FROM || env.SMTP_USER,
+        from: fromAddress,
         to,
         subject,
         html,
         attachments,
       });
-      console.log(`[EmailService] Email sent to ${to}`);
+      console.log('[EmailService.sendEmail] Success', {
+        to,
+        subject,
+        durationMs: Date.now() - startedAt,
+      });
     } catch (error) {
-      console.error('[EmailService] Failed to send email:', error);
-      // Don't throw, just log
+      const errorCode = typeof error === 'object' && error && 'code' in error ? (error as any).code : undefined;
+      const smtpCommand = typeof error === 'object' && error && 'command' in error ? (error as any).command : undefined;
+      console.error('[EmailService.sendEmail] Failed', {
+        to,
+        subject,
+        strict,
+        durationMs: Date.now() - startedAt,
+        code: errorCode,
+        command: smtpCommand,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (strict) {
+        throw error instanceof Error ? error : new Error('Failed to send email');
+      }
     }
   }
 
@@ -201,9 +245,14 @@ export class EmailService extends BaseService {
     await this.sendEmail(data.to, 'Password Changed', fullHtml);
   }
 
-  async sendCandidateVerificationEmail(data: { to: string; name: string; verificationUrl: string }) {
+  async sendCandidateVerificationEmail(data: {
+    to: string;
+    name: string;
+    verificationUrl: string;
+    strict?: boolean;
+  }) {
     const html = getVerificationEmailTemplate(data);
-    await this.sendEmail(data.to, 'Verify Your Email', html);
+    await this.sendEmail(data.to, 'Verify Your Email', html, [], { strict: data.strict });
   }
 
   async sendNotificationEmail(to: string, title: string, message: string, actionUrl?: string) {

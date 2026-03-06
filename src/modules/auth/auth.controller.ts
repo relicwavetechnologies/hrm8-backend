@@ -94,18 +94,43 @@ export class AuthController extends BaseController {
 
   signup = async (req: Request, res: Response) => {
     try {
+      console.log('[AuthController.signup] Incoming request', {
+        businessEmail: req.body?.businessEmail,
+        companyDomain: req.body?.companyDomain,
+      });
       const result = await this.authService.signup(req.body);
+      console.log('[AuthController.signup] Success', {
+        requestId: (result as any)?.requestId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.signup] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        businessEmail: req.body?.businessEmail,
+        companyDomain: req.body?.companyDomain,
+      });
       return this.sendError(res, error);
     }
   };
 
   registerCompany = async (req: Request, res: Response) => {
     try {
+      console.log('[AuthController.registerCompany] Incoming request', {
+        adminEmail: req.body?.adminEmail,
+        companyWebsite: req.body?.companyWebsite,
+      });
       const result = await this.authService.registerCompany(req.body);
+      console.log('[AuthController.registerCompany] Success', {
+        companyId: (result as any)?.companyId,
+        adminUserId: (result as any)?.adminUserId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.registerCompany] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        adminEmail: req.body?.adminEmail,
+        companyWebsite: req.body?.companyWebsite,
+      });
       return this.sendError(res, error);
     }
   };
@@ -123,9 +148,18 @@ export class AuthController extends BaseController {
   resendVerification = async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
+      console.log('[AuthController.resendVerification] Incoming request', { email });
       const result = await this.authService.resendVerification(email);
+      console.log('[AuthController.resendVerification] Success', {
+        email: (result as any)?.email,
+        companyId: (result as any)?.companyId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.resendVerification] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        email: req.body?.email,
+      });
       return this.sendError(res, error);
     }
   };
