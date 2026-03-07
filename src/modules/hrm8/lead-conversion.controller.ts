@@ -15,10 +15,18 @@ export class LeadConversionController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { status } = req.query;
+            const { status, regionId } = req.query;
+            const queryRegionId = regionId as string | undefined;
+            const regionIds = queryRegionId
+                ? (req.assignedRegionIds?.length
+                    ? req.assignedRegionIds.includes(queryRegionId)
+                        ? [queryRegionId]
+                        : req.assignedRegionIds
+                    : [queryRegionId])
+                : req.assignedRegionIds;
             const result = await this.leadConversionService.getAll({
                 status: status as ConversionRequestStatus,
-                regionIds: req.assignedRegionIds,
+                regionIds,
             });
             return this.sendSuccess(res, { requests: result });
         } catch (error) {

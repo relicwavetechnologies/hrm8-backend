@@ -3,6 +3,7 @@ import { emailService } from '../email/email.service';
 import { env } from '../../config/env';
 import { CloudinaryService } from '../storage/cloudinary.service';
 import { ApplicationActivityService } from '../application/application-activity.service';
+import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 
 type WorkflowStepKey = 'negotiation' | 'amount' | 'offer_letter' | 'document_request' | 'documents' | 'hired';
 
@@ -232,6 +233,15 @@ export class OfferService {
         description: 'Offer workflow completed and candidate moved to hired',
         metadata: { offerId: offer.id },
       });
+
+      try {
+        const result = await PlacementCommissionService.createForHiredApplication(applicationId);
+        if (result.created) {
+          console.log(`[OfferService] Placement commission ${result.commissionId} created for application ${applicationId}`);
+        }
+      } catch (err) {
+        console.error(`[OfferService] Failed to create placement commission for ${applicationId}:`, err);
+      }
     }
 
     next.currentStep = this.computeCurrentStep(next, docsCount);

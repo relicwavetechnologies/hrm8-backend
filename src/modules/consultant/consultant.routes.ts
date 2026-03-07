@@ -13,6 +13,7 @@ router.get('/auth/me', authenticateConsultant, consultantController.getCurrentUs
 // Profile
 router.get('/profile', authenticateConsultant, consultantController.getProfile);
 router.put('/profile', authenticateConsultant, consultantController.updateProfile);
+router.patch('/profile/currency-preference', authenticateConsultant, consultantController.updateCurrencyPreference);
 
 // Jobs
 router.get('/jobs', authenticateConsultant, consultantController.getJobs);

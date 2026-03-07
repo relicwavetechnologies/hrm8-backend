@@ -5,12 +5,16 @@ import { authenticateConsultant } from '../../middlewares/consultant-auth.middle
 const router = Router();
 const salesController = new SalesController();
 
+// Profile / Region
+router.get('/me/region', authenticateConsultant, salesController.getMyRegion);
+
 // Dashboard
 router.get('/dashboard/stats', authenticateConsultant, salesController.getDashboardStats);
 
 // Leads
 router.get('/leads', authenticateConsultant, salesController.getLeads);
 router.post('/leads', authenticateConsultant, salesController.createLead);
+router.get('/leads/:leadId/conversion-eligibility', authenticateConsultant, salesController.getConversionEligibility);
 router.post('/leads/:leadId/convert', authenticateConsultant, salesController.convertLead);
 router.post('/leads/:leadId/conversion-request', authenticateConsultant, salesController.submitConversionRequest);
 

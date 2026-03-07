@@ -7,6 +7,8 @@ import { SalesValidators } from './sales.validators';
 import { prisma } from '../../utils/prisma';
 import { notifySalesAgent } from '../notification/notification-service-singleton';
 import { normalizeConversionIntentSnapshot } from './conversion-intent.util';
+import { assertLeadInConsultantRegion, validateRegionCurrencyMapping } from './conversion-request-validators';
+import { CurrencyAssignmentService } from '../pricing/currency-assignment.service';
 
 export class SalesService extends BaseService {
   private withdrawalService: SalesWithdrawalService;
@@ -191,6 +193,15 @@ export class SalesService extends BaseService {
     return this.salesRepository.findActivities(where, filters.limit);
   }
 
+  // --- Profile / Region ---
+  async getMyRegion(consultantId: string): Promise<{ id: string; name: string } | null> {
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { region: { select: { id: true, name: true } } },
+    });
+    return consultant?.region ?? null;
+  }
+
   // --- Dashboard ---
   async getDashboardStats(consultantId: string) {
     return this.salesRepository.getDashboardStats(consultantId);
@@ -244,35 +255,52 @@ export class SalesService extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    // Create company from lead data
-    const company = await prisma.company.create({
-      data: {
-        name: companyData.company_name || lead.company_name,
-        domain: companyData.website ? new URL(companyData.website).hostname : '',
-        website: companyData.website || lead.website || '',
-        country_or_region: companyData.country || lead.country || '',
-        verification_status: 'PENDING'
-      }
+    let parsedDomain = '';
+    try {
+      parsedDomain = companyData.website ? new URL(companyData.website).hostname : '';
+    } catch {
+      parsedDomain = '';
+    }
+    const safeDomain = parsedDomain || `company-${leadId.slice(0, 8)}.local`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: {
+          name: companyData.company_name || lead.company_name,
+          domain: safeDomain,
+          website: companyData.website || lead.website || '',
+          country_or_region: companyData.country || lead.country || '',
+          region_id: lead.region_id || undefined,
+          sales_agent_id: consultantId,
+          verification_status: 'PENDING'
+        }
+      });
+
+      await tx.opportunity.create({
+        data: {
+          company_id: company.id,
+          name: `${company.name} Opportunity`,
+          stage: 'NEW',
+          type: 'SUBSCRIPTION',
+          sales_agent_id: consultantId,
+          amount: companyData.estimatedValue || 0,
+          description: companyData.notes || '',
+        }
+      });
+
+      await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          status: 'CONVERTED',
+          converted_to_company_id: company.id,
+          converted_at: new Date()
+        }
+      });
+
+      return { lead, company };
     });
 
-    // Create opportunity
-    await this.createOpportunity({
-      companyId: company.id,
-      name: `${company.name} Opportunity`,
-      type: 'NEW_BUSINESS',
-      salesAgentId: consultantId,
-      amount: companyData.estimatedValue,
-      description: companyData.notes
-    });
-
-    // Update lead status
-    await this.salesRepository.updateLead(leadId, {
-      status: 'CONVERTED',
-      company: { connect: { id: company.id } },
-      converted_at: new Date()
-    } as any);
-
-    return { lead, company };
+    return result;
   }
 
   async submitConversionRequest(consultantId: string, leadId: string, data: any) {
@@ -280,15 +308,14 @@ export class SalesService extends BaseService {
     if (!lead) throw new HttpException(404, 'Lead not found');
     if (lead.status === 'CONVERTED') throw new HttpException(400, 'Lead is already converted');
 
-    // Get the region for the conversion request
     const consultant = await prisma.consultant.findUnique({
       where: { id: consultantId },
-      select: { region_id: true }
+      select: { id: true, region_id: true }
     });
+    if (!consultant) throw new HttpException(404, 'Consultant not found');
 
-    if (!consultant?.region_id) {
-      throw new HttpException(400, 'Consultant does not have an assigned region');
-    }
+    assertLeadInConsultantRegion(lead, consultant);
+    await validateRegionCurrencyMapping(consultant.region_id!);
 
     const normalizedIntentSnapshot = normalizeConversionIntentSnapshot(
       data?.intentSnapshot ?? data?.intent_snapshot
@@ -319,6 +346,59 @@ export class SalesService extends BaseService {
 
     // Use lead data for company/contact info – form only sends agentNotes and tempPassword
     return this.salesRepository.createConversionRequest(createPayload);
+  }
+
+  async getConversionEligibility(leadId: string, consultantId: string): Promise<{
+    eligible: boolean;
+    reasons: string[];
+    regionId?: string;
+    regionCountry?: string;
+    mapping?: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null;
+  }> {
+    const lead = await this.salesRepository.findLeadById(leadId);
+    const reasons: string[] = [];
+    if (!lead) {
+      return { eligible: false, reasons: ['Lead not found'] };
+    }
+    if (lead.status === 'CONVERTED') {
+      return { eligible: false, reasons: ['Lead is already converted'] };
+    }
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: consultantId },
+      select: { id: true, region_id: true },
+    });
+    if (!consultant) {
+      return { eligible: false, reasons: ['Consultant not found'] };
+    }
+    try {
+      assertLeadInConsultantRegion(lead, consultant);
+    } catch (e) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId: consultant.region_id ?? undefined };
+      }
+      throw e;
+    }
+    const regionId = consultant.region_id!;
+    const region = await prisma.region.findUnique({ where: { id: regionId }, select: { country: true } });
+    let mapping: { pricingPeg: string; billingCurrency: string; isActive: boolean } | null = null;
+    try {
+      const result = await CurrencyAssignmentService.resolveRegionCurrencyOrThrow(regionId);
+      mapping = { pricingPeg: result.pricingPeg, billingCurrency: result.billingCurrency, isActive: result.isActive };
+    } catch (e) {
+      if (e instanceof HttpException) {
+        reasons.push(e.message);
+        return { eligible: false, reasons, regionId, regionCountry: region?.country };
+      }
+      throw e;
+    }
+    return {
+      eligible: true,
+      reasons: [],
+      regionId,
+      regionCountry: region?.country,
+      mapping,
+    };
   }
 
   // --- Conversion Requests ---
