@@ -18,7 +18,9 @@
     "prisma:main:deploy": "sh -c 'set -a; [ -f ./.env.main ] && . ./.env.main; set +a; prisma migrate deploy'",
     "prisma:sync-main": "bash scripts/sync-main.sh",
     "prisma:sync-main:named": "bash scripts/sync-main.sh",
-    "prisma:clear-main": "node scripts/clear-main-data.js"
+    "prisma:clear-main": "node scripts/clear-main-data.js",
+    "seed:price-books": "tsx scripts/seed-price-books.ts",
+    "seed:price-books:prod": "sh -c 'set -a; [ -f ./.env.main ] && . ./.env.main; set +a; tsx scripts/seed-price-books.ts'"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.22",
