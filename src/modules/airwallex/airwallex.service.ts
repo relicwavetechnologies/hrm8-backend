@@ -88,10 +88,12 @@ async function liveAuth(): Promise<string> {
 
 export class AirwallexService {
   static async createCheckoutSession(input: AirwallexCheckoutInput): Promise<AirwallexCheckoutSession> {
-    if (BILLING_PROVIDER_MODE === 'live') {
-      return this.createLiveCheckoutSessionAsync(input);
+    // In mock mode: return success URL directly (no Airwallex payment page). Requires backend restart after .env change.
+    if (BILLING_PROVIDER_MODE !== 'live') {
+      log.info('Checkout: using mock (no payment page)', { amount: input.amount, currency: input.currency });
+      return this.createMockCheckoutSession(input);
     }
-    return this.createMockCheckoutSession(input);
+    return this.createLiveCheckoutSessionAsync(input);
   }
 
   static createRefund(paymentAttemptId: string): AirwallexRefund {

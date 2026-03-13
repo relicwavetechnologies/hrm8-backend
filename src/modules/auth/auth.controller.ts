@@ -3,9 +3,35 @@ import { BaseController } from '../../core/controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
 import { CompanyRepository } from '../company/company.repository';
+import { companyProfileService } from '../company/company-profile.service';
 import { getSessionCookieOptions } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
 import { passwordResetService } from './password-reset.service';
+import type { User } from '@prisma/client';
+
+async function buildCompanyAuthResponse(user: User) {
+  const { password_hash, ...userData } = user;
+  const base = {
+    user: { ...userData, companyId: user.company_id },
+  } as Record<string, unknown>;
+
+  if (!user.company_id) return base;
+
+  try {
+    const [profile, company] = await Promise.all([
+      companyProfileService.getProfileSummary(user.company_id),
+      new CompanyRepository().findById(user.company_id),
+    ]);
+    const requiresCurrencySetup =
+      company?.currency_preference_confirmed_at == null && company?.currency_locked_at == null;
+    (base as any).profile = profile;
+    (base as any).requiresCurrencySetup = requiresCurrencySetup;
+    (base as any).billingCurrency = company?.billing_currency ?? 'USD';
+  } catch {
+    // Fallback if profile/company fetch fails
+  }
+  return base;
+}
 
 export class AuthController extends BaseController {
   private authService: AuthService;
@@ -28,13 +54,8 @@ export class AuthController extends BaseController {
 
       res.cookie('sessionId', sessionId, cookieOptions);
 
-      const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, {
-        user: {
-          ...userData,
-          companyId: user.company_id
-        }
-      });
+      const payload = await buildCompanyAuthResponse(user);
+      return this.sendSuccess(res, payload);
     } catch (error) {
       console.error(`[AuthController.login] Login error:`, error);
       return this.sendError(res, error);
@@ -58,13 +79,8 @@ export class AuthController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
-      const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, {
-        user: {
-          ...userData,
-          companyId: user.company_id
-        }
-      });
+      const payload = await buildCompanyAuthResponse(user);
+      return this.sendSuccess(res, payload);
     } catch (error) {
       return this.sendError(res, error);
     }

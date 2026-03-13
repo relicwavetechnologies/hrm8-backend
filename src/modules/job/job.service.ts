@@ -15,6 +15,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
 import { BillingService } from '../billing/billing.service';
+import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
 import { FeatureFlags } from '../../config/feature-flags';
 import { BillingLogger } from '../../utils/billing-logger';
@@ -667,6 +668,64 @@ export class JobService extends BaseService {
         notes: JSON.stringify({ source: 'MANAGED_SERVICE_PAYMENT' }),
       },
     });
+  }
+
+  /**
+   * Initiate PAYG job checkout — when quota/free job exhausted, redirect to invoice payment.
+   * Creates Airwallex + Xero checkout; webhook publishes job on success.
+   */
+  async initiatePaygJobCheckout(
+    id: string,
+    companyId: string,
+    userId: string
+  ): Promise<{ checkoutUrl: string; paymentAttemptId: string; amount: number; currency: string; billId: string }> {
+    const job = await this.jobRepository.findById(id);
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
+    if (job.status !== 'DRAFT') {
+      throw new HttpException(400, 'Only draft jobs can go through PAYG checkout. Job may already be published.');
+    }
+
+    const decision = await UsageEngine.resolveJobPublish(companyId, job.hiring_mode || 'SELF_MANAGED');
+    if (decision !== 'PAYG_REQUIRE_INVOICE' && decision !== 'OVER_QUOTA_PAYG') {
+      throw new HttpException(400, `PAYG checkout not applicable. Current state: ${decision}`);
+    }
+
+    let price: number;
+    let currency: string;
+    try {
+      const result = await PriceBookSelectionService.getPriceForProduct(companyId, 'SUB_PAYG', 1);
+      price = result.price;
+      currency = result.currency;
+    } catch {
+      price = 195;
+      currency = 'USD';
+    }
+
+    const atsBase = process.env.ATS_FRONTEND_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
+    const checkout = await BillingService.createCheckout(
+      { companyId, userId },
+      {
+        type: 'payg_job',
+        amount: price,
+        currency,
+        description: 'PAYG job posting (invoice)',
+        successUrl: `${atsBase}/ats/jobs?payg_success=1&jobId=${id}`,
+        cancelUrl: `${atsBase}/ats/jobs/${id}?payg_canceled=1`,
+        metadata: {
+          type: 'payg_job',
+          jobId: id,
+        },
+      }
+    );
+
+    return {
+      checkoutUrl: checkout.url,
+      paymentAttemptId: checkout.paymentAttemptId,
+      amount: price,
+      currency,
+      billId: checkout.billId,
+    };
   }
 
   async upgradeToManagedService(

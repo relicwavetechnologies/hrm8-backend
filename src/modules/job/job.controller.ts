@@ -129,6 +129,18 @@ export class JobController extends BaseController {
     }
   };
 
+  initiatePaygJobCheckout = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return this.sendError(res, new Error('Not authenticated'));
+      const { id } = req.params as { id: string };
+
+      const result = await this.jobService.initiatePaygJobCheckout(id, req.user.companyId, req.user.id);
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   upgradeToManagedService = async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));

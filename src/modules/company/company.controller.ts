@@ -101,6 +101,20 @@ export class CompanyController extends BaseController {
     }
   };
 
+  confirmCurrencyPreference = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params as { id: string };
+      if (req.user?.companyId !== id) {
+        return this.sendError(res, new Error('Unauthorized'));
+      }
+      const { currency } = req.body;
+      const company = await this.companyService.confirmCurrencyPreference(id, currency);
+      return this.sendSuccess(res, { company });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   getStats = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params as { id: string };

@@ -22,6 +22,9 @@ router.put('/:id/profile', authenticate, companyController.updateProfile);
 router.get('/:id/job-assignment-settings', authenticate, companyController.getJobAssignmentSettings);
 router.put('/:id/job-assignment-mode', authenticate, companyController.updateJobAssignmentMode);
 
+// Currency (first-time setup)
+router.patch('/:id/currency-preference', authenticate, companyController.confirmCurrencyPreference);
+
 // Stats
 router.get('/:id/stats', authenticate, companyController.getStats);
 router.get('/:id/subscription/active', authenticate, subscriptionController.getActive);

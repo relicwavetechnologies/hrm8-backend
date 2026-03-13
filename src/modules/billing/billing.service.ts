@@ -21,7 +21,7 @@ const BILLING_AUTO_CONFIRM =
     ? true
     : process.env.BILLING_AUTO_CONFIRM === 'true';
 
-export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service';
+export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service' | 'payg_job';
 
 export interface BillingCheckoutRequest {
   type?: string;
@@ -98,6 +98,7 @@ export class BillingService {
 
     if (resolved === 'subscription') return 'subscription';
     if (resolved === 'managed_service') return 'managed_service';
+    if (resolved === 'payg_job') return 'payg_job';
     return 'wallet_recharge';
   }
 
@@ -143,7 +144,9 @@ export class BillingService {
         ? `Subscription purchase (${asString(mergedMetadata.planName) || 'plan'})`
         : checkoutType === 'managed_service'
           ? 'Managed service invoice'
-          : 'Wallet recharge');
+          : checkoutType === 'payg_job'
+            ? 'PAYG job posting (invoice)'
+            : 'Wallet recharge');
 
     const xeroInvoice = XeroService.createInvoice({
       companyId: context.companyId,
@@ -344,6 +347,36 @@ export class BillingService {
           pricingPeg: asString(metadata.pricingPeg) || undefined,
           billingCurrency: bill.currency,
         });
+      }
+    }
+
+    if (checkoutType === 'payg_job') {
+      const jobId = asString(metadata.jobId);
+      if (!jobId) {
+        throw new HttpException(400, 'PAYG job checkout metadata is incomplete');
+      }
+
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { id: true, company_id: true, status: true },
+      });
+      if (!job) {
+        throw new HttpException(404, 'PAYG job not found');
+      }
+      if (job.company_id !== bill.company_id) {
+        throw new HttpException(403, 'PAYG job payment company mismatch');
+      }
+      if (job.status !== 'DRAFT') {
+        log.warn('PAYG job already published or invalid status', { jobId, status: job.status });
+      } else {
+        await prisma.job.update({
+          where: { id: jobId },
+          data: {
+            status: 'OPEN',
+            posting_date: new Date(),
+          },
+        });
+        log.info('PAYG job published after payment', { jobId, companyId: bill.company_id });
       }
     }
 
