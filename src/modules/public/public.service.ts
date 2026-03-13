@@ -2,6 +2,7 @@ import { BaseService } from '../../core/service';
 import { JobRepository } from '../job/job.repository';
 import { CompanyRepository } from '../company/company.repository';
 import { prisma } from '../../utils/prisma';
+import { jobTargetService } from '../jobtarget/jobtarget.service';
 
 export class PublicService extends BaseService {
   constructor(
@@ -377,8 +378,12 @@ export class PublicService extends BaseService {
       resumeUrl,
       coverLetterUrl,
       portfolioUrl,
-      answers
+      answers,
+      jobTargetAttribution,
     } = data;
+
+    const attribution = jobTargetService.extractAttribution(jobTargetAttribution);
+    const sourceLabel = jobTargetService.sourceLabelFromAttribution(attribution);
 
     // Validate job exists and is open
     const job = await this.jobRepository.findById(jobId);
@@ -437,8 +442,13 @@ export class PublicService extends BaseService {
       resume_url: resumeUrl || null,
       cover_letter_url: coverLetterUrl || null,
       portfolio_url: portfolioUrl || null,
-      custom_answers: (answers || {}) as object
+      custom_answers: (answers || {}) as object,
+      source: sourceLabel,
+      job_target_attribution: attribution as any,
     });
+
+    await jobTargetService.retryPendingSyncIfDue(application.id, application.stage);
+    await jobTargetService.syncNewApplicationEvent(application.id);
 
     return {
       application,

@@ -216,7 +216,11 @@ export class PublicController extends BaseController {
 
   submitGuestApplication = async (req: Request, res: Response) => {
     try {
-      const result = await this.publicService.submitGuestApplication(req.body);
+      const payload = {
+        ...req.body,
+        jobTargetAttribution: req.body?.jobTargetAttribution || { rawQuery: req.query, ...req.query },
+      };
+      const result = await this.publicService.submitGuestApplication(payload);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);

@@ -8,6 +8,7 @@ const candidate_repository_1 = require("../candidate/candidate.repository");
 const notification_service_1 = require("../notification/notification.service");
 const notification_repository_1 = require("../notification/notification.repository");
 const prisma_1 = require("../../utils/prisma");
+const jobtarget_service_1 = require("../jobtarget/jobtarget.service");
 class ApplicationController extends controller_1.BaseController {
     constructor() {
         super();
@@ -15,9 +16,13 @@ class ApplicationController extends controller_1.BaseController {
         this.submitApplication = async (req, res) => {
             try {
                 const payload = { ...req.body };
+                const queryAttribution = jobtarget_service_1.jobTargetService.extractAttribution({ rawQuery: req.query, ...req.query });
                 // Inject candidate ID from authenticated request
                 if (req.candidate) {
                     payload.candidateId = req.candidate.id;
+                }
+                if (!payload.jobTargetAttribution && queryAttribution) {
+                    payload.jobTargetAttribution = queryAttribution;
                 }
                 if (!payload.candidateId) {
                     // If still no candidateId (and we require it for Prisma connection), throw error

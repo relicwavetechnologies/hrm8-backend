@@ -62,7 +62,7 @@ class JobController extends controller_1.BaseController {
                 if (!req.user)
                     return this.sendError(res, new Error('Not authenticated'));
                 const { id } = req.params;
-                const job = await this.jobService.updateJob(id, req.user.companyId, req.body);
+                const job = await this.jobService.updateJob(id, req.user.companyId, req.body, req.user.id);
                 return this.sendSuccess(res, { job });
             }
             catch (error) {
@@ -74,7 +74,7 @@ class JobController extends controller_1.BaseController {
                 if (!req.user)
                     return this.sendError(res, new Error('Not authenticated'));
                 const { id } = req.params;
-                await this.jobService.deleteJob(id, req.user.companyId);
+                await this.jobService.deleteJob(id, req.user.companyId, req.user.id);
                 return this.sendSuccess(res, { message: 'Job deleted successfully' });
             }
             catch (error) {
@@ -107,6 +107,18 @@ class JobController extends controller_1.BaseController {
                 const { saveAsTemplate, templateName } = req.body;
                 const job = await this.jobService.publishJob(id, req.user.companyId, req.user.id, { saveAsTemplate, templateName });
                 return this.sendSuccess(res, { job });
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.createJobTargetSession = async (req, res) => {
+            try {
+                if (!req.user)
+                    return this.sendError(res, new Error('Not authenticated'));
+                const { id } = req.params;
+                const session = await this.jobService.createJobTargetSession(id, req.user.companyId, req.user.id);
+                return this.sendSuccess(res, { session });
             }
             catch (error) {
                 return this.sendError(res, error);

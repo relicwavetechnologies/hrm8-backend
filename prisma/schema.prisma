@@ -276,10 +276,16 @@ model Job {
   application_form                    Json?                       @map("application_form")
   video_interviewing_enabled          Boolean                     @default(false) @map("video_interviewing_enabled")
   alerts_enabled                      Json?                       @map("alerts_enabled")
+  distribution_scope                  DistributionScope           @default(HRM8_ONLY) @map("distribution_scope")
   job_target_approved                 Boolean                     @default(false) @map("jobtarget_approved")
   job_target_budget                   Float?                      @map("jobtarget_budget")
+  job_target_budget_tier              String?                     @map("jobtarget_budget_tier")
   job_target_budget_spent             Float?                      @default(0) @map("jobtarget_budget_spent")
   job_target_channels                 String[]                    @default([]) @map("jobtarget_channels")
+  job_target_remote_job_id            String?                     @map("jobtarget_remote_job_id")
+  job_target_sync_status              JobTargetSyncStatus         @default(NOT_SYNCED) @map("jobtarget_sync_status")
+  job_target_last_synced_at           DateTime?                   @map("jobtarget_last_synced_at")
+  job_target_last_error               String?                     @map("jobtarget_last_error")
   job_target_promotion_id             String?                     @map("jobtarget_promotion_id")
   job_target_status                   String?                     @map("jobtarget_status")
   referral_link                       String?                     @map("referral_link")
@@ -699,6 +705,15 @@ model Application {
   website_url                String?                    @map("website_url")
   custom_answers             Json?                      @map("custom_answers")
   questionnaire_data         Json?                      @map("questionnaire_data")
+  job_target_attribution     Json?                      @map("jobtarget_attribution")
+  job_target_new_app_sync_status String?                @map("jobtarget_new_app_sync_status")
+  job_target_new_app_sync_attempts Int                  @default(0) @map("jobtarget_new_app_sync_attempts")
+  job_target_new_app_last_error String?                 @map("jobtarget_new_app_last_error")
+  job_target_new_app_next_retry_at DateTime?            @map("jobtarget_new_app_next_retry_at")
+  job_target_stage_sync_status String?                  @map("jobtarget_stage_sync_status")
+  job_target_stage_sync_attempts Int                    @default(0) @map("jobtarget_stage_sync_attempts")
+  job_target_stage_last_error String?                   @map("jobtarget_stage_last_error")
+  job_target_stage_next_retry_at DateTime?              @map("jobtarget_stage_next_retry_at")
   is_read                    Boolean                    @default(false) @map("is_read")
   is_new                     Boolean                    @default(true) @map("is_new")
   tags                       String[]                   @default([])
@@ -2794,6 +2809,19 @@ enum ApplicationStage {
   OFFER_EXTENDED
   OFFER_ACCEPTED
   REJECTED
+}
+
+enum DistributionScope {
+  HRM8_ONLY
+  GLOBAL
+}
+
+enum JobTargetSyncStatus {
+  NOT_SYNCED
+  SYNCING
+  SYNCED
+  FAILED
+  CLOSED
 }
 
 enum AssessmentStatus {
