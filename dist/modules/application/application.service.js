@@ -43,6 +43,7 @@ const email_service_1 = require("../email/email.service");
 const interview_service_1 = require("../interview/interview.service");
 const placement_commission_service_1 = require("../hrm8/placement-commission.service");
 const application_activity_service_1 = require("./application-activity.service");
+const jobtarget_service_1 = require("../jobtarget/jobtarget.service");
 class ApplicationService extends service_1.BaseService {
     constructor(applicationRepository, candidateRepository, notificationService) {
         super();
@@ -57,6 +58,8 @@ class ApplicationService extends service_1.BaseService {
             throw new http_exception_1.HttpException(400, 'You have already applied to this job');
         }
         // Create the application
+        const attribution = jobtarget_service_1.jobTargetService.extractAttribution(data.jobTargetAttribution);
+        const sourceLabel = jobtarget_service_1.jobTargetService.sourceLabelFromAttribution(attribution);
         const application = await this.applicationRepository.create({
             candidate: { connect: { id: data.candidateId } },
             job: { connect: { id: data.jobId } },
@@ -70,6 +73,8 @@ class ApplicationService extends service_1.BaseService {
             website_url: data.websiteUrl,
             custom_answers: data.customAnswers || [],
             questionnaire_data: data.questionnaireData,
+            source: sourceLabel,
+            job_target_attribution: attribution,
             is_read: false,
             is_new: true,
             tags: [],
@@ -95,6 +100,8 @@ class ApplicationService extends service_1.BaseService {
         // Non-blocking catch-all to prevent application failure if email fails
         (async () => {
             try {
+                await jobtarget_service_1.jobTargetService.retryPendingSyncIfDue(application.id, application.stage);
+                await jobtarget_service_1.jobTargetService.syncNewApplicationEvent(application.id);
                 const newRound = await prisma_1.prisma.jobRound.findFirst({
                     where: {
                         job_id: data.jobId,
@@ -312,6 +319,15 @@ class ApplicationService extends service_1.BaseService {
             websiteUrl: app.website_url,
             customAnswers: app.custom_answers,
             questionnaireData: app.questionnaire_data,
+            jobTargetAttribution: app.job_target_attribution || undefined,
+            jobTargetNewAppSyncStatus: app.job_target_new_app_sync_status || undefined,
+            jobTargetNewAppSyncAttempts: app.job_target_new_app_sync_attempts ?? 0,
+            jobTargetNewAppLastError: app.job_target_new_app_last_error || undefined,
+            jobTargetNewAppNextRetryAt: app.job_target_new_app_next_retry_at || undefined,
+            jobTargetStageSyncStatus: app.job_target_stage_sync_status || undefined,
+            jobTargetStageSyncAttempts: app.job_target_stage_sync_attempts ?? 0,
+            jobTargetStageLastError: app.job_target_stage_last_error || undefined,
+            jobTargetStageNextRetryAt: app.job_target_stage_next_retry_at || undefined,
             manuallyAdded: app.manually_added,
             addedBy: app.added_by,
             addedAt: app.added_at,
@@ -450,6 +466,8 @@ class ApplicationService extends service_1.BaseService {
                 newStage: stage,
             },
         });
+        await jobtarget_service_1.jobTargetService.retryPendingSyncIfDue(id, stage);
+        await jobtarget_service_1.jobTargetService.syncStageChange(id, stage);
         return updatedApp;
     }
     async updateNotes(id, notes, actorId) {

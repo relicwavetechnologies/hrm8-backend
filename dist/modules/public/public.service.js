@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PublicService = void 0;
 const service_1 = require("../../core/service");
 const prisma_1 = require("../../utils/prisma");
+const jobtarget_service_1 = require("../jobtarget/jobtarget.service");
 class PublicService extends service_1.BaseService {
     constructor(jobRepository, companyRepository) {
         super();
@@ -337,7 +338,9 @@ class PublicService extends service_1.BaseService {
         const bcrypt = await Promise.resolve().then(() => __importStar(require('bcrypt')));
         const candidateRepository = new CandidateRepository();
         const applicationRepository = new ApplicationRepository();
-        const { jobId, email, password, firstName, lastName, phone, resumeUrl, coverLetterUrl, portfolioUrl, answers } = data;
+        const { jobId, email, password, firstName, lastName, phone, resumeUrl, coverLetterUrl, portfolioUrl, answers, jobTargetAttribution, } = data;
+        const attribution = jobtarget_service_1.jobTargetService.extractAttribution(jobTargetAttribution);
+        const sourceLabel = jobtarget_service_1.jobTargetService.sourceLabelFromAttribution(attribution);
         // Validate job exists and is open
         const job = await this.jobRepository.findById(jobId);
         if (!job) {
@@ -389,8 +392,12 @@ class PublicService extends service_1.BaseService {
             resume_url: resumeUrl || null,
             cover_letter_url: coverLetterUrl || null,
             portfolio_url: portfolioUrl || null,
-            custom_answers: (answers || {})
+            custom_answers: (answers || {}),
+            source: sourceLabel,
+            job_target_attribution: attribution,
         });
+        await jobtarget_service_1.jobTargetService.retryPendingSyncIfDue(application.id, application.stage);
+        await jobtarget_service_1.jobTargetService.syncNewApplicationEvent(application.id);
         return {
             application,
             candidate: {

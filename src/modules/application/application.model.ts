@@ -77,6 +77,13 @@ export interface SubmitApplicationRequest {
     answer: string | string[];
   }>;
   questionnaireData?: any;
+  jobTargetAttribution?: {
+    applicantGuid?: string;
+    source?: string;
+    medium?: string;
+    campaign?: string;
+    rawQuery?: Record<string, string>;
+  };
 }
 
 export interface ApplicationFilters {

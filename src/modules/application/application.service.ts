@@ -12,6 +12,7 @@ import { NotificationService } from '../notification/notification.service';
 import { InterviewService } from '../interview/interview.service';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from './application-activity.service';
+import { jobTargetService } from '../jobtarget/jobtarget.service';
 
 export class ApplicationService extends BaseService {
   constructor(
@@ -34,6 +35,9 @@ export class ApplicationService extends BaseService {
     }
 
     // Create the application
+    const attribution = jobTargetService.extractAttribution(data.jobTargetAttribution);
+    const sourceLabel = jobTargetService.sourceLabelFromAttribution(attribution);
+
     const application = await this.applicationRepository.create({
       candidate: { connect: { id: data.candidateId } },
       job: { connect: { id: data.jobId } },
@@ -47,6 +51,8 @@ export class ApplicationService extends BaseService {
       website_url: data.websiteUrl,
       custom_answers: data.customAnswers || [],
       questionnaire_data: data.questionnaireData,
+      source: sourceLabel,
+      job_target_attribution: attribution as any,
       is_read: false,
       is_new: true,
       tags: [],
@@ -75,6 +81,9 @@ export class ApplicationService extends BaseService {
     // Non-blocking catch-all to prevent application failure if email fails
     (async () => {
       try {
+        await jobTargetService.retryPendingSyncIfDue(application.id, application.stage);
+        await jobTargetService.syncNewApplicationEvent(application.id);
+
         const newRound = await prisma.jobRound.findFirst({
           where: {
             job_id: data.jobId,
@@ -314,6 +323,15 @@ export class ApplicationService extends BaseService {
       websiteUrl: app.website_url,
       customAnswers: app.custom_answers,
       questionnaireData: app.questionnaire_data,
+      jobTargetAttribution: app.job_target_attribution || undefined,
+      jobTargetNewAppSyncStatus: app.job_target_new_app_sync_status || undefined,
+      jobTargetNewAppSyncAttempts: app.job_target_new_app_sync_attempts ?? 0,
+      jobTargetNewAppLastError: app.job_target_new_app_last_error || undefined,
+      jobTargetNewAppNextRetryAt: app.job_target_new_app_next_retry_at || undefined,
+      jobTargetStageSyncStatus: app.job_target_stage_sync_status || undefined,
+      jobTargetStageSyncAttempts: app.job_target_stage_sync_attempts ?? 0,
+      jobTargetStageLastError: app.job_target_stage_last_error || undefined,
+      jobTargetStageNextRetryAt: app.job_target_stage_next_retry_at || undefined,
       manuallyAdded: app.manually_added,
       addedBy: app.added_by,
       addedAt: app.added_at,
@@ -461,6 +479,9 @@ export class ApplicationService extends BaseService {
         newStage: stage,
       },
     });
+
+    await jobTargetService.retryPendingSyncIfDue(id, stage);
+    await jobTargetService.syncStageChange(id, stage);
 
     return updatedApp;
   }

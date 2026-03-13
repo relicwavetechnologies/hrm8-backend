@@ -17,6 +17,7 @@ const billing_service_1 = require("../billing/billing.service");
 const commission_rate_util_1 = require("../hrm8/commission-rate.util");
 const feature_flags_1 = require("../../config/feature-flags");
 const billing_logger_1 = require("../../utils/billing-logger");
+const jobtarget_service_1 = require("../jobtarget/jobtarget.service");
 class JobService extends service_1.BaseService {
     constructor(jobRepository, applicationRepository, notificationService, jobRoundService) {
         super();
@@ -24,6 +25,37 @@ class JobService extends service_1.BaseService {
         this.applicationRepository = applicationRepository;
         this.notificationService = notificationService;
         this.jobRoundService = jobRoundService;
+    }
+    normalizeDistributionScope(scopeRaw) {
+        const normalized = String(scopeRaw || '').trim().toUpperCase();
+        return normalized === 'GLOBAL' ? 'GLOBAL' : 'HRM8_ONLY';
+    }
+    extractJobTargetConfigPatch(data, includeDefaults = false) {
+        const patch = {};
+        const globalConfig = (data?.globalPublishConfig || {});
+        const hasDistributionScope = data?.distributionScope !== undefined;
+        if (includeDefaults || hasDistributionScope) {
+            patch.distribution_scope = this.normalizeDistributionScope(data?.distributionScope);
+        }
+        const channelsRaw = globalConfig.channels ?? data?.jobTargetChannels;
+        if (includeDefaults || channelsRaw !== undefined) {
+            patch.job_target_channels = Array.isArray(channelsRaw)
+                ? channelsRaw.map((c) => String(c).trim()).filter(Boolean)
+                : [];
+        }
+        const budgetTierRaw = globalConfig.budgetTier ?? data?.jobTargetBudgetTier;
+        if (includeDefaults || budgetTierRaw !== undefined) {
+            patch.job_target_budget_tier = budgetTierRaw ? String(budgetTierRaw).trim() : null;
+        }
+        const customBudgetRaw = globalConfig.customBudget ?? data?.jobTargetBudgetCustom ?? data?.jobTargetBudget;
+        if (includeDefaults || customBudgetRaw !== undefined) {
+            patch.job_target_budget = customBudgetRaw != null && customBudgetRaw !== '' ? Number(customBudgetRaw) : null;
+        }
+        const approvedRaw = globalConfig.hrm8ServiceApproved ?? data?.jobTargetApproved;
+        if (includeDefaults || approvedRaw !== undefined) {
+            patch.job_target_approved = Boolean(approvedRaw);
+        }
+        return patch;
     }
     async createJob(companyId, createdBy, data) {
         const jobCode = await this.generateJobCode(companyId);
@@ -35,6 +67,7 @@ class JobService extends service_1.BaseService {
         // Always create as DRAFT.
         // Publishing must go through publishJob() so quota/wallet/assignment rules are enforced centrally.
         const publishImmediately = false;
+        const jobTargetConfigPatch = this.extractJobTargetConfigPatch(data, true);
         const jobPayload = {
             // Explicitly map all fields to ensure no data loss
             company: { connect: { id: companyId } },
@@ -73,6 +106,7 @@ class JobService extends service_1.BaseService {
             // Post-job setup flow (Simple vs Advanced)
             ...(data.setupType && { setup_type: data.setupType.toUpperCase() === 'SIMPLE' ? 'SIMPLE' : 'ADVANCED' }),
             ...(data.managementType && { management_type: data.managementType }),
+            ...jobTargetConfigPatch,
         };
         console.log('[JobService] Transformed Payload:', JSON.stringify(jobPayload, null, 2));
         const job = await this.jobRepository.create(jobPayload);
@@ -84,7 +118,7 @@ class JobService extends service_1.BaseService {
         ]);
         return this.mapToResponse(job);
     }
-    async updateJob(id, companyId, data) {
+    async updateJob(id, companyId, data, actorUserId) {
         const job = await this.jobRepository.findById(id);
         if (!job)
             throw new http_exception_1.HttpException(404, 'Job not found');
@@ -117,6 +151,7 @@ class JobService extends service_1.BaseService {
             draft_step: data.draftStep,
             status: data.status,
             visibility: data.visibility,
+            ...this.extractJobTargetConfigPatch(data, false),
         };
         // Remove undefined keys
         Object.keys(updateData).forEach(key => {
@@ -128,6 +163,16 @@ class JobService extends service_1.BaseService {
         if (data.setupType === 'simple' || data.setupType === 'SIMPLE') {
             if (this.jobRoundService) {
                 await this.jobRoundService.initializeSimpleRounds(id);
+            }
+        }
+        // Mirror global jobs to JobTarget after local edits
+        if (updatedJob.distribution_scope === 'GLOBAL') {
+            const nextStatus = String(updatedJob.status || '').toUpperCase();
+            if (nextStatus === 'CLOSED' || nextStatus === 'ON_HOLD' || nextStatus === 'FILLED' || nextStatus === 'CANCELLED') {
+                await jobtarget_service_1.jobTargetService.closeRemoteJob(id, companyId, actorUserId || job.created_by);
+            }
+            else if (nextStatus === 'OPEN') {
+                await jobtarget_service_1.jobTargetService.syncJobEdit(id, companyId, actorUserId || job.created_by);
             }
         }
         return this.mapToResponse(updatedJob);
@@ -265,6 +310,14 @@ class JobService extends service_1.BaseService {
             applicationForm: job.application_form,
             hiringTeam: job.hiring_team,
             jobBoardDistribution: job.job_board_distribution,
+            distributionScope: job.distribution_scope || 'HRM8_ONLY',
+            globalPublishConfig: {
+                channels: job.job_target_channels || [],
+                budgetTier: job.job_target_budget_tier || 'none',
+                customBudget: job.job_target_budget ?? undefined,
+                hrm8ServiceRequiresApproval: servicePackage !== 'self-managed' && servicePackage !== 'rpo',
+                hrm8ServiceApproved: !!job.job_target_approved,
+            },
             serviceType: servicePackage,
             servicePackage,
             paymentStatus: job.payment_status ?? 'PENDING',
@@ -276,18 +329,40 @@ class JobService extends service_1.BaseService {
             stripePaymentIntentId: job.stripe_payment_intent_id,
             assignedConsultantId: job.assigned_consultant_id,
             assignedConsultantName: job.assigned_consultant_name,
+            hasJobTargetPromotion: !!job.job_target_promotion_id || (Array.isArray(job.job_target_channels) && job.job_target_channels.length > 0),
+            jobTargetPromotionId: job.job_target_promotion_id ?? undefined,
+            jobTargetChannels: job.job_target_channels || [],
+            jobTargetBudget: job.job_target_budget ?? undefined,
+            jobTargetBudgetTier: job.job_target_budget_tier ?? undefined,
+            jobTargetBudgetSpent: job.job_target_budget_spent ?? undefined,
+            jobTargetStatus: job.job_target_status ?? undefined,
+            jobTargetApproved: !!job.job_target_approved,
+            jobTargetSync: {
+                remoteJobId: job.job_target_remote_job_id ?? undefined,
+                syncStatus: job.job_target_sync_status || 'NOT_SYNCED',
+                lastSyncedAt: job.job_target_last_synced_at ?? undefined,
+                lastError: job.job_target_last_error ?? undefined,
+                approved: !!job.job_target_approved,
+                selectedChannels: job.job_target_channels || [],
+                budget: job.job_target_budget ?? undefined,
+                budgetSpent: job.job_target_budget_spent ?? undefined,
+                promotionStatus: job.job_target_status ?? undefined,
+            },
             applicantsCount: job._count?.applications || 0,
             setupType: job.setup_type ? job.setup_type.toLowerCase() : 'advanced',
             managementType: job.management_type ?? undefined,
             draftStep: this._draftStepFromJob(job),
         };
     }
-    async deleteJob(id, companyId) {
+    async deleteJob(id, companyId, actorUserId) {
         const job = await this.jobRepository.findById(id);
         if (!job)
             throw new http_exception_1.HttpException(404, 'Job not found');
         if (job.company_id !== companyId)
             throw new http_exception_1.HttpException(403, 'Unauthorized');
+        if (job.distribution_scope === 'GLOBAL') {
+            await jobtarget_service_1.jobTargetService.closeRemoteJob(id, companyId, actorUserId || job.created_by);
+        }
         return this.jobRepository.delete(id);
     }
     async bulkDeleteJobs(jobIds, companyId) {
@@ -313,6 +388,7 @@ class JobService extends service_1.BaseService {
             archived_at: new Date(),
             archived_by: userId,
         });
+        await jobtarget_service_1.jobTargetService.closeRemoteJob(id, companyId, userId || updatedJob.created_by);
         return this.mapToResponse(updatedJob);
     }
     /**
@@ -387,6 +463,17 @@ class JobService extends service_1.BaseService {
         const hiringMode = job.hiring_mode || 'SELF_MANAGED';
         const decision = await job_usage_engine_1.UsageEngine.resolveJobPublish(companyId, hiringMode);
         console.log(`[JobService] UsageEngine decision for job ${id}: ${decision}`);
+        const ensureGlobalSyncBeforeOpen = async () => {
+            if (job.distribution_scope === 'GLOBAL') {
+                const normalizedServicePackage = this.normalizeServicePackage(job.service_package, job.hiring_mode);
+                const requiresApproval = normalizedServicePackage !== 'self-managed' && normalizedServicePackage !== 'rpo';
+                if (requiresApproval && !job.job_target_approved) {
+                    throw new http_exception_1.HttpException(400, 'Global publish for HRM8-managed jobs requires distribution approval');
+                }
+                const publisherId = userId || job.created_by;
+                await jobtarget_service_1.jobTargetService.syncJobForPublish(id, companyId, publisherId);
+            }
+        };
         let updatedJob;
         switch (decision) {
             case 'REQUIRE_SUBSCRIPTION': {
@@ -396,6 +483,7 @@ class JobService extends service_1.BaseService {
                 throw new http_exception_1.HttpException(402, 'Job posting quota exhausted. Please upgrade your subscription.');
             }
             case 'USE_QUOTA': {
+                await ensureGlobalSyncBeforeOpen();
                 // Self-managed publish: quota only. No wallet, no commission.
                 await subscription_service_1.SubscriptionService.useQuotaOnly(companyId);
                 console.log(`[JobService] Quota consumed for self-managed job ${id}`);
@@ -406,6 +494,7 @@ class JobService extends service_1.BaseService {
                 break;
             }
             case 'HRM8_MANAGED': {
+                await ensureGlobalSyncBeforeOpen();
                 // Backward-compat branch. Managed-service payment happens post-publish
                 // through invoice checkout; publishing still consumes quota only.
                 const servicePackage = this.normalizeServicePackage(job.service_package, hiringMode);
@@ -475,6 +564,7 @@ class JobService extends service_1.BaseService {
             employment_type: data.employmentType ? String(data.employmentType).toUpperCase().replace('-', '_') : undefined,
             experience_level: data.experienceLevel ?? data.experience_level,
             hide_salary: data.hideSalary ?? data.hide_salary,
+            ...this.extractJobTargetConfigPatch(data, false),
         };
         Object.keys(updatePayload).forEach(key => {
             if (updatePayload[key] === undefined)
@@ -497,6 +587,14 @@ class JobService extends service_1.BaseService {
             });
         }
         return this.publishJob(id, companyId, userId);
+    }
+    async createJobTargetSession(id, companyId, userId) {
+        const session = await jobtarget_service_1.jobTargetService.mintMarketplaceSession(id, companyId, userId);
+        return {
+            url: session.url,
+            remoteJobId: session.remoteJobId,
+            syncStatus: session.syncStatus,
+        };
     }
     async createManagedServiceCommissionIfMissing(jobId, consultantId) {
         const [job, consultant] = await Promise.all([
