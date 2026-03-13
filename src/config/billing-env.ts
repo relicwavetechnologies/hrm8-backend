@@ -31,15 +31,14 @@ const REQUIRED_XERO_VARS = [
   'XERO_TENANT_ID',
 ] as const;
 
+/** When live mode, Xero is optional for sandbox testing (Airwallex-only). XeroService uses mock invoices when vars are missing. */
+export const XERO_ENABLED = REQUIRED_XERO_VARS.every((k) => !!process.env[k]);
+
 export function validateBillingEnv(): void {
   if (BILLING_PROVIDER_MODE !== 'live') return;
 
   const missing: string[] = [];
-
   for (const key of REQUIRED_AIRWALLEX_VARS) {
-    if (!process.env[key]) missing.push(key);
-  }
-  for (const key of REQUIRED_XERO_VARS) {
     if (!process.env[key]) missing.push(key);
   }
 

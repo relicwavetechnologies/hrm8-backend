@@ -3,6 +3,8 @@ import { BaseController } from '../../core/controller';
 import { PublicService } from './public.service';
 import { JobRepository } from '../job/job.repository';
 import { CompanyRepository } from '../company/company.repository';
+import { CloudinaryService } from '../storage/cloudinary.service';
+import crypto from 'crypto';
 
 export class PublicController extends BaseController {
   private publicService: PublicService;
@@ -216,7 +218,50 @@ export class PublicController extends BaseController {
 
   submitGuestApplication = async (req: Request, res: Response) => {
     try {
-      const result = await this.publicService.submitGuestApplication(req.body);
+      const body = req.body as Record<string, string | undefined>;
+      const files = req.files as { resume?: Express.Multer.File[]; cover_letter?: Express.Multer.File[]; portfolio?: Express.Multer.File[] } | undefined;
+
+      if (!body || !body.jobId || !body.email || !body.firstName || !body.lastName) {
+        return this.sendError(res, new Error('Missing required fields: jobId, email, firstName, lastName'), 400);
+      }
+
+      const resumeFiles = files?.resume;
+      if (!resumeFiles?.length) {
+        return this.sendError(res, new Error('Resume is required'), 400);
+      }
+
+      const jobId = String(body.jobId).trim();
+      const folder = `hrm8/guest-applications/${jobId}`;
+
+      const resumeUpload = await CloudinaryService.uploadMulterFile(resumeFiles[0], { folder, resourceType: 'raw' });
+      let coverLetterUrl: string | undefined;
+      let portfolioUrl: string | undefined;
+
+      if (files?.cover_letter?.[0]) {
+        const cl = await CloudinaryService.uploadMulterFile(files.cover_letter[0], { folder, resourceType: 'raw' });
+        coverLetterUrl = cl.secureUrl;
+      }
+      if (files?.portfolio?.[0]) {
+        const pf = await CloudinaryService.uploadMulterFile(files.portfolio[0], { folder, resourceType: 'raw' });
+        portfolioUrl = pf.secureUrl;
+      }
+
+      const tempPassword = crypto.randomBytes(12).toString('base64url');
+
+      const data = {
+        jobId,
+        email: String(body.email).trim(),
+        password: tempPassword,
+        firstName: String(body.firstName).trim(),
+        lastName: String(body.lastName).trim(),
+        phone: body.phone ? String(body.phone).trim() : undefined,
+        resumeUrl: resumeUpload.secureUrl,
+        coverLetterUrl,
+        portfolioUrl,
+        answers: {},
+      };
+
+      const result = await this.publicService.submitGuestApplication(data);
       return this.sendSuccess(res, result);
     } catch (error) {
       return this.sendError(res, error);

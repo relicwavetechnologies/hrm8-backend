@@ -3,6 +3,10 @@ import { HttpException } from '../../core/http-exception';
 import { ApplicationStatus, ApplicationStage, ActorType } from '@prisma/client';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from '../application/application-activity.service';
+import {
+  ConsultantDecisionRequestService,
+  type RequiresApprovalResult,
+} from './consultant-decision-request.service';
 
 export class ConsultantCandidateService {
 
@@ -142,7 +146,12 @@ export class ConsultantCandidateService {
         return updated;
     }
 
-    async moveToRound(consultantId: string, applicationId: string, roundId: string) {
+    async moveToRound(
+        consultantId: string,
+        applicationId: string,
+        roundId: string,
+        reason?: string
+    ): Promise<void | RequiresApprovalResult> {
         const application = await prisma.application.findUnique({
             where: { id: applicationId },
             include: { job: true }
@@ -156,6 +165,27 @@ export class ConsultantCandidateService {
         });
 
         if (!round) throw new HttpException(400, 'Invalid round for this job');
+
+        // HRM8-managed: consultant needs HR approval for OFFER and REJECT
+        const isHrm8Managed = application.job.management_type === 'hrm8-managed';
+        const isOfferOrReject = round.is_fixed && (round.fixed_key === 'OFFER' || round.fixed_key === 'REJECTED');
+        if (isHrm8Managed && isOfferOrReject) {
+            const action = round.fixed_key === 'OFFER' ? 'OFFER' : 'REJECT';
+            const result = await ConsultantDecisionRequestService.createOrGetPending({
+                applicationId,
+                jobId: application.job_id,
+                consultantId,
+                action,
+                targetRoundId: roundId,
+                reason,
+            });
+            return {
+                moved: false,
+                requiresApproval: true,
+                requestId: result.id,
+                message: 'Approval requested from HR. You will be notified when it is reviewed.',
+            };
+        }
 
         // Logic to determine new stage based on fixed round keys
         let newStage: ApplicationStage | undefined;

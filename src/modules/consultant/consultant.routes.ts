@@ -26,6 +26,9 @@ router.patch('/jobs/:jobId/pipeline', authenticateConsultant, consultantControll
 router.get('/jobs/:jobId/candidates/pipeline', authenticateConsultant, consultantController.getPipeline);
 router.get('/jobs/:jobId/rounds', authenticateConsultant, consultantController.getJobRounds);
 
+// Decision requests (consultant's own approval requests)
+router.get('/decision-requests', authenticateConsultant, consultantController.listDecisionRequests);
+
 // Candidates
 router.post('/candidates/:applicationId/status', authenticateConsultant, consultantController.updateCandidateStatus);
 router.post('/candidates/:applicationId/note', authenticateConsultant, consultantController.addCandidateNote);

@@ -49,6 +49,13 @@ A modern, scalable backend for the HRM8 Human Resource Management System, built 
     pnpm dev
     ```
 
+6.  **(Optional)** For Airwallex webhook testing, run backend + Cloudflare Tunnel together:
+    ```bash
+    # Install cloudflared first: brew install cloudflared (macOS)
+    pnpm dev:tunnel
+    ```
+    Use the tunnel URL in the output for the Airwallex webhook notification URL. See `docs/BILLING_TESTING_ENVIRONMENT.md` for details.
+
 ## 🏗️ Architecture
 
 This project follows a modular **Repository-Service-Controller** pattern to ensure separation of concerns and maintainability.

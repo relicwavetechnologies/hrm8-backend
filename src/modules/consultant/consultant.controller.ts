@@ -9,6 +9,7 @@ import { ConversationService } from '../communication/conversation.service';
 import { ConsultantAuthenticatedRequest } from '../../types';
 import { ApplicationStatus, ApplicationStage } from '@prisma/client';
 import { getSessionCookieOptions } from '../../utils/session';
+import { ConsultantDecisionRequestService } from './consultant-decision-request.service';
 
 export class ConsultantController extends BaseController {
   private consultantService: ConsultantService;
@@ -127,14 +128,40 @@ export class ConsultantController extends BaseController {
     }
   };
 
+  listDecisionRequests = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
+
+      const status = req.query.status as string | undefined;
+      const requests = await ConsultantDecisionRequestService.listByConsultant(
+        consultantId,
+        status as 'PENDING' | 'APPROVED' | 'REJECTED' | undefined
+      );
+      return this.sendSuccess(res, { requests });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   moveCandidateToRound = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
       const { applicationId } = req.params;
-      const { roundId } = req.body;
-      await this.candidateService.moveToRound(consultantId, applicationId as string, roundId);
+      const { roundId, reason } = req.body;
+      if (!roundId) return this.sendError(res, new Error('roundId is required'), 400);
+
+      const result = await this.candidateService.moveToRound(
+        consultantId,
+        applicationId as string,
+        roundId,
+        reason
+      );
+      if (result && 'requiresApproval' in result && result.requiresApproval) {
+        return this.sendSuccess(res, result);
+      }
       return this.sendSuccess(res, { message: 'Moved to round' });
     } catch (error) {
       return this.sendError(res, error);

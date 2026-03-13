@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { BILLING_PROVIDER_MODE } from '../../config/billing-env';
+import { BILLING_PROVIDER_MODE, XERO_ENABLED } from '../../config/billing-env';
 import { Logger } from '../../utils/logger';
 
 const log = Logger.create('xero');
@@ -55,28 +55,28 @@ export interface XeroPayment {
 
 export class XeroService {
   static createInvoice(input: XeroInvoiceInput): XeroInvoice {
-    if (BILLING_PROVIDER_MODE === 'live') {
+    if (BILLING_PROVIDER_MODE === 'live' && XERO_ENABLED) {
       return this.createLiveInvoice(input);
     }
     return this.createMockInvoice(input);
   }
 
   static createBill(input: XeroBillInput): XeroBill {
-    if (BILLING_PROVIDER_MODE === 'live') {
+    if (BILLING_PROVIDER_MODE === 'live' && XERO_ENABLED) {
       return this.createLiveBill(input);
     }
     return this.createMockBill(input);
   }
 
   static createPayment(input: XeroPaymentInput): XeroPayment {
-    if (BILLING_PROVIDER_MODE === 'live') {
+    if (BILLING_PROVIDER_MODE === 'live' && XERO_ENABLED) {
       return this.createLivePayment(input);
     }
     return this.createMockPayment(input);
   }
 
   static createCreditNote(invoiceId: string, amount: number, currency: string): XeroCreditNote {
-    if (BILLING_PROVIDER_MODE === 'live') {
+    if (BILLING_PROVIDER_MODE === 'live' && XERO_ENABLED) {
       return this.createLiveCreditNote(invoiceId, amount, currency);
     }
     return this.createMockCreditNote(invoiceId, amount, currency);

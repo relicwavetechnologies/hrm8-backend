@@ -36,10 +36,20 @@ import talentPoolRoutes from '../modules/talent-pool/talent-pool.routes';
 import documentHubRoutes from '../modules/document-hub/document-hub.routes';
 import billingRoutes from '../modules/billing/billing.routes';
 import payoutsRoutes from '../modules/payouts/payouts.routes';
+import decisionRequestRoutes from '../modules/decision-request/decision-request.routes';
 import { errorMiddleware } from '../middlewares/error.middleware';
 import { loggingMiddleware } from '../middleware/logging.middleware';
 
 const expressLoader = async (app: Application): Promise<void> => {
+  // Airwallex webhook needs raw body for signature verification – mount before express.json()
+  const { BillingController } = await import('../modules/billing/billing.controller');
+  const billingController = new BillingController();
+  app.post(
+    '/api/billing/webhooks/airwallex',
+    express.raw({ type: 'application/json' }),
+    (req, res) => billingController.handleAirwallexWebhook(req, res)
+  );
+
   app.use(express.json());
   app.use(cookieParser());
 
@@ -86,6 +96,7 @@ const expressLoader = async (app: Application): Promise<void> => {
   app.use('/api/wallet', walletRoutes);
   app.use('/api/billing', billingRoutes);
   app.use('/api/payouts', payoutsRoutes);
+  app.use('/api/decision-requests', decisionRequestRoutes);
   app.use('/api/subscriptions', subscriptionRoutes);
   app.use('/api/subscription', subscriptionRoutes); // Alias for singular access
   app.use('/api/candidate', candidateRoutes);

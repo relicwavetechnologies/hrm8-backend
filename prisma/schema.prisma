@@ -129,6 +129,7 @@ model User {
   screening_result         ScreeningResult[]
   sessions                 Session[]
   reviewed_signup_requests SignupRequest[]              @relation("ReviewedBy")
+  decision_requests_reviewed ConsultantDecisionRequest[] @relation("DecisionRequestReviewer")
   slack_logs               SlackLog[]                   @relation("UserSlackLogs")
   sms_logs                 SmsLog[]                     @relation("UserSmsLogs")
   role_assigner            User?                        @relation("RoleAssigner", fields: [assigned_by], references: [id])
@@ -343,6 +344,7 @@ model Job {
   team_members                        JobHiringTeamMember[]
   job_roles                           JobRole[]
   tags                                JobTagAssignment[]
+  consultant_decision_requests        ConsultantDecisionRequest[]
 
   @@index([status, posting_date])
   @@index([category_id])
@@ -741,6 +743,7 @@ model Application {
   slack_logs                 SlackLog[]
   sms_logs                   SmsLog[]
   video_interview            VideoInterview[]
+  consultant_decision_requests ConsultantDecisionRequest[]
 
   @@unique([candidate_id, job_id])
   @@index([candidate_id])
@@ -776,6 +779,33 @@ model ApplicationTask {
   @@index([status])
   @@index([priority])
   @@index([due_date])
+}
+
+model ConsultantDecisionRequest {
+  id               String                         @id @default(uuid())
+  application_id   String                         @map("application_id")
+  job_id           String                         @map("job_id")
+  consultant_id    String                         @map("consultant_id")
+  action           ConsultantDecisionAction
+  target_round_id  String?                        @map("target_round_id")
+  reason           String?
+  status           ConsultantDecisionRequestStatus @default(PENDING)
+  requested_at     DateTime                       @default(now()) @map("requested_at")
+  reviewed_by      String?                        @map("reviewed_by")
+  reviewed_at      DateTime?                      @map("reviewed_at")
+  rejection_reason String?                        @map("rejection_reason")
+  created_at       DateTime                       @default(now()) @map("created_at")
+  updated_at       DateTime                       @default(now()) @updatedAt @map("updated_at")
+
+  application  Application  @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  job          Job          @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  consultant   Consultant   @relation(fields: [consultant_id], references: [id], onDelete: Cascade)
+  reviewer     User?        @relation("DecisionRequestReviewer", fields: [reviewed_by], references: [id])
+
+  @@unique([application_id, action])
+  @@index([job_id, status])
+  @@index([consultant_id, status])
+  @@index([reviewed_by])
 }
 
 model JobInvitation {
@@ -1042,6 +1072,7 @@ model Consultant {
   opportunity                Opportunity[]
   subscription               Subscription[]
   conversion_requests        LeadConversionRequest[]    @relation("ConversionRequests")
+  consultant_decision_requests ConsultantDecisionRequest[]
 
   @@index([email])
   @@index([region_id])
@@ -2891,6 +2922,17 @@ enum ConsultantRole {
   RECRUITER
   SALES_AGENT
   CONSULTANT_360
+}
+
+enum ConsultantDecisionAction {
+  OFFER
+  REJECT
+}
+
+enum ConsultantDecisionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum ConsultantStatus {

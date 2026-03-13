@@ -174,7 +174,7 @@ export class BillingService {
       },
     });
 
-    const session = AirwallexService.createCheckoutSession({
+    const session = await AirwallexService.createCheckoutSession({
       amount,
       currency,
       reference: bill.id,
@@ -189,7 +189,7 @@ export class BillingService {
       data: { payment_reference: session.paymentAttemptId },
     });
 
-    if (BILLING_AUTO_CONFIRM) {
+    if (BILLING_AUTO_CONFIRM || session.autoConfirm) {
       await this.markPaymentSucceeded(session.paymentAttemptId, session.providerTransactionId);
     }
 
@@ -632,9 +632,10 @@ export class BillingService {
   static async processWebhook(
     rawBody: string | Buffer,
     signature: string,
-    event: unknown
+    event: unknown,
+    timestamp?: string
   ): Promise<{ status: string; billId?: string }> {
-    if (!AirwallexService.verifyWebhookSignature(rawBody, signature)) {
+    if (!AirwallexService.verifyWebhookSignature(rawBody, signature, timestamp)) {
       log.error('Webhook signature verification failed');
       throw new HttpException(401, 'Invalid webhook signature');
     }

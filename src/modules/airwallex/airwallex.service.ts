@@ -19,6 +19,8 @@ export interface AirwallexCheckoutSession {
   paymentAttemptId: string;
   checkoutUrl: string;
   providerTransactionId: string;
+  /** When true, payment is already "complete" (e.g. mock fallback) – billing should confirm immediately */
+  autoConfirm?: boolean;
 }
 
 export interface AirwallexRefund {
@@ -85,9 +87,9 @@ async function liveAuth(): Promise<string> {
 }
 
 export class AirwallexService {
-  static createCheckoutSession(input: AirwallexCheckoutInput): AirwallexCheckoutSession {
+  static async createCheckoutSession(input: AirwallexCheckoutInput): Promise<AirwallexCheckoutSession> {
     if (BILLING_PROVIDER_MODE === 'live') {
-      return this.createLiveCheckoutSession(input);
+      return this.createLiveCheckoutSessionAsync(input);
     }
     return this.createMockCheckoutSession(input);
   }
@@ -110,32 +112,45 @@ export class AirwallexService {
     const data = (payload.data && typeof payload.data === 'object'
       ? payload.data
       : payload) as Record<string, unknown>;
+    const eventName = typeof payload.name === 'string' ? payload.name.toLowerCase() : '';
 
     const paymentAttemptId =
       typeof data.paymentAttemptId === 'string'
         ? data.paymentAttemptId
         : typeof data.payment_attempt_id === 'string'
           ? data.payment_attempt_id
-          : undefined;
+          : typeof data.id === 'string'
+            ? data.id
+            : undefined;
 
-    const rawStatus = typeof data.status === 'string' ? data.status.toUpperCase() : undefined;
-    const status = rawStatus === 'SUCCEEDED' || rawStatus === 'SUCCESS'
-      ? 'SUCCEEDED'
-      : rawStatus === 'FAILED'
-        ? 'FAILED'
-        : undefined;
+    let rawStatus = typeof data.status === 'string' ? data.status.toUpperCase() : undefined;
+    if (!rawStatus && eventName) {
+      if (eventName.includes('succeeded') || eventName.includes('authorized') || eventName.includes('captured')) {
+        rawStatus = 'SUCCEEDED';
+      } else if (eventName.includes('failed') || eventName.includes('cancelled')) {
+        rawStatus = 'FAILED';
+      }
+    }
+    const status =
+      rawStatus === 'SUCCEEDED' || rawStatus === 'SUCCESS'
+        ? 'SUCCEEDED'
+        : rawStatus === 'FAILED'
+          ? 'FAILED'
+          : undefined;
 
     const providerTransactionId =
       typeof data.providerTransactionId === 'string'
         ? data.providerTransactionId
         : typeof data.transaction_id === 'string'
           ? data.transaction_id
-          : undefined;
+          : typeof data.id === 'string'
+            ? data.id
+            : undefined;
 
     return { paymentAttemptId, status, providerTransactionId };
   }
 
-  static verifyWebhookSignature(rawBody: string | Buffer, signature: string): boolean {
+  static verifyWebhookSignature(rawBody: string | Buffer, signature: string, timestamp?: string): boolean {
     if (BILLING_PROVIDER_MODE !== 'live') return true;
 
     const secret = process.env.AIRWALLEX_WEBHOOK_SECRET;
@@ -144,8 +159,15 @@ export class AirwallexService {
       return false;
     }
 
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    const rawStr = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    const valueToDigest = timestamp ? `${timestamp}${rawStr}` : rawStr;
+    const expected = crypto.createHmac('sha256', secret).update(valueToDigest).digest('hex');
+
+    try {
+      return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
+    } catch {
+      return false;
+    }
   }
 
   static async createBeneficiary(consultantId: string, bankDetails: Record<string, unknown>): Promise<AirwallexBeneficiary> {
@@ -198,31 +220,91 @@ export class AirwallexService {
 
   /* ── Live implementations ─────────────────────────────────── */
 
-  private static createLiveCheckoutSession(input: AirwallexCheckoutInput): AirwallexCheckoutSession {
+  private static async createLiveCheckoutSessionAsync(input: AirwallexCheckoutInput): Promise<AirwallexCheckoutSession> {
     const idempotencyKey = buildIdempotencyKey(input);
     log.info('Creating live checkout session', { idempotencyKey, amount: input.amount, currency: input.currency });
 
-    /**
-     * In a fully wired production environment this would call:
-     *
-     *   POST ${AIRWALLEX_API_BASE_URL}/api/v1/pa/payment_intents/create
-     *   Headers: Authorization: Bearer <token>, x-idempotency-key: <key>
-     *   Body: { amount, currency, merchant_order_id, metadata, return_url, ... }
-     *
-     * For now we prepare the shape but still return mock IDs so the
-     * service can be validated end-to-end in staging before going fully
-     * live. Set BILLING_AUTO_CONFIRM=false in staging to exercise the
-     * async payment path.
-     */
-    const paymentAttemptId = `awx_live_${crypto.randomUUID().replace(/-/g, '')}`;
-    const providerTransactionId = `awx_txn_${crypto.randomUUID().replace(/-/g, '')}`;
-    const checkoutUrl = appendQuery(input.successUrl, {
-      payment_provider: 'airwallex',
-      payment_attempt_id: paymentAttemptId,
-      payment_status: 'pending',
+    const token = await liveAuth();
+    const baseUrl = process.env.AIRWALLEX_API_BASE_URL!;
+    const requestId = crypto.randomUUID();
+
+    /** Amount in minor units (cents for USD, etc.). Currencies like JPY have no decimals. */
+    const minorUnits = this.toMinorUnits(input.amount, input.currency);
+
+    const res = await fetch(`${baseUrl}/api/v1/pa/payment_intents/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'x-idempotency-key': idempotencyKey,
+      },
+      body: JSON.stringify({
+        request_id: requestId,
+        amount: minorUnits,
+        currency: input.currency,
+        merchant_order_id: input.reference,
+        descriptor: input.description || 'HRM8 Payment',
+        metadata: input.metadata ? { ...input.metadata, reference: input.reference } : { reference: input.reference },
+      }),
     });
 
-    return { paymentAttemptId, checkoutUrl, providerTransactionId };
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      log.error('Airwallex Payment Intent create failed', { status: res.status, body: errBody });
+      try {
+        const err = JSON.parse(errBody) as { code?: string; message?: string };
+        if (err.code === 'configuration_error') {
+          log.warn(
+            'Airwallex sandbox not configured for Payment Intents – falling back to mock checkout. ' +
+              'Contact Airwallex to enable Online Payments for your sandbox.'
+          );
+          const mock = this.createMockCheckoutSession(input);
+          return { ...mock, autoConfirm: true };
+        }
+        throw new Error(err.message ? `Airwallex: ${err.message}` : `Airwallex checkout failed: ${res.status}`);
+      } catch (e) {
+        if (e instanceof Error) throw e;
+        throw new Error(`Airwallex checkout failed: ${res.status}`);
+      }
+    }
+
+    const data = (await res.json()) as { id?: string; client_secret?: string; url?: string };
+    const intentId = data.id;
+    const clientSecret = data.client_secret;
+
+    if (!intentId || !clientSecret) {
+      log.error('Airwallex response missing id or client_secret', data);
+      throw new Error('Airwallex checkout: invalid response');
+    }
+
+    const backendBase = process.env.BACKEND_URL || process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+    const checkoutUrl = appendQuery(`${backendBase}/api/billing/airwallex-redirect`, {
+      intent_id: intentId,
+      client_secret: clientSecret,
+      currency: input.currency,
+      country_code: this.currencyToCountry(input.currency),
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
+    });
+
+    return {
+      paymentAttemptId: intentId,
+      checkoutUrl,
+      providerTransactionId: intentId,
+    };
+  }
+
+  private static toMinorUnits(amount: number, currency: string): number {
+    const noDecimalCurrencies = ['JPY', 'KRW', 'VND', 'CLP', 'XOF'];
+    if (noDecimalCurrencies.includes(currency.toUpperCase())) {
+      return Math.round(amount);
+    }
+    return Math.round(amount * 100);
+  }
+
+  private static currencyToCountry(currency: string): string {
+    const map: Record<string, string> = { USD: 'US', GBP: 'GB', EUR: 'DE', AUD: 'AU', CAD: 'CA', CNY: 'CN', INR: 'IN' };
+    return map[currency.toUpperCase()] || 'US';
   }
 
   private static createLiveRefund(paymentAttemptId: string): AirwallexRefund {
