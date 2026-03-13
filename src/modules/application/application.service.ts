@@ -260,6 +260,28 @@ export class ApplicationService extends BaseService {
     return { success, failed };
   }
 
+  /**
+   * Ad-hoc AI candidate scoring (Analyse button in AICandidateScoring dialog).
+   * Gated by FeatureGateService - PAYG/expired plans cannot bypass.
+   */
+  async scoreCandidateAdHoc(
+    companyId: string,
+    request: {
+      candidateName: string;
+      resume?: string;
+      experience?: string;
+      skills?: string[];
+      education?: string;
+      jobRequirements: string;
+      jobDescription: string;
+      interviewFeedback?: string;
+      weights?: { skills?: number; experience?: number; education?: number; interview?: number; culture?: number };
+    }
+  ) {
+    await FeatureGateService.assertCanUseAi(companyId, 'AI_SCREENING_REQUIRES_UPGRADE');
+    return CandidateScoringService.scoreCandidateAdHoc(request);
+  }
+
   private mapApplication(app: any): any {
     console.log(`[mapApplication] Mapping application: ${app.id}`);
     // Find AI screening result (AUTOMATED) or fallback to first result

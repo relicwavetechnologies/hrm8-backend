@@ -14,6 +14,7 @@ const taskController = new ApplicationTaskController();
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', authenticate, applicationController.bulkScoreCandidates);
 router.post('/bulk-analyze', authenticate, applicationController.bulkAiAnalysis);
+router.post('/score-adhoc', authenticate, applicationController.scoreCandidateAdHoc);
 
 // Check if candidate has applied
 router.get('/check', authenticateUnified, applicationController.checkApplication);

@@ -272,6 +272,144 @@ Be specific, objective, and provide actionable insights.`;
     }
   }
 
+  /**
+   * Score a candidate using ad-hoc input (no applicationId).
+   * Used by AICandidateScoring dialog. Must be gated by FeatureGateService before calling.
+   */
+  static async scoreCandidateAdHoc(request: {
+    candidateName: string;
+    resume?: string;
+    experience?: string;
+    skills?: string[];
+    education?: string;
+    jobRequirements: string;
+    jobDescription: string;
+    interviewFeedback?: string;
+    weights?: { skills?: number; experience?: number; education?: number; interview?: number; culture?: number };
+  }): Promise<{
+    scores: { skills: number; experience: number; education: number; interview: number; culture: number; overall: number };
+    strengths: string[];
+    concerns: string[];
+    recommendation: 'strong_hire' | 'hire' | 'maybe' | 'no_hire' | 'strong_no_hire';
+    justification: string;
+    improvementAreas: string[];
+    analyzedAt: string;
+  }> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error('OpenAI API key is not configured');
+
+    const weights = {
+      skills: request.weights?.skills ?? 30,
+      experience: request.weights?.experience ?? 25,
+      education: request.weights?.education ?? 15,
+      interview: request.weights?.interview ?? 20,
+      culture: request.weights?.culture ?? 10,
+    };
+
+    const systemPrompt = `You are an expert HR recruiter and talent acquisition specialist. Analyze candidate qualifications and provide detailed scoring based on weighted criteria.
+
+Your analysis must be objective, data-driven, and consider:
+1. Skills match (technical and soft skills)
+2. Experience relevance and depth
+3. Education background
+4. Interview performance (if available)
+5. Cultural fit indicators
+
+Provide scores on a 0-100 scale for each criterion and an overall recommendation.`;
+
+    const userPrompt = `Analyze this candidate for the position:
+
+**Candidate:** ${request.candidateName}
+
+**Job Requirements:**
+${request.jobRequirements}
+
+**Job Description:**
+${request.jobDescription}
+
+**Candidate Resume/Profile:**
+${request.resume || 'Not provided'}
+
+**Experience:**
+${request.experience || 'Not provided'}
+
+**Skills:**
+${request.skills?.join(', ') || 'Not provided'}
+
+**Education:**
+${request.education || 'Not provided'}
+
+${request.interviewFeedback ? `**Interview Feedback:**\n${request.interviewFeedback}` : ''}
+
+**Scoring Weights:**
+- Skills Match: ${weights.skills}%
+- Experience: ${weights.experience}%
+- Education: ${weights.education}%
+- Interview Performance: ${weights.interview}%
+- Cultural Fit: ${weights.culture}%
+
+Provide a comprehensive analysis with:
+1. Individual scores for each criterion (0-100)
+2. Weighted overall score
+3. Strengths (top 3-5 points)
+4. Concerns/Gaps (top 3-5 points)
+5. Hiring recommendation (strong_hire, hire, maybe, no_hire, strong_no_hire)
+6. Detailed justification for the recommendation
+7. Specific areas for improvement or questions to explore`;
+
+    const openai = new OpenAI({ apiKey });
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'provide_candidate_score',
+            description: 'Provide structured candidate scoring and recommendation',
+            parameters: {
+              type: 'object',
+              properties: {
+                scores: {
+                  type: 'object',
+                  properties: {
+                    skills: { type: 'number', minimum: 0, maximum: 100 },
+                    experience: { type: 'number', minimum: 0, maximum: 100 },
+                    education: { type: 'number', minimum: 0, maximum: 100 },
+                    interview: { type: 'number', minimum: 0, maximum: 100 },
+                    culture: { type: 'number', minimum: 0, maximum: 100 },
+                    overall: { type: 'number', minimum: 0, maximum: 100 },
+                  },
+                  required: ['skills', 'experience', 'education', 'interview', 'culture', 'overall'],
+                },
+                strengths: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 5 },
+                concerns: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 5 },
+                recommendation: { type: 'string', enum: ['strong_hire', 'hire', 'maybe', 'no_hire', 'strong_no_hire'] },
+                justification: { type: 'string' },
+                improvementAreas: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['scores', 'strengths', 'concerns', 'recommendation', 'justification', 'improvementAreas'],
+              additionalProperties: false,
+            },
+          },
+        },
+      ],
+      tool_choice: { type: 'function', function: { name: 'provide_candidate_score' } },
+    });
+
+    const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
+    if (!toolCall) throw new Error('No tool call in OpenAI response');
+
+    const result = JSON.parse(toolCall.function.arguments);
+    return {
+      ...result,
+      analyzedAt: new Date().toISOString(),
+    };
+  }
+
   private static buildJobDetailsString(job: Job): string {
     const parts: string[] = [];
     parts.push(`**Job Title:** ${job.title}`);
