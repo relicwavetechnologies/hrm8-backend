@@ -191,7 +191,7 @@ export class PriceBookSelectionService {
    */
   static async getSubscriptionPrice(
     companyId: string,
-    planType: 'PAYG' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'ENTERPRISE' | 'RPO'
+    planType: 'SMALL' | 'MEDIUM' | 'LARGE' | 'ENTERPRISE'
   ): Promise<{ price: number; currency: string; priceBook: PriceBook }> {
     const productCode = `SUB_${planType}`;
     const result = await this.getPriceForProduct(companyId, productCode);

@@ -178,6 +178,11 @@ export class CommunicationController extends BaseController {
   generateEmailWithAI = async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!req.user) throw new Error('Unauthorized');
+      if (!req.user.companyId) {
+        return this.sendError(res, new Error('Company context required'), 400);
+      }
+      const { FeatureGateService } = await import('../feature-gate/feature-gate.service');
+      await FeatureGateService.assertCanUseAi(req.user.companyId, 'AI_COPILOT_REQUIRES_UPGRADE');
 
       const { id: applicationId } = req.params;
       const { purpose, tone } = req.body;

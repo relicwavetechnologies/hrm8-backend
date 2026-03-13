@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { BaseController } from '../../core/controller';
 import { SubscriptionService } from './subscription.service';
+import { FeatureGateService } from '../feature-gate/feature-gate.service';
 import { AuthenticatedRequest } from '../../types';
 
 export class SubscriptionController extends BaseController {
@@ -36,7 +37,7 @@ export class SubscriptionController extends BaseController {
         return this.sendSuccess(res, null);
       }
       
-      const PLAN_HIERARCHY = ['PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE'];
+      const PLAN_HIERARCHY = ['SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE'];
       const currentPlanIndex = PLAN_HIERARCHY.indexOf(subscription.plan_type);
       const canUpgrade = currentPlanIndex >= 0 && currentPlanIndex < PLAN_HIERARCHY.length - 1;
       const nextTier = canUpgrade ? PLAN_HIERARCHY[currentPlanIndex + 1] : null;
@@ -68,6 +69,23 @@ export class SubscriptionController extends BaseController {
         return this.sendSuccess(res, subscriptions);
     } catch (error) {
         return this.sendError(res, error);
+    }
+  };
+
+  /** Returns whether the company can use AI features (screening, copilot, analysis). */
+  canUseAi = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return this.sendError(res, new Error('Unauthorized'), 401);
+
+      const result = await FeatureGateService.canUseAiFeatures(companyId);
+      return this.sendSuccess(res, {
+        canUseAi: result.canUseAi,
+        reason: result.reason,
+        planType: result.planType,
+      });
+    } catch (error) {
+      return this.sendError(res, error);
     }
   };
 }

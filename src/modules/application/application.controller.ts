@@ -346,6 +346,34 @@ export class ApplicationController extends BaseController {
     }
   };
 
+  // Ad-hoc AI candidate scoring (Analyse button) - backend-gated, no bypass
+  scoreCandidateAdHoc = async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const companyId = req.user?.companyId;
+      if (!companyId) {
+        return this.sendError(res, new Error('Unauthorized'), 401);
+      }
+      const body = req.body;
+      if (!body?.candidateName || !body?.jobRequirements || !body?.jobDescription) {
+        return this.sendError(res, new Error('candidateName, jobRequirements, and jobDescription are required'), 400);
+      }
+      const result = await this.applicationService.scoreCandidateAdHoc(companyId, {
+        candidateName: body.candidateName,
+        resume: body.resume,
+        experience: body.experience,
+        skills: body.skills,
+        education: body.education,
+        jobRequirements: body.jobRequirements,
+        jobDescription: body.jobDescription,
+        interviewFeedback: body.interviewFeedback,
+        weights: body.weights,
+      });
+      return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   // Bulk AI Analysis
   bulkAiAnalysis = async (req: AuthenticatedRequest, res: Response) => {
     try {

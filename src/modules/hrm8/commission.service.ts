@@ -6,11 +6,17 @@ import { HttpException } from '../../core/http-exception';
 import { prisma } from '../../utils/prisma';
 import { toCommissionRateDecimal } from './commission-rate.util';
 import { ConversionCommercialContextService } from './conversion-commercial-context.service';
+import { Logger } from '../../utils/logger';
+import { FeatureFlags } from '../../config/feature-flags';
+import { resolveCommissionFx } from './commission-fx.util';
+
+const log = Logger.create('commission');
 
 export interface AwardCommissionInput {
     consultantId: string;
     jobId?: string;
     subscriptionId?: string;
+    companyId?: string;  // Required for manual commission when FF_COMMISSION_CURRENCY_STRICT
     type: CommissionType;
     amount?: number;  // Optional - can be calculated from job/subscription
     rate?: number;
@@ -54,6 +60,8 @@ export class CommissionService extends BaseService {
     }
 
     private mapToDTO(commission: any) {
+        const displayAmount = commission.payout_amount ?? commission.amount;
+        const displayCurrency = commission.payout_currency ?? commission.currency ?? 'USD';
         return {
             id: commission.id,
             consultantId: commission.consultant_id,
@@ -62,6 +70,15 @@ export class CommissionService extends BaseService {
             subscriptionId: commission.subscription_id,
             type: commission.type,
             amount: commission.amount,
+            currency: commission.currency || 'USD',
+            displayAmount: Number(displayAmount),
+            displayCurrency,
+            payoutCurrency: commission.payout_currency || null,
+            payoutAmount: commission.payout_amount ?? null,
+            fxRate: commission.fx_rate || null,
+            fxRateLockedAt: commission.fx_rate_locked_at || null,
+            fxSource: commission.fx_source || null,
+            rate: commission.rate || null,
             description: commission.description,
             status: commission.status,
             createdAt: commission.created_at,
@@ -326,18 +343,21 @@ export class CommissionService extends BaseService {
             type,
             jobId,
             subscriptionId,
+            companyId,
             description,
             rate,
             calculateFromJob = false
         } = input;
 
-        // Calculate amount if needed
+        if (FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !jobId && !subscriptionId && !companyId) {
+            throw new HttpException(422, 'Manual commission requires companyId when strict commission currency is enabled', 'MANUAL_COMMISSION_COMPANY_REQUIRED');
+        }
+
         let amount = providedAmount;
         let commissionCurrency = 'USD';
         let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
-            // Fetch payment details to calculate commission
             if (jobId) {
                 const job = await prisma.job.findUnique({
                     where: { id: jobId },
@@ -375,12 +395,29 @@ export class CommissionService extends BaseService {
             }
         }
 
+        if (!jobId && !subscriptionId && companyId) {
+            const company = await prisma.company.findUnique({
+                where: { id: companyId },
+                select: { billing_currency: true },
+            });
+            if (!company) throw new HttpException(404, 'Company not found');
+            if (FeatureFlags.FF_COMMISSION_CURRENCY_STRICT && !company.billing_currency) {
+                throw new HttpException(422, 'Company has no billing currency set; cannot create manual commission', 'COMPANY_CURRENCY_UNSET');
+            }
+            commissionCurrency = company.billing_currency || 'USD';
+        }
+
         if (!amount || amount <= 0) throw new HttpException(400, 'Commission amount must be positive');
 
+        const fx = await resolveCommissionFx(consultantId, commissionCurrency, amount);
+
         return this.commissionRepository.transaction(async (tx) => {
-            // Need to fetch consultant for region_id. Using global prisma for now inside tx context if possible or assume tx has access
-            // Ideally Repository should expose method that accepts tx. 
-            // For simplicity adapting logic:
+            const existingWhere: any = { consultant_id: consultantId, type };
+            if (jobId) existingWhere.job_id = jobId;
+            if (subscriptionId) existingWhere.subscription_id = subscriptionId;
+            const existing = await tx.commission.findFirst({ where: existingWhere, select: { id: true } });
+            if (existing) throw new HttpException(409, 'Commission already exists for this consultant and reference');
+
             const consultant = await tx.consultant.findUnique({
                 where: { id: consultantId },
                 select: { region_id: true, email: true },
@@ -396,20 +433,28 @@ export class CommissionService extends BaseService {
                     subscription_id: subscriptionId,
                     type,
                     amount,
-                    description: description || `Commission for ${type}`,
+                    currency: fx.currency,
+                    payout_currency: fx.payoutCurrency,
+                    payout_amount: fx.payoutAmount,
+                    fx_rate: fx.fxRate,
+                    fx_rate_locked_at: new Date(),
+                    fx_source: fx.fxSource,
+                    rate: commissionRate,
+                    description: description || `Commission for ${type} (${fx.currency})`,
                     status: CommissionStatus.CONFIRMED,
                     confirmed_at: new Date(),
                 },
             });
 
-            // Wallet interaction
-            const account = await tx.virtualAccount.findUnique({
+            const creditAmount = fx.payoutAmount;
+            const creditCurrency = fx.payoutCurrency;
+
+            let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
             });
 
-            let accountId = account?.id;
-            if (!accountId) {
-                const newAccount = await tx.virtualAccount.create({
+            if (!account) {
+                account = await tx.virtualAccount.create({
                     data: {
                         owner_type: 'CONSULTANT',
                         owner_id: consultantId,
@@ -417,27 +462,27 @@ export class CommissionService extends BaseService {
                         status: 'ACTIVE'
                     }
                 });
-                accountId = newAccount.id;
             }
 
             await tx.virtualTransaction.create({
                 data: {
-                    virtual_account_id: accountId,
+                    virtual_account_id: account.id,
                     type: VirtualTransactionType.COMMISSION_EARNED,
-                    amount,
-                    balance_after: (account?.balance || 0) + amount,
+                    amount: creditAmount,
+                    balance_after: Number(account.balance) + creditAmount,
                     direction: 'CREDIT',
                     status: 'COMPLETED',
                     description: `Commission earned: ${description || type}`,
                     reference_id: commission.id,
                     reference_type: 'COMMISSION',
-                    billing_currency_used: commissionCurrency
+                    commission_id: commission.id,
+                    billing_currency_used: creditCurrency,
                 }
             });
 
             await tx.virtualAccount.update({
-                where: { id: accountId },
-                data: { balance: { increment: amount }, total_credits: { increment: amount } }
+                where: { id: account.id },
+                data: { balance: { increment: creditAmount }, total_credits: { increment: creditAmount } }
             });
 
             return commission;
@@ -461,13 +506,14 @@ export class CommissionService extends BaseService {
         } = input;
 
         let amount = providedAmount;
+        let commissionCurrency = 'USD';
         let commissionRate = toCommissionRateDecimal(rate, 0.20);
 
         if (calculateFromJob && (jobId || subscriptionId)) {
             if (jobId) {
                 const job = await prisma.job.findUnique({
                     where: { id: jobId },
-                    select: { payment_amount: true }
+                    select: { payment_amount: true, payment_currency: true }
                 });
                 if (job?.payment_amount) {
                     const consultant = await prisma.consultant.findUnique({
@@ -479,11 +525,12 @@ export class CommissionService extends BaseService {
                         0.20
                     );
                     amount = job.payment_amount * commissionRate;
+                    commissionCurrency = job.payment_currency || 'USD';
                 }
             } else if (subscriptionId) {
                 const subscription = await prisma.subscription.findUnique({
                     where: { id: subscriptionId },
-                    select: { base_price: true }
+                    select: { base_price: true, currency: true }
                 });
                 if (subscription?.base_price) {
                     const consultant = await prisma.consultant.findUnique({
@@ -495,11 +542,14 @@ export class CommissionService extends BaseService {
                         0.20
                     );
                     amount = subscription.base_price * commissionRate;
+                    commissionCurrency = subscription.currency || 'USD';
                 }
             }
         }
 
         if (!amount || amount <= 0) throw new HttpException(400, 'Commission amount must be positive');
+
+        const fx = await resolveCommissionFx(consultantId, commissionCurrency, amount);
 
         const consultant = await prisma.consultant.findUnique({
             where: { id: consultantId },
@@ -507,6 +557,12 @@ export class CommissionService extends BaseService {
         });
         if (!consultant) throw new HttpException(404, 'Consultant not found');
         if (!consultant.region_id) throw new HttpException(400, 'Consultant must have a region assigned');
+
+        const existingWhere: any = { consultant_id: consultantId, type, status: { in: ['PENDING', 'CONFIRMED'] } };
+        if (jobId) existingWhere.job_id = jobId;
+        if (subscriptionId) existingWhere.subscription_id = subscriptionId;
+        const existing = await prisma.commission.findFirst({ where: existingWhere, select: { id: true } });
+        if (existing) throw new HttpException(409, 'A commission request already exists for this reference');
 
         return prisma.commission.create({
             data: {
@@ -516,7 +572,14 @@ export class CommissionService extends BaseService {
                 subscription_id: subscriptionId ?? undefined,
                 type,
                 amount,
-                description: description || `Commission request: ${type}`,
+                currency: fx.currency,
+                payout_currency: fx.payoutCurrency,
+                payout_amount: fx.payoutAmount,
+                fx_rate: fx.fxRate,
+                fx_rate_locked_at: new Date(),
+                fx_source: fx.fxSource,
+                rate: commissionRate,
+                description: description || `Commission request: ${type} (${fx.currency})`,
                 status: CommissionStatus.PENDING
             }
         });
@@ -537,15 +600,11 @@ export class CommissionService extends BaseService {
             throw new HttpException(400, `Cannot confirm commission in status ${commission.status}`);
         }
 
-        // PENDING → CONFIRMED: credit VirtualAccount so amount reflects in wallet
         return this.commissionRepository.transaction(async (tx) => {
             const consultantId = commission.consultant_id;
-            const amount = Number(commission.amount);
+            const walletAmount = Number(commission.payout_amount ?? commission.amount);
+            const walletCurrency = commission.payout_currency ?? commission.currency ?? 'USD';
             const description = commission.description || `Commission ${commission.type}`;
-            const commissionCurrency = await this.resolveCommissionCurrency({
-                jobId: commission.job_id,
-                subscriptionId: commission.subscription_id
-            });
 
             let account = await tx.virtualAccount.findUnique({
                 where: { owner_type_owner_id: { owner_type: 'CONSULTANT', owner_id: consultantId } }
@@ -562,26 +621,27 @@ export class CommissionService extends BaseService {
                 });
             }
 
-            const balanceAfter = Number(account.balance) + amount;
+            const balanceAfter = Number(account.balance) + walletAmount;
 
             await tx.virtualTransaction.create({
                 data: {
                     virtual_account_id: account.id,
                     type: VirtualTransactionType.COMMISSION_EARNED,
-                    amount,
+                    amount: walletAmount,
                     balance_after: balanceAfter,
                     direction: 'CREDIT',
                     status: 'COMPLETED',
                     description: `Commission approved: ${description}`,
                     reference_id: commission.id,
                     reference_type: 'COMMISSION',
-                    billing_currency_used: commissionCurrency
+                    commission_id: commission.id,
+                    billing_currency_used: walletCurrency,
                 }
             });
 
             await tx.virtualAccount.update({
                 where: { id: account.id },
-                data: { balance: { increment: amount }, total_credits: { increment: amount } }
+                data: { balance: { increment: walletAmount }, total_credits: { increment: walletAmount } }
             });
 
             return tx.commission.update({
@@ -677,8 +737,10 @@ export class CommissionService extends BaseService {
         }
 
         // If CONFIRMED, PAID, or DISPUTED (post-confirm), we need to deduct wallet
+        // Use payout_amount (the amount that was actually credited to the wallet)
         return this.commissionRepository.transaction(async (tx) => {
-            const amount = Number(commission.amount);
+            const walletAmount = Number(commission.amount);
+            const walletCurrency = commission.currency ?? 'USD';
             const consultantId = commission.consultant_id;
 
             const account = await tx.virtualAccount.findUnique({
@@ -686,38 +748,48 @@ export class CommissionService extends BaseService {
             });
 
             if (account) {
-                const balanceAfter = Number(account.balance) - amount;
+                const currentBalance = Number(account.balance);
+                const debitAmount = Math.min(walletAmount, currentBalance);
+                const balanceAfter = currentBalance - debitAmount;
+                const shortfall = walletAmount - debitAmount;
 
-                await tx.virtualTransaction.create({
-                    data: {
-                        virtual_account_id: account.id,
-                        type: VirtualTransactionType.COMMISSION_CLAWBACK,
-                        amount: amount,
-                        balance_after: balanceAfter,
-                        direction: 'DEBIT',
-                        status: 'COMPLETED',
-                        description: `Clawback: ${reason}`,
-                        reference_id: commission.id,
-                        reference_type: 'COMMISSION'
-                    }
-                });
+                if (debitAmount > 0) {
+                    await tx.virtualTransaction.create({
+                        data: {
+                            virtual_account_id: account.id,
+                            type: VirtualTransactionType.COMMISSION_CLAWBACK,
+                            amount: debitAmount,
+                            balance_after: balanceAfter,
+                            direction: 'DEBIT',
+                            status: 'COMPLETED',
+                            description: `Clawback: ${reason}`,
+                            reference_id: commission.id,
+                            reference_type: 'COMMISSION',
+                            commission_id: commission.id,
+                            billing_currency_used: walletCurrency,
+                        }
+                    });
 
-                await tx.virtualAccount.update({
-                    where: { id: account.id },
-                    data: {
-                        balance: { decrement: amount },
-                        // Do we decrement total_credits? Usually no, total_credits is historical. 
-                        // We might want a total_debits field or just leave balance.
-                        // Leaving total_credits as is (historical earnings).
-                    }
-                });
+                    await tx.virtualAccount.update({
+                        where: { id: account.id },
+                        data: { balance: { decrement: debitAmount }, total_debits: { increment: debitAmount } }
+                    });
+                }
+
+                if (shortfall > 0) {
+                    log.warn('Clawback partial — consultant has insufficient balance', {
+                        commissionId: id, consultantId, walletAmount, debitAmount, shortfall
+                    });
+                }
             }
 
             return tx.commission.update({
                 where: { id },
                 data: {
                     status: CommissionStatus.CLAWBACK,
-                    notes: commission.notes ? `${commission.notes}\n[CLAWBACK]: ${reason}` : `[CLAWBACK]: ${reason}`
+                    notes: commission.notes
+                        ? `${commission.notes}\n[CLAWBACK]: ${reason}`
+                        : `[CLAWBACK]: ${reason}`
                 }
             });
         });

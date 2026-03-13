@@ -142,6 +142,24 @@ export class CompanyService extends BaseService {
     return this.companyRepository.update(id, { job_assignment_mode: mode });
   }
 
+  /** Confirm company billing currency (first-time setup). Only allowed when currency not yet locked. */
+  async confirmCurrencyPreference(companyId: string, currency: string): Promise<Company> {
+    const SUPPORTED = ['USD', 'GBP', 'EUR', 'AUD', 'INR', 'NZD', 'SGD', 'CAD'];
+    const normalized = String(currency || 'USD').toUpperCase().trim();
+    if (!SUPPORTED.includes(normalized)) {
+      throw new HttpException(400, `Unsupported currency. Use one of: ${SUPPORTED.join(', ')}`);
+    }
+    const company = await this.companyRepository.findById(companyId);
+    if (!company) throw new HttpException(404, 'Company not found');
+    if (company.currency_locked_at) {
+      throw new HttpException(400, 'Currency is locked and cannot be changed.');
+    }
+    return this.companyRepository.update(companyId, {
+      billing_currency: normalized,
+      currency_preference_confirmed_at: new Date(),
+    });
+  }
+
   // --- Transactions ---
 
   async getTransactions(companyId: string, limit?: number, offset?: number) {

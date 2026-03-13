@@ -1,6 +1,35 @@
+# Env & secrets
 .env
-.env.dev
-.env.main
+.env.*
+!.env.example
+!.env.*.example
+
+# Dependencies
 node_modules
+
+# Build
 dist
+build
+*.tsbuildinfo
+
+# Logs
+*.log
+logs
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test / coverage
+coverage
+.nyc_output
+
+# Prisma (optional: keep migrations, ignore generated)
+# node_modules/.prisma
 

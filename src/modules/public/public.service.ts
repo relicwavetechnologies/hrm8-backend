@@ -444,7 +444,7 @@ export class PublicService extends BaseService {
       portfolio_url: portfolioUrl || null,
       custom_answers: (answers || {}) as object,
       source: sourceLabel,
-      job_target_attribution: attribution as any,
+      jobtarget_attribution: attribution as any,
     });
 
     await jobTargetService.retryPendingSyncIfDue(application.id, application.stage);

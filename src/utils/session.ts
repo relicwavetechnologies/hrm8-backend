@@ -49,10 +49,8 @@ export function getSessionCookieOptions(maxAge?: number) {
   const isProduction = process.env.NODE_ENV === 'production';
 
   // Determine sameSite setting:
-  // - If explicitly set via env var, use that
-  // - Default to 'lax' which works for localhost development (ports don't affect SameSite)
-  // - sameSite: 'none' requires Secure: true, which is fine on localhost but strict in browsers
-  let sameSite: 'lax' | 'strict' | 'none' = 'lax';
+  // - default to 'none' in production (cross-site), 'lax' in development (localhost)
+  let sameSite: 'lax' | 'strict' | 'none' = isProduction ? 'none' : 'lax';
   let secure = false;
 
   if (process.env.COOKIE_SAME_SITE) {

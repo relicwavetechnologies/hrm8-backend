@@ -3,6 +3,7 @@ import { ApplicationController } from './application.controller';
 import { CommunicationController } from '../communication/communication.controller';
 import { ApplicationTaskController } from '../task/application-task.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticateCandidate } from '../../middlewares/candidate-auth.middleware';
 import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
@@ -13,6 +14,7 @@ const taskController = new ApplicationTaskController();
 // Bulk operations - must come before parameterized routes
 router.post('/bulk-score', authenticate, applicationController.bulkScoreCandidates);
 router.post('/bulk-analyze', authenticate, applicationController.bulkAiAnalysis);
+router.post('/score-adhoc', authenticate, applicationController.scoreCandidateAdHoc);
 
 // Check if candidate has applied
 router.get('/check', authenticateUnified, applicationController.checkApplication);
@@ -26,8 +28,8 @@ router.get('/job/:jobId', authenticate, applicationController.getJobApplications
 // Get application count for job
 router.get('/count/:jobId', authenticate, applicationController.getApplicationCountForJob);
 
-// Application submission
-router.post('/', authenticateUnified, applicationController.submitApplication);
+// Application submission (candidate-only; company uses /manual)
+router.post('/', authenticateCandidate, applicationController.submitApplication);
 
 // Get candidate applications (with candidateId query param)
 router.get('/', authenticateUnified, applicationController.getCandidateApplications);

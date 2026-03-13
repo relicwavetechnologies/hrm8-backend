@@ -20,13 +20,24 @@ export class JobAllocationService extends BaseService {
     reason?: string;
     source?: AssignmentSource;
   }) {
-    const consultant = await prisma.consultant.findUnique({
-      where: { id: data.consultantId },
-      select: { region_id: true },
-    });
+    const [consultant, job] = await Promise.all([
+      prisma.consultant.findUnique({
+        where: { id: data.consultantId },
+        select: { region_id: true },
+      }),
+      prisma.job.findUnique({
+        where: { id: data.jobId },
+        select: { region_id: true, company: { select: { region_id: true } } },
+      }),
+    ]);
 
     if (!consultant || !consultant.region_id) {
       throw new HttpException(404, 'Consultant not found or not assigned to a region');
+    }
+
+    const jobRegionId = job?.region_id || job?.company?.region_id;
+    if (jobRegionId && jobRegionId !== consultant.region_id) {
+      throw new HttpException(400, 'Consultant must be in the same region as the job/company');
     }
 
     return this.jobAllocationRepository.assignToConsultant({

@@ -13,6 +13,7 @@ router.get('/auth/me', authenticateConsultant, consultantController.getCurrentUs
 // Profile
 router.get('/profile', authenticateConsultant, consultantController.getProfile);
 router.put('/profile', authenticateConsultant, consultantController.updateProfile);
+router.patch('/profile/currency-preference', authenticateConsultant, consultantController.updateCurrencyPreference);
 
 // Jobs
 router.get('/jobs', authenticateConsultant, consultantController.getJobs);
@@ -24,6 +25,9 @@ router.get('/jobs/:jobId/pipeline', authenticateConsultant, consultantController
 router.patch('/jobs/:jobId/pipeline', authenticateConsultant, consultantController.updateJobPipeline);
 router.get('/jobs/:jobId/candidates/pipeline', authenticateConsultant, consultantController.getPipeline);
 router.get('/jobs/:jobId/rounds', authenticateConsultant, consultantController.getJobRounds);
+
+// Decision requests (consultant's own approval requests)
+router.get('/decision-requests', authenticateConsultant, consultantController.listDecisionRequests);
 
 // Candidates
 router.post('/candidates/:applicationId/status', authenticateConsultant, consultantController.updateCandidateStatus);

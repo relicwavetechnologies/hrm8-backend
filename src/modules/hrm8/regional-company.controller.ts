@@ -23,13 +23,14 @@ export class RegionalCompanyController {
 
   getAll = async (req: Hrm8AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
-      const { page, limit, search, status } = req.query as Record<string, string | undefined>;
+      const { page, limit, search, status, regionId } = req.query as Record<string, string | undefined>;
       const result = await this.regionalCompanyService.listCompanies({
         ...this.getCompanyAccess(req),
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
         search,
         status,
+        regionId: regionId || undefined,
       });
       res.json({ success: true, data: result });
     } catch (error) {

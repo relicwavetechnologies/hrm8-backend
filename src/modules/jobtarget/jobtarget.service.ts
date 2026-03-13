@@ -601,10 +601,10 @@ class JobTargetService {
     });
 
     let response: any;
-    if (job.job_target_remote_job_id) {
+    if (job.jobtarget_remote_job_id) {
       response = await this.request<any>(
         config.baseUrl,
-        `/api/v1/job/${job.job_target_remote_job_id}`,
+        `/api/v1/job/${job.jobtarget_remote_job_id}`,
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}` },
@@ -625,7 +625,7 @@ class JobTargetService {
       );
     }
 
-    const remoteJobId = this.extractRemoteJobId(response) || job.job_target_remote_job_id;
+    const remoteJobId = this.extractRemoteJobId(response) || job.jobtarget_remote_job_id;
     if (!remoteJobId) {
       throw new HttpException(502, 'JobTarget job sync did not return a job id');
     }
@@ -646,14 +646,14 @@ class JobTargetService {
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
     if (job.distribution_scope !== 'GLOBAL') {
-      return { remoteJobId: job.job_target_remote_job_id || '' };
+      return { remoteJobId: job.jobtarget_remote_job_id || '' };
     }
 
     await prisma.job.update({
       where: { id: job.id },
       data: {
-        job_target_sync_status: 'SYNCING' as any,
-        job_target_last_error: null,
+        jobtarget_sync_status: 'SYNCING' as any,
+        jobtarget_last_error: null,
       },
     });
 
@@ -691,10 +691,10 @@ class JobTargetService {
       await prisma.job.update({
         where: { id: job.id },
         data: {
-          job_target_remote_job_id: remoteJobId,
-          job_target_sync_status: 'SYNCED' as any,
-          job_target_last_synced_at: new Date(),
-          job_target_last_error: null,
+          jobtarget_remote_job_id: remoteJobId,
+          jobtarget_sync_status: 'SYNCED' as any,
+          jobtarget_last_synced_at: new Date(),
+          jobtarget_last_error: null,
         },
       });
 
@@ -703,9 +703,9 @@ class JobTargetService {
       await prisma.job.update({
         where: { id: job.id },
         data: {
-          job_target_sync_status: 'FAILED' as any,
-          job_target_last_error: error?.message || 'JobTarget publish sync failed',
-          job_target_last_synced_at: new Date(),
+          jobtarget_sync_status: 'FAILED' as any,
+          jobtarget_last_error: error?.message || 'JobTarget publish sync failed',
+          jobtarget_last_synced_at: new Date(),
         },
       });
       throw error;
@@ -728,9 +728,9 @@ class JobTargetService {
       await prisma.job.update({
         where: { id: jobId },
         data: {
-          job_target_sync_status: 'FAILED' as any,
-          job_target_last_error: error?.message || 'JobTarget edit sync failed',
-          job_target_last_synced_at: new Date(),
+          jobtarget_sync_status: 'FAILED' as any,
+          jobtarget_last_error: error?.message || 'JobTarget edit sync failed',
+          jobtarget_last_synced_at: new Date(),
         },
       });
     }
@@ -739,7 +739,7 @@ class JobTargetService {
   async closeRemoteJob(jobId: string, companyId: string, actorUserId?: string): Promise<void> {
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job || job.company_id !== companyId) return;
-    if (job.distribution_scope !== 'GLOBAL' || !job.job_target_remote_job_id) return;
+    if (job.distribution_scope !== 'GLOBAL' || !job.jobtarget_remote_job_id) return;
 
     try {
       const globalConfig = await this.getGlobalConfig();
@@ -765,7 +765,7 @@ class JobTargetService {
       try {
         await this.request<any>(
           globalConfig.baseUrl,
-          `/api/v1/job/${job.job_target_remote_job_id}/close`,
+          `/api/v1/job/${job.jobtarget_remote_job_id}/close`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
@@ -775,7 +775,7 @@ class JobTargetService {
       } catch {
         await this.request<any>(
           globalConfig.baseUrl,
-          `/api/v2/job/${job.job_target_remote_job_id}/postings/stop`,
+          `/api/v2/job/${job.jobtarget_remote_job_id}/postings/stop`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
@@ -787,18 +787,18 @@ class JobTargetService {
       await prisma.job.update({
         where: { id: jobId },
         data: {
-          job_target_sync_status: 'CLOSED' as any,
-          job_target_last_error: null,
-          job_target_last_synced_at: new Date(),
+          jobtarget_sync_status: 'CLOSED' as any,
+          jobtarget_last_error: null,
+          jobtarget_last_synced_at: new Date(),
         },
       });
     } catch (error: any) {
       await prisma.job.update({
         where: { id: jobId },
         data: {
-          job_target_sync_status: 'FAILED' as any,
-          job_target_last_error: error?.message || 'JobTarget close sync failed',
-          job_target_last_synced_at: new Date(),
+          jobtarget_sync_status: 'FAILED' as any,
+          jobtarget_last_error: error?.message || 'JobTarget close sync failed',
+          jobtarget_last_synced_at: new Date(),
         },
       });
     }
@@ -813,9 +813,9 @@ class JobTargetService {
       throw new HttpException(400, 'JobTarget Marketplace is only available for GLOBAL jobs');
     }
 
-    let remoteJobId = job.job_target_remote_job_id;
-    let syncStatus = job.job_target_sync_status;
-    if (!remoteJobId || job.job_target_sync_status !== 'SYNCED') {
+    let remoteJobId = job.jobtarget_remote_job_id;
+    let syncStatus = job.jobtarget_sync_status;
+    if (!remoteJobId || job.jobtarget_sync_status !== 'SYNCED') {
       const sync = await this.syncJobForPublish(job.id, companyId, userId);
       remoteJobId = sync.remoteJobId;
       syncStatus = 'SYNCED';
@@ -915,23 +915,23 @@ class JobTargetService {
 
     if (!application) return;
 
-    const attribution = (application.job_target_attribution || null) as JobTargetAttribution | null;
+    const attribution = (application.jobtarget_attribution || null) as JobTargetAttribution | null;
     const applicantGuid = attribution?.applicantGuid;
-    const shouldSync = !!(applicantGuid && application.job?.distribution_scope === 'GLOBAL' && application.job?.job_target_remote_job_id);
+    const shouldSync = !!(applicantGuid && application.job?.distribution_scope === 'GLOBAL' && application.job?.jobtarget_remote_job_id);
 
     if (!shouldSync) {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_new_app_sync_status: 'NOT_REQUIRED',
-          job_target_new_app_last_error: null,
-          job_target_new_app_next_retry_at: null,
+          jobtarget_new_app_sync_status: 'NOT_REQUIRED',
+          jobtarget_new_app_last_error: null,
+          jobtarget_new_app_next_retry_at: null,
         },
       });
       return;
     }
 
-    const attempts = (application.job_target_new_app_sync_attempts || 0) + 1;
+    const attempts = (application.jobtarget_new_app_sync_attempts || 0) + 1;
 
     try {
       const globalConfig = await this.getGlobalConfig();
@@ -955,20 +955,20 @@ class JobTargetService {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_new_app_sync_status: 'SYNCED',
-          job_target_new_app_sync_attempts: attempts,
-          job_target_new_app_last_error: null,
-          job_target_new_app_next_retry_at: null,
+          jobtarget_new_app_sync_status: 'SYNCED',
+          jobtarget_new_app_sync_attempts: attempts,
+          jobtarget_new_app_last_error: null,
+          jobtarget_new_app_next_retry_at: null,
         },
       });
     } catch (error: any) {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_new_app_sync_status: 'FAILED',
-          job_target_new_app_sync_attempts: attempts,
-          job_target_new_app_last_error: error?.message || 'JobTarget new application sync failed',
-          job_target_new_app_next_retry_at: this.nextRetryDate(attempts),
+          jobtarget_new_app_sync_status: 'FAILED',
+          jobtarget_new_app_sync_attempts: attempts,
+          jobtarget_new_app_last_error: error?.message || 'JobTarget new application sync failed',
+          jobtarget_new_app_next_retry_at: this.nextRetryDate(attempts),
         },
       });
     }
@@ -984,25 +984,25 @@ class JobTargetService {
 
     if (!application) return;
 
-    const attribution = (application.job_target_attribution || null) as JobTargetAttribution | null;
+    const attribution = (application.jobtarget_attribution || null) as JobTargetAttribution | null;
     const applicantGuid = attribution?.applicantGuid;
     const stageMapping = APPLICATION_STAGE_TO_JOBTARGET_STAGE[stage];
 
-    const shouldSync = !!(applicantGuid && stageMapping && application.job?.distribution_scope === 'GLOBAL' && application.job?.job_target_remote_job_id);
+    const shouldSync = !!(applicantGuid && stageMapping && application.job?.distribution_scope === 'GLOBAL' && application.job?.jobtarget_remote_job_id);
 
     if (!shouldSync) {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_stage_sync_status: 'NOT_REQUIRED',
-          job_target_stage_last_error: null,
-          job_target_stage_next_retry_at: null,
+          jobtarget_stage_sync_status: 'NOT_REQUIRED',
+          jobtarget_stage_last_error: null,
+          jobtarget_stage_next_retry_at: null,
         },
       });
       return;
     }
 
-    const attempts = (application.job_target_stage_sync_attempts || 0) + 1;
+    const attempts = (application.jobtarget_stage_sync_attempts || 0) + 1;
 
     try {
       const globalConfig = await this.getGlobalConfig();
@@ -1026,20 +1026,20 @@ class JobTargetService {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_stage_sync_status: 'SYNCED',
-          job_target_stage_sync_attempts: attempts,
-          job_target_stage_last_error: null,
-          job_target_stage_next_retry_at: null,
+          jobtarget_stage_sync_status: 'SYNCED',
+          jobtarget_stage_sync_attempts: attempts,
+          jobtarget_stage_last_error: null,
+          jobtarget_stage_next_retry_at: null,
         },
       });
     } catch (error: any) {
       await prisma.application.update({
         where: { id: applicationId },
         data: {
-          job_target_stage_sync_status: 'FAILED',
-          job_target_stage_sync_attempts: attempts,
-          job_target_stage_last_error: error?.message || 'JobTarget stage sync failed',
-          job_target_stage_next_retry_at: this.nextRetryDate(attempts),
+          jobtarget_stage_sync_status: 'FAILED',
+          jobtarget_stage_sync_attempts: attempts,
+          jobtarget_stage_last_error: error?.message || 'JobTarget stage sync failed',
+          jobtarget_stage_next_retry_at: this.nextRetryDate(attempts),
         },
       });
     }
@@ -1050,10 +1050,10 @@ class JobTargetService {
       where: { id: applicationId },
       select: {
         id: true,
-        job_target_new_app_sync_status: true,
-        job_target_new_app_next_retry_at: true,
-        job_target_stage_sync_status: true,
-        job_target_stage_next_retry_at: true,
+        jobtarget_new_app_sync_status: true,
+        jobtarget_new_app_next_retry_at: true,
+        jobtarget_stage_sync_status: true,
+        jobtarget_stage_next_retry_at: true,
       },
     });
 
@@ -1061,12 +1061,12 @@ class JobTargetService {
 
     const now = Date.now();
     const shouldRetryNew =
-      application.job_target_new_app_sync_status === 'FAILED' &&
-      (!!application.job_target_new_app_next_retry_at && application.job_target_new_app_next_retry_at.getTime() <= now);
+      application.jobtarget_new_app_sync_status === 'FAILED' &&
+      (!!application.jobtarget_new_app_next_retry_at && application.jobtarget_new_app_next_retry_at.getTime() <= now);
 
     const shouldRetryStage =
-      application.job_target_stage_sync_status === 'FAILED' &&
-      (!!application.job_target_stage_next_retry_at && application.job_target_stage_next_retry_at.getTime() <= now);
+      application.jobtarget_stage_sync_status === 'FAILED' &&
+      (!!application.jobtarget_stage_next_retry_at && application.jobtarget_stage_next_retry_at.getTime() <= now);
 
     if (shouldRetryNew) {
       await this.syncNewApplicationEvent(applicationId);

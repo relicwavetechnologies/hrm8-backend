@@ -198,10 +198,18 @@ export class FinanceController {
         try {
             const financeService = new FinanceOverviewService();
 
-            // Apply regional filtering if user is a regional licensee
-            const regionIds = req.assignedRegionIds && req.assignedRegionIds.length > 0
-                ? req.assignedRegionIds
-                : undefined;
+            const queryRegionId = req.query.regionId as string | undefined;
+            let regionIds: string[] | undefined;
+            if (queryRegionId && queryRegionId !== 'all') {
+                const assigned = req.assignedRegionIds || [];
+                if (assigned.length > 0) {
+                    regionIds = assigned.includes(queryRegionId) ? [queryRegionId] : assigned;
+                } else {
+                    regionIds = [queryRegionId];
+                }
+            } else if (req.assignedRegionIds && req.assignedRegionIds.length > 0) {
+                regionIds = req.assignedRegionIds;
+            }
 
             const overview = await financeService.getOverview(regionIds);
 

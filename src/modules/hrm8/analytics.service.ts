@@ -57,7 +57,7 @@ export class AnalyticsService extends BaseService {
         return this.analyticsRepository.getRegionalCompanies(resolvedRegionId as any, status);
     }
 
-    async getPlatformOverview(filters: { startDate?: string; endDate?: string; companyId?: string; regionId?: string }) {
+    async getPlatformOverview(filters: { startDate?: string; endDate?: string; companyId?: string; regionId?: string; regionIds?: string[] }) {
         const startDate = filters.startDate ? new Date(filters.startDate) : undefined;
         const endDate = filters.endDate ? new Date(filters.endDate) : undefined;
 
@@ -65,7 +65,8 @@ export class AnalyticsService extends BaseService {
             startDate,
             endDate,
             filters.companyId,
-            filters.regionId
+            filters.regionId,
+            filters.regionIds
         );
 
         // Aggregate metrics
@@ -115,7 +116,7 @@ export class AnalyticsService extends BaseService {
         return overview;
     }
 
-    async getPlatformTrends(period: string = '30d', filters: { companyId?: string; regionId?: string }) {
+    async getPlatformTrends(period: string = '30d', filters: { companyId?: string; regionId?: string; regionIds?: string[] }) {
         const endDate = new Date();
         const startDate = new Date();
 
@@ -127,7 +128,8 @@ export class AnalyticsService extends BaseService {
             startDate,
             endDate,
             filters.companyId,
-            filters.regionId
+            filters.regionId,
+            filters.regionIds
         );
 
         // Group by date
@@ -181,8 +183,8 @@ export class AnalyticsService extends BaseService {
         };
     }
 
-    async getTopPerformingCompanies(limit: number = 10, regionId?: string) {
-        const companiesStats = await this.analyticsRepository.getTopPerformingCompanies(limit, regionId);
+    async getTopPerformingCompanies(limit: number = 10, regionId?: string, regionIds?: string[]) {
+        const companiesStats = await this.analyticsRepository.getTopPerformingCompanies(limit, regionId, regionIds);
 
         const companyIds = companiesStats.map(c => c.company_id);
         const companies = await this.analyticsRepository.getCompaniesByIds(companyIds);

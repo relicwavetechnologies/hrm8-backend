@@ -15,6 +15,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
 import { BillingService } from '../billing/billing.service';
+import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
 import { FeatureFlags } from '../../config/feature-flags';
 import { BillingLogger } from '../../utils/billing-logger';
@@ -195,14 +196,13 @@ export class JobService extends BaseService {
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
       management_type: data.managementType ?? undefined,
       draft_step: data.draftStep,
-      status: data.status,
       visibility: data.visibility,
       ...this.extractJobTargetConfigPatch(data, false),
     };
 
     // Remove undefined keys
     Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) delete updateData[key];
+      if ((updateData as any)[key] === undefined) delete (updateData as any)[key];
     });
 
     const updatedJob = await this.jobRepository.update(id, updateData);
@@ -571,8 +571,25 @@ export class JobService extends BaseService {
         throw new HttpException(402, 'Active subscription required to publish jobs');
       }
 
+      case 'PAYG_REQUIRE_INVOICE':
+      case 'OVER_QUOTA_PAYG': {
+        throw new HttpException(402, 'Payment required to publish this job. Complete checkout to continue.', 'PAYG_INVOICE_REQUIRED');
+      }
+
+      case 'PLAN_EXPIRED': {
+        throw new HttpException(402, 'Your plan has expired. Upgrade to restore job quota and AI features.', 'PLAN_EXPIRED');
+      }
+
       case 'QUOTA_EXHAUSTED': {
         throw new HttpException(402, 'Job posting quota exhausted. Please upgrade your subscription.');
+      }
+
+      case 'PAYG_FREE_FIRST': {
+        updatedJob = await this.jobRepository.update(id, {
+          status: 'OPEN',
+          posting_date: new Date(),
+        });
+        break;
       }
 
       case 'USE_QUOTA': {
@@ -741,6 +758,10 @@ export class JobService extends BaseService {
     const amount = Number((job.payment_amount * rate).toFixed(2));
     if (amount <= 0) return;
 
+    const commissionCurrency = job.payment_currency || 'USD';
+    const { resolveCommissionFx } = await import('../hrm8/commission-fx.util');
+    const fx = await resolveCommissionFx(consultant.id, commissionCurrency, amount);
+
     await prisma.commission.create({
       data: {
         consultant_id: consultant.id,
@@ -748,15 +769,76 @@ export class JobService extends BaseService {
         job_id: job.id,
         type: 'RECRUITMENT_SERVICE',
         amount,
+        currency: fx.currency,
+        payout_currency: fx.payoutCurrency,
+        payout_amount: fx.payoutAmount,
+        fx_rate: fx.fxRate,
+        fx_rate_locked_at: new Date(),
+        fx_source: fx.fxSource,
         rate,
         status: 'PENDING',
-        description: `Managed service commission for job: ${job.title}`,
-        notes: JSON.stringify({
-          source: 'MANAGED_SERVICE_PAYMENT',
-          currency: job.payment_currency || null,
-        }),
+        description: `Managed service commission for job: ${job.title} (${fx.currency})`,
+        notes: JSON.stringify({ source: 'MANAGED_SERVICE_PAYMENT' }),
       },
     });
+  }
+
+  /**
+   * Initiate PAYG job checkout — when quota/free job exhausted, redirect to invoice payment.
+   * Creates Airwallex + Xero checkout; webhook publishes job on success.
+   */
+  async initiatePaygJobCheckout(
+    id: string,
+    companyId: string,
+    userId: string
+  ): Promise<{ checkoutUrl: string; paymentAttemptId: string; amount: number; currency: string; billId: string }> {
+    const job = await this.jobRepository.findById(id);
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
+    if (job.status !== 'DRAFT') {
+      throw new HttpException(400, 'Only draft jobs can go through PAYG checkout. Job may already be published.');
+    }
+
+    const decision = await UsageEngine.resolveJobPublish(companyId, job.hiring_mode || 'SELF_MANAGED');
+    if (decision !== 'PAYG_REQUIRE_INVOICE' && decision !== 'OVER_QUOTA_PAYG') {
+      throw new HttpException(400, `PAYG checkout not applicable. Current state: ${decision}`);
+    }
+
+    let price: number;
+    let currency: string;
+    try {
+      const result = await PriceBookSelectionService.getPriceForProduct(companyId, 'SUB_PAYG', 1);
+      price = result.price;
+      currency = result.currency;
+    } catch {
+      price = 195;
+      currency = 'USD';
+    }
+
+    const atsBase = process.env.ATS_FRONTEND_URL || process.env.FRONTEND_URL || 'http://localhost:8080';
+    const checkout = await BillingService.createCheckout(
+      { companyId, userId },
+      {
+        type: 'payg_job',
+        amount: price,
+        currency,
+        description: 'PAYG job posting (invoice)',
+        successUrl: `${atsBase}/ats/jobs?payg_success=1&jobId=${id}`,
+        cancelUrl: `${atsBase}/ats/jobs/${id}?payg_canceled=1`,
+        metadata: {
+          type: 'payg_job',
+          jobId: id,
+        },
+      }
+    );
+
+    return {
+      checkoutUrl: checkout.url,
+      paymentAttemptId: checkout.paymentAttemptId,
+      amount: price,
+      currency,
+      billId: checkout.billId,
+    };
   }
 
   async upgradeToManagedService(
@@ -898,32 +980,12 @@ export class JobService extends BaseService {
 
       let consultantId = job.assigned_consultant_id || null;
       if (!consultantId) {
-        try {
-          const assignResult = await jobAllocationService.autoAssignJob(id);
-          consultantId = assignResult?.consultantId || null;
-        } catch (error: any) {
-          const assignmentError =
-            error?.message || 'No consultant available for assignment. Please try again later.';
-          if (paymentAttemptId) {
-            await BillingService.refundPayment(paymentAttemptId, assignmentError);
-            BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
-            BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
-            await this.jobRepository.update(id, {
-              payment_status: 'PENDING',
-              payment_completed_at: null,
-              payment_failed_at: new Date(),
-            });
-            throw new HttpException(
-              503,
-              `${assignmentError} Invoice payment was reversed automatically. Please retry later.`
-            );
-          }
-          BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
-          throw new HttpException(503, assignmentError);
-        }
+        const assignResult = await jobAllocationService.autoAssignJob(id);
+        console.log('[upgradeToManagedService] autoAssignJob result:', JSON.stringify(assignResult));
+        consultantId = assignResult?.consultantId || null;
 
         if (!consultantId) {
-          const assignmentError = 'No consultant available for assignment. Please try again later.';
+          const assignmentError = assignResult?.error || 'No consultant available for assignment. Please try again later.';
           if (paymentAttemptId) {
             await BillingService.refundPayment(paymentAttemptId, assignmentError);
             BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });

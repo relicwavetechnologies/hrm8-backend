@@ -72,6 +72,20 @@ export class ConsultantService extends BaseService {
     return consultant;
   }
 
+  async updateCurrencyPreference(consultantId: string, payoutCurrency: string) {
+    const SUPPORTED = ['USD', 'GBP', 'EUR', 'AUD', 'INR', 'NZD', 'SGD', 'CAD'];
+    if (!SUPPORTED.includes(payoutCurrency)) {
+      throw new HttpException(400, `Invalid currency. Supported: ${SUPPORTED.join(', ')}`);
+    }
+    return prisma.consultant.update({
+      where: { id: consultantId },
+      data: {
+        payout_currency: payoutCurrency,
+        payout_currency_confirmed_at: new Date(),
+      },
+    });
+  }
+
   async updateProfile(consultantId: string, data: any) {
     const allowedUpdates = {
       phone: data.phone,

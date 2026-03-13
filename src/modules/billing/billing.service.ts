@@ -8,10 +8,20 @@ import { AirwallexService } from '../airwallex/airwallex.service';
 import { XeroService } from '../xero/xero.service';
 import { BillingLogger } from '../../utils/billing-logger';
 import { Logger } from '../../utils/logger';
+import { jobAllocationService } from '../job/job-allocation.service';
+import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
+import { resolveCommissionFx } from '../hrm8/commission-fx.util';
+import { BILLING_PROVIDER_MODE } from '../../config/billing-env';
 
 const log = Logger.create('billing');
 
-export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service';
+/** In mock mode, auto-confirm payment immediately (no webhook) so subscription is created. In live mode, use env BILLING_AUTO_CONFIRM. */
+const BILLING_AUTO_CONFIRM =
+  BILLING_PROVIDER_MODE === 'mock'
+    ? true
+    : process.env.BILLING_AUTO_CONFIRM === 'true';
+
+export type BillingCheckoutType = 'wallet_recharge' | 'subscription' | 'managed_service' | 'payg_job';
 
 export interface BillingCheckoutRequest {
   type?: string;
@@ -40,8 +50,6 @@ interface BillingEventPayload {
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
 }
-
-const BILLING_AUTO_CONFIRM = process.env.BILLING_AUTO_CONFIRM !== 'false';
 
 const toObject = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -90,6 +98,7 @@ export class BillingService {
 
     if (resolved === 'subscription') return 'subscription';
     if (resolved === 'managed_service') return 'managed_service';
+    if (resolved === 'payg_job') return 'payg_job';
     return 'wallet_recharge';
   }
 
@@ -135,7 +144,9 @@ export class BillingService {
         ? `Subscription purchase (${asString(mergedMetadata.planName) || 'plan'})`
         : checkoutType === 'managed_service'
           ? 'Managed service invoice'
-          : 'Wallet recharge');
+          : checkoutType === 'payg_job'
+            ? 'PAYG job posting (invoice)'
+            : 'Wallet recharge');
 
     const xeroInvoice = XeroService.createInvoice({
       companyId: context.companyId,
@@ -166,7 +177,7 @@ export class BillingService {
       },
     });
 
-    const session = AirwallexService.createCheckoutSession({
+    const session = await AirwallexService.createCheckoutSession({
       amount,
       currency,
       reference: bill.id,
@@ -181,7 +192,7 @@ export class BillingService {
       data: { payment_reference: session.paymentAttemptId },
     });
 
-    if (BILLING_AUTO_CONFIRM) {
+    if (BILLING_AUTO_CONFIRM || session.autoConfirm) {
       await this.markPaymentSucceeded(session.paymentAttemptId, session.providerTransactionId);
     }
 
@@ -248,6 +259,68 @@ export class BillingService {
         jobQuota: jobQuota ?? undefined,
       });
       subscriptionId = created.id;
+
+      // Create commission for the sales agent who brought this company
+      try {
+        const company = await prisma.company.findUnique({
+          where: { id: bill.company_id },
+          select: { sales_agent_id: true },
+        });
+
+        if (company?.sales_agent_id) {
+          const salesAgent = await prisma.consultant.findUnique({
+            where: { id: company.sales_agent_id },
+            select: { id: true, region_id: true, default_commission_rate: true },
+          });
+
+          if (salesAgent?.region_id) {
+            const existing = await prisma.commission.findFirst({
+              where: {
+                consultant_id: salesAgent.id,
+                subscription_id: created.id,
+                type: 'SUBSCRIPTION_SALE',
+              },
+              select: { id: true },
+            });
+
+            if (!existing) {
+              const subAmount = Number(bill.total_amount || bill.amount);
+              const rate = toCommissionRateDecimal(salesAgent.default_commission_rate, 0.10);
+              const commissionAmount = Number((subAmount * rate).toFixed(2));
+
+              if (commissionAmount > 0) {
+                const commissionCurrency = bill.currency || 'USD';
+                const fx = await resolveCommissionFx(salesAgent.id, commissionCurrency, commissionAmount);
+                await prisma.commission.create({
+                  data: {
+                    consultant_id: salesAgent.id,
+                    region_id: salesAgent.region_id,
+                    subscription_id: created.id,
+                    type: 'SUBSCRIPTION_SALE',
+                    amount: commissionAmount,
+                    currency: fx.currency,
+                    payout_currency: fx.payoutCurrency,
+                    payout_amount: fx.payoutAmount,
+                    fx_rate: fx.fxRate,
+                    fx_rate_locked_at: new Date(),
+                    fx_source: fx.fxSource,
+                    rate,
+                    status: 'PENDING',
+                    description: `Sales commission for subscription: ${planName} (${fx.currency})`,
+                  },
+                });
+                log.info('Sales agent commission created for subscription', {
+                  salesAgentId: salesAgent.id, subscriptionId: created.id, commissionAmount,
+                });
+              }
+            }
+          }
+        }
+      } catch (commErr: any) {
+        log.error('Failed to create sales agent commission for subscription', {
+          subscriptionId: created.id, error: commErr.message,
+        });
+      }
     }
 
     if (checkoutType === 'wallet_recharge') {
@@ -274,6 +347,36 @@ export class BillingService {
           pricingPeg: asString(metadata.pricingPeg) || undefined,
           billingCurrency: bill.currency,
         });
+      }
+    }
+
+    if (checkoutType === 'payg_job') {
+      const jobId = asString(metadata.jobId);
+      if (!jobId) {
+        throw new HttpException(400, 'PAYG job checkout metadata is incomplete');
+      }
+
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { id: true, company_id: true, status: true },
+      });
+      if (!job) {
+        throw new HttpException(404, 'PAYG job not found');
+      }
+      if (job.company_id !== bill.company_id) {
+        throw new HttpException(403, 'PAYG job payment company mismatch');
+      }
+      if (job.status !== 'DRAFT') {
+        log.warn('PAYG job already published or invalid status', { jobId, status: job.status });
+      } else {
+        await prisma.job.update({
+          where: { id: jobId },
+          data: {
+            status: 'OPEN',
+            posting_date: new Date(),
+          },
+        });
+        log.info('PAYG job published after payment', { jobId, companyId: bill.company_id });
       }
     }
 
@@ -313,6 +416,75 @@ export class BillingService {
           pricing_peg: asString(metadata.pricingPeg) || undefined,
         },
       });
+
+      // Auto-assign consultant (same logic as synchronous upgrade path)
+      try {
+        const freshJob = await prisma.job.findUnique({
+          where: { id: jobId },
+          select: { assigned_consultant_id: true },
+        });
+
+        if (!freshJob?.assigned_consultant_id) {
+          const assignResult = await jobAllocationService.autoAssignJob(jobId);
+          if (assignResult.success && assignResult.consultantId) {
+            log.info('Webhook: consultant auto-assigned after managed-service payment', {
+              jobId, consultantId: assignResult.consultantId, servicePackage,
+            });
+
+            // Create managed-service commission
+            const paymentAmount = Number(bill.total_amount || bill.amount);
+            const consultant = await prisma.consultant.findUnique({
+              where: { id: assignResult.consultantId },
+              select: { id: true, region_id: true, default_commission_rate: true },
+            });
+
+            if (consultant?.region_id && paymentAmount > 0) {
+              const existing = await prisma.commission.findFirst({
+                where: { job_id: jobId, consultant_id: consultant.id, type: 'RECRUITMENT_SERVICE' },
+                select: { id: true },
+              });
+
+              if (!existing) {
+                const rate = toCommissionRateDecimal(consultant.default_commission_rate, 0.20);
+                const commissionAmount = Number((paymentAmount * rate).toFixed(2));
+                if (commissionAmount > 0) {
+                  const commissionCurrency = bill.currency || 'USD';
+                  const fx = await resolveCommissionFx(consultant.id, commissionCurrency, commissionAmount);
+                  await prisma.commission.create({
+                    data: {
+                      consultant_id: consultant.id,
+                      region_id: consultant.region_id,
+                      job_id: jobId,
+                      type: 'RECRUITMENT_SERVICE',
+                      amount: commissionAmount,
+                      currency: fx.currency,
+                      payout_currency: fx.payoutCurrency,
+                      payout_amount: fx.payoutAmount,
+                      fx_rate: fx.fxRate,
+                      fx_rate_locked_at: new Date(),
+                      fx_source: fx.fxSource,
+                      rate,
+                      status: 'PENDING',
+                      description: `Managed service commission for job (webhook payment) (${fx.currency})`,
+                    },
+                  });
+                  log.info('Webhook: managed-service commission created', {
+                    jobId, consultantId: consultant.id, commissionAmount,
+                  });
+                }
+              }
+            }
+          } else {
+            log.warn('Webhook: consultant auto-assignment failed after managed-service payment', {
+              jobId, error: assignResult.error,
+            });
+          }
+        }
+      } catch (assignErr: any) {
+        log.error('Webhook: post-payment assignment/commission failed', {
+          jobId, error: assignErr.message,
+        });
+      }
     }
 
     await prisma.bill.update({
@@ -351,11 +523,16 @@ export class BillingService {
       throw new HttpException(404, 'Payment attempt not found');
     }
 
+    if (bill.status === BillStatus.PAID || bill.status === BillStatus.REFUNDED) {
+      return { status: bill.status, billId: bill.id };
+    }
+
     const payload = parseNotesPayload(bill.notes);
 
     await prisma.bill.update({
       where: { id: bill.id },
       data: {
+        status: BillStatus.CANCELLED,
         notes: JSON.stringify({
           ...(payload || {
             checkoutType: 'wallet_recharge',
@@ -488,9 +665,10 @@ export class BillingService {
   static async processWebhook(
     rawBody: string | Buffer,
     signature: string,
-    event: unknown
+    event: unknown,
+    timestamp?: string
   ): Promise<{ status: string; billId?: string }> {
-    if (!AirwallexService.verifyWebhookSignature(rawBody, signature)) {
+    if (!AirwallexService.verifyWebhookSignature(rawBody, signature, timestamp)) {
       log.error('Webhook signature verification failed');
       throw new HttpException(401, 'Invalid webhook signature');
     }
@@ -521,6 +699,11 @@ export class BillingService {
     if (bill.status === BillStatus.PAID) {
       log.info('Webhook for already-paid bill (idempotent)', { billId: bill.id });
       return { status: 'ALREADY_PAID', billId: bill.id };
+    }
+
+    if (bill.status === BillStatus.REFUNDED) {
+      log.warn('Webhook for already-refunded bill — ignoring', { billId: bill.id });
+      return { status: 'ALREADY_REFUNDED', billId: bill.id };
     }
 
     if (parsed.status === 'SUCCEEDED') {

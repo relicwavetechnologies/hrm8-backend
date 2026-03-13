@@ -12,6 +12,7 @@ import { NotificationService } from '../notification/notification.service';
 import { InterviewService } from '../interview/interview.service';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from './application-activity.service';
+import { FeatureGateService } from '../feature-gate/feature-gate.service';
 import { jobTargetService } from '../jobtarget/jobtarget.service';
 
 export class ApplicationService extends BaseService {
@@ -52,7 +53,7 @@ export class ApplicationService extends BaseService {
       custom_answers: data.customAnswers || [],
       questionnaire_data: data.questionnaireData,
       source: sourceLabel,
-      job_target_attribution: attribution as any,
+      jobtarget_attribution: attribution as any,
       is_read: false,
       is_new: true,
       tags: [],
@@ -193,6 +194,13 @@ export class ApplicationService extends BaseService {
 
   async triggerAiAnalysis(applicationId: string, jobId: string, actorId?: string): Promise<void> {
     try {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { company_id: true },
+      });
+      if (!job?.company_id) return;
+      await FeatureGateService.assertCanUseAi(job.company_id, 'AI_SCREENING_REQUIRES_UPGRADE');
+
       const result = await CandidateScoringService.scoreCandidate({ applicationId, jobId });
 
       await this.applicationRepository.saveScreeningResult({
@@ -236,6 +244,15 @@ export class ApplicationService extends BaseService {
   }
 
   async bulkAiAnalysis(applicationIds: string[], jobId: string, actorId?: string): Promise<{ success: number; failed: number }> {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { company_id: true },
+    });
+    if (!job?.company_id) {
+      throw new HttpException(404, 'Job not found');
+    }
+    await FeatureGateService.assertCanUseAi(job.company_id, 'AI_SCREENING_REQUIRES_UPGRADE');
+
     let success = 0;
     let failed = 0;
 
@@ -250,6 +267,28 @@ export class ApplicationService extends BaseService {
     }));
 
     return { success, failed };
+  }
+
+  /**
+   * Ad-hoc AI candidate scoring (Analyse button in AICandidateScoring dialog).
+   * Gated by FeatureGateService - PAYG/expired plans cannot bypass.
+   */
+  async scoreCandidateAdHoc(
+    companyId: string,
+    request: {
+      candidateName: string;
+      resume?: string;
+      experience?: string;
+      skills?: string[];
+      education?: string;
+      jobRequirements: string;
+      jobDescription: string;
+      interviewFeedback?: string;
+      weights?: { skills?: number; experience?: number; education?: number; interview?: number; culture?: number };
+    }
+  ) {
+    await FeatureGateService.assertCanUseAi(companyId, 'AI_SCREENING_REQUIRES_UPGRADE');
+    return CandidateScoringService.scoreCandidateAdHoc(request);
   }
 
   private mapApplication(app: any): any {
@@ -323,15 +362,15 @@ export class ApplicationService extends BaseService {
       websiteUrl: app.website_url,
       customAnswers: app.custom_answers,
       questionnaireData: app.questionnaire_data,
-      jobTargetAttribution: app.job_target_attribution || undefined,
-      jobTargetNewAppSyncStatus: app.job_target_new_app_sync_status || undefined,
-      jobTargetNewAppSyncAttempts: app.job_target_new_app_sync_attempts ?? 0,
-      jobTargetNewAppLastError: app.job_target_new_app_last_error || undefined,
-      jobTargetNewAppNextRetryAt: app.job_target_new_app_next_retry_at || undefined,
-      jobTargetStageSyncStatus: app.job_target_stage_sync_status || undefined,
-      jobTargetStageSyncAttempts: app.job_target_stage_sync_attempts ?? 0,
-      jobTargetStageLastError: app.job_target_stage_last_error || undefined,
-      jobTargetStageNextRetryAt: app.job_target_stage_next_retry_at || undefined,
+      jobTargetAttribution: app.jobtarget_attribution || undefined,
+      jobTargetNewAppSyncStatus: app.jobtarget_new_app_sync_status || undefined,
+      jobTargetNewAppSyncAttempts: app.jobtarget_new_app_sync_attempts ?? 0,
+      jobTargetNewAppLastError: app.jobtarget_new_app_last_error || undefined,
+      jobTargetNewAppNextRetryAt: app.jobtarget_new_app_next_retry_at || undefined,
+      jobTargetStageSyncStatus: app.jobtarget_stage_sync_status || undefined,
+      jobTargetStageSyncAttempts: app.jobtarget_stage_sync_attempts ?? 0,
+      jobTargetStageLastError: app.jobtarget_stage_last_error || undefined,
+      jobTargetStageNextRetryAt: app.jobtarget_stage_next_retry_at || undefined,
       manuallyAdded: app.manually_added,
       addedBy: app.added_by,
       addedAt: app.added_at,

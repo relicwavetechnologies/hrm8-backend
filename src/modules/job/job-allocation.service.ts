@@ -53,16 +53,10 @@ export class JobAllocationService extends BaseService {
                 })
                 : null;
 
-            // Fallback: if region mapping is incomplete, pick least-loaded active consultant.
             if (!consultant) {
-                consultant = await prisma.consultant.findFirst({
-                    where: { status: 'ACTIVE' },
-                    orderBy: { current_jobs: 'asc' }
-                });
-            }
-
-            if (!consultant) {
-                return { success: false, error: 'No active consultant found for auto-assignment' };
+                return { success: false, error: resolvedRegionId
+                    ? `No active consultant found in region ${resolvedRegionId}`
+                    : 'Job and company have no region assigned — cannot auto-assign' };
             }
 
             // Assign job

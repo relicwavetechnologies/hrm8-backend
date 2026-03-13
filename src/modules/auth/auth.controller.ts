@@ -3,9 +3,35 @@ import { BaseController } from '../../core/controller';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
 import { CompanyRepository } from '../company/company.repository';
+import { companyProfileService } from '../company/company-profile.service';
 import { getSessionCookieOptions } from '../../utils/session';
 import { AuthenticatedRequest } from '../../types';
 import { passwordResetService } from './password-reset.service';
+import type { User } from '@prisma/client';
+
+async function buildCompanyAuthResponse(user: User) {
+  const { password_hash, ...userData } = user;
+  const base = {
+    user: { ...userData, companyId: user.company_id },
+  } as Record<string, unknown>;
+
+  if (!user.company_id) return base;
+
+  try {
+    const [profile, company] = await Promise.all([
+      companyProfileService.getProfileSummary(user.company_id),
+      new CompanyRepository().findById(user.company_id),
+    ]);
+    const requiresCurrencySetup =
+      company?.currency_preference_confirmed_at == null && company?.currency_locked_at == null;
+    (base as any).profile = profile;
+    (base as any).requiresCurrencySetup = requiresCurrencySetup;
+    (base as any).billingCurrency = company?.billing_currency ?? 'USD';
+  } catch {
+    // Fallback if profile/company fetch fails
+  }
+  return base;
+}
 
 export class AuthController extends BaseController {
   private authService: AuthService;
@@ -28,13 +54,8 @@ export class AuthController extends BaseController {
 
       res.cookie('sessionId', sessionId, cookieOptions);
 
-      const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, {
-        user: {
-          ...userData,
-          companyId: user.company_id
-        }
-      });
+      const payload = await buildCompanyAuthResponse(user);
+      return this.sendSuccess(res, payload);
     } catch (error) {
       console.error(`[AuthController.login] Login error:`, error);
       return this.sendError(res, error);
@@ -58,13 +79,8 @@ export class AuthController extends BaseController {
     try {
       if (!req.user) return this.sendError(res, new Error('Not authenticated'));
       const user = await this.authService.getCurrentUser(req.user.id);
-      const { password_hash, ...userData } = user;
-      return this.sendSuccess(res, {
-        user: {
-          ...userData,
-          companyId: user.company_id
-        }
-      });
+      const payload = await buildCompanyAuthResponse(user);
+      return this.sendSuccess(res, payload);
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -94,18 +110,43 @@ export class AuthController extends BaseController {
 
   signup = async (req: Request, res: Response) => {
     try {
+      console.log('[AuthController.signup] Incoming request', {
+        businessEmail: req.body?.businessEmail,
+        companyDomain: req.body?.companyDomain,
+      });
       const result = await this.authService.signup(req.body);
+      console.log('[AuthController.signup] Success', {
+        requestId: (result as any)?.requestId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.signup] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        businessEmail: req.body?.businessEmail,
+        companyDomain: req.body?.companyDomain,
+      });
       return this.sendError(res, error);
     }
   };
 
   registerCompany = async (req: Request, res: Response) => {
     try {
+      console.log('[AuthController.registerCompany] Incoming request', {
+        adminEmail: req.body?.adminEmail,
+        companyWebsite: req.body?.companyWebsite,
+      });
       const result = await this.authService.registerCompany(req.body);
+      console.log('[AuthController.registerCompany] Success', {
+        companyId: (result as any)?.companyId,
+        adminUserId: (result as any)?.adminUserId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.registerCompany] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        adminEmail: req.body?.adminEmail,
+        companyWebsite: req.body?.companyWebsite,
+      });
       return this.sendError(res, error);
     }
   };
@@ -123,9 +164,18 @@ export class AuthController extends BaseController {
   resendVerification = async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
+      console.log('[AuthController.resendVerification] Incoming request', { email });
       const result = await this.authService.resendVerification(email);
+      console.log('[AuthController.resendVerification] Success', {
+        email: (result as any)?.email,
+        companyId: (result as any)?.companyId,
+      });
       return this.sendSuccess(res, result);
     } catch (error) {
+      console.error('[AuthController.resendVerification] Failed', {
+        error: error instanceof Error ? error.message : String(error),
+        email: req.body?.email,
+      });
       return this.sendError(res, error);
     }
   };

@@ -9,6 +9,7 @@ import { ConversationService } from '../communication/conversation.service';
 import { ConsultantAuthenticatedRequest } from '../../types';
 import { ApplicationStatus, ApplicationStage } from '@prisma/client';
 import { getSessionCookieOptions } from '../../utils/session';
+import { ConsultantDecisionRequestService } from './consultant-decision-request.service';
 
 export class ConsultantController extends BaseController {
   private consultantService: ConsultantService;
@@ -34,13 +35,17 @@ export class ConsultantController extends BaseController {
 
       res.cookie('consultantToken', sessionId, getSessionCookieOptions());
 
+      const requiresCurrencySetup = consultant.payout_currency_confirmed_at === null;
       return this.sendSuccess(res, {
         consultant: {
           id: consultant.id,
           email: consultant.email,
           firstName: consultant.first_name,
           lastName: consultant.last_name,
-          role: consultant.role
+          role: consultant.role,
+          defaultCurrency: consultant.default_currency ?? 'USD',
+          payoutCurrency: consultant.payout_currency ?? null,
+          requiresCurrencySetup,
         }
       });
     } catch (error) {
@@ -50,14 +55,19 @@ export class ConsultantController extends BaseController {
 
   getCurrentUser = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
-      // Middleware already validates and populates req.consultant
       if (!req.consultant) return this.sendError(res, new Error('Not authenticated'));
 
-      // Optional: fetch fresh full profile if needed, but req.consultant is usually enough for "me"
-      // Or call getProfile for full details
       const consultant = await this.consultantService.getProfile(req.consultant.id);
+      const requiresCurrencySetup = consultant.payout_currency_confirmed_at === null;
 
-      return this.sendSuccess(res, { consultant });
+      return this.sendSuccess(res, {
+        consultant: {
+          ...consultant,
+          defaultCurrency: consultant.default_currency ?? 'USD',
+          payoutCurrency: consultant.payout_currency ?? null,
+          requiresCurrencySetup,
+        }
+      });
     } catch (error) {
       return this.sendError(res, error);
     }
@@ -118,14 +128,40 @@ export class ConsultantController extends BaseController {
     }
   };
 
+  listDecisionRequests = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
+
+      const status = req.query.status as string | undefined;
+      const requests = await ConsultantDecisionRequestService.listByConsultant(
+        consultantId,
+        status as 'PENDING' | 'APPROVED' | 'REJECTED' | undefined
+      );
+      return this.sendSuccess(res, { requests });
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
   moveCandidateToRound = async (req: ConsultantAuthenticatedRequest, res: Response) => {
     try {
       const consultantId = req.consultant?.id;
       if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
 
       const { applicationId } = req.params;
-      const { roundId } = req.body;
-      await this.candidateService.moveToRound(consultantId, applicationId as string, roundId);
+      const { roundId, reason } = req.body;
+      if (!roundId) return this.sendError(res, new Error('roundId is required'), 400);
+
+      const result = await this.candidateService.moveToRound(
+        consultantId,
+        applicationId as string,
+        roundId,
+        reason
+      );
+      if (result && 'requiresApproval' in result && result.requiresApproval) {
+        return this.sendSuccess(res, result);
+      }
       return this.sendSuccess(res, { message: 'Moved to round' });
     } catch (error) {
       return this.sendError(res, error);
@@ -272,6 +308,28 @@ export class ConsultantController extends BaseController {
 
       const result = await this.consultantService.getProfile(consultantId);
       return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  updateCurrencyPreference = async (req: ConsultantAuthenticatedRequest, res: Response) => {
+    try {
+      const consultantId = req.consultant?.id;
+      if (!consultantId) return this.sendError(res, new Error('Unauthorized'), 401);
+      const { payoutCurrency } = req.body;
+      if (!payoutCurrency || typeof payoutCurrency !== 'string') {
+        return this.sendError(res, new Error('payoutCurrency is required'), 400);
+      }
+      const consultant = await this.consultantService.updateCurrencyPreference(consultantId, payoutCurrency.trim());
+      return this.sendSuccess(res, {
+        consultant: {
+          id: consultant.id,
+          defaultCurrency: consultant.default_currency ?? 'USD',
+          payoutCurrency: consultant.payout_currency,
+          requiresCurrencySetup: false,
+        }
+      });
     } catch (error) {
       return this.sendError(res, error);
     }

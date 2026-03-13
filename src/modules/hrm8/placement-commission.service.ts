@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { toCommissionRateDecimal } from './commission-rate.util';
+import { resolveCommissionFx } from './commission-fx.util';
 
 type DbClient = Prisma.TransactionClient | typeof prisma;
 
@@ -134,6 +135,9 @@ export class PlacementCommissionService {
       return { created: false, reason: 'Calculated commission amount is zero' };
     }
 
+    const commissionCurrency = job.payment_currency || 'USD';
+    const fx = await resolveCommissionFx(consultant.id, commissionCurrency, commissionAmount);
+
     const commission = await db.commission.create({
       data: {
         consultant_id: consultant.id,
@@ -141,8 +145,14 @@ export class PlacementCommissionService {
         job_id: job.id,
         type: 'PLACEMENT',
         amount: commissionAmount,
+        currency: fx.currency,
+        payout_currency: fx.payoutCurrency,
+        payout_amount: fx.payoutAmount,
+        fx_rate: fx.fxRate,
+        fx_rate_locked_at: new Date(),
+        fx_source: fx.fxSource,
         rate: commissionRate,
-        description: `Placement commission for hired candidate on job: ${job.title}`,
+        description: `Placement commission for hired candidate on job: ${job.title} (${fx.currency})`,
         status: 'PENDING',
         notes: marker,
       },
