@@ -10,6 +10,7 @@ import { CandidateRepository } from '../candidate/candidate.repository';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationRepository } from '../notification/notification.repository';
 import { prisma } from '../../utils/prisma';
+import { jobTargetService } from '../jobtarget/jobtarget.service';
 export class ApplicationController extends BaseController {
   private applicationService: ApplicationService;
 
@@ -26,10 +27,15 @@ export class ApplicationController extends BaseController {
   submitApplication = async (req: AuthenticatedRequest, res: Response) => {
     try {
       const payload = { ...req.body };
+      const queryAttribution = jobTargetService.extractAttribution({ rawQuery: req.query, ...req.query });
 
       // Inject candidate ID from authenticated request
       if ((req as any).candidate) {
         payload.candidateId = (req as any).candidate.id;
+      }
+
+      if (!payload.jobTargetAttribution && queryAttribution) {
+        payload.jobTargetAttribution = queryAttribution;
       }
 
       if (!payload.candidateId) {

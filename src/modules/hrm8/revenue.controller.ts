@@ -61,7 +61,16 @@ export class RevenueController extends BaseController {
 
     getCompanyBreakdown = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const result = await this.revenueService.getCompanyBreakdown(req.assignedRegionIds);
+            const regionId = (req.query.regionId || req.query.region_id) as string | undefined;
+            const allowedRegionIds = req.assignedRegionIds;
+
+            if (regionId && regionId !== 'all' && allowedRegionIds?.length && !allowedRegionIds.includes(regionId)) {
+                return this.sendError(res, new Error('Access denied for region scope'), 403);
+            }
+
+            const result = await this.revenueService.getCompanyBreakdown(
+                regionId && regionId !== 'all' ? [regionId] : allowedRegionIds
+            );
             return this.sendSuccess(res, { companies: result });
         } catch (error) {
             return this.sendError(res, error);

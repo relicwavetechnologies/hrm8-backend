@@ -99,10 +99,13 @@ export class RegionalLicenseeService extends BaseService {
         return mapped;
     }
 
-    async getAll(params: { status?: LicenseeStatus; limit?: number; offset?: number; role?: string; licenseeId?: string }) {
-        const { status, limit = 50, offset = 0, role, licenseeId } = params;
+    async getAll(params: { status?: LicenseeStatus; limit?: number; offset?: number; regionId?: string; role?: string; licenseeId?: string }) {
+        const { status, limit = 50, offset = 0, regionId, role, licenseeId } = params;
         const where: any = this.getScopedWhere({ role, licenseeId });
         if (status) where.status = status;
+        if (regionId && regionId !== 'all') {
+            where.regions = { some: { id: regionId } };
+        }
 
         const [licensees, total] = await Promise.all([
             this.regionalLicenseeRepository.findMany({
@@ -427,8 +430,11 @@ export class RegionalLicenseeService extends BaseService {
         return { total, active, suspended };
     }
 
-    async getOverview(scope?: LicenseeScope) {
-        const where = this.getScopedWhere(scope);
+    async getOverview(scope?: LicenseeScope & { regionId?: string }) {
+        const where: any = this.getScopedWhere(scope);
+        if (scope?.regionId && scope.regionId !== 'all') {
+            where.regions = { some: { id: scope.regionId } };
+        }
         const licensees = await this.regionalLicenseeRepository.findMany({
             where,
             orderBy: { created_at: 'desc' },
@@ -457,7 +463,10 @@ export class RegionalLicenseeService extends BaseService {
         }
 
         const regions = await prisma.region.findMany({
-            where: { licensee_id: { in: licenseeIds } },
+            where: {
+                licensee_id: { in: licenseeIds },
+                ...(scope?.regionId && scope.regionId !== 'all' ? { id: scope.regionId } : {}),
+            },
             select: { id: true, licensee_id: true },
         });
 

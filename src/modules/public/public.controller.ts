@@ -258,7 +258,8 @@ export class PublicController extends BaseController {
         resumeUrl: resumeUpload.secureUrl,
         coverLetterUrl,
         portfolioUrl,
-        answers: {},
+        answers: (body.answers && typeof body.answers === 'object') ? body.answers : {},
+        jobTargetAttribution: body.jobTargetAttribution || { rawQuery: req.query, ...req.query },
       };
 
       const result = await this.publicService.submitGuestApplication(data);

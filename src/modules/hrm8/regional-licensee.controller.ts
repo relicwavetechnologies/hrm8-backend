@@ -15,11 +15,12 @@ export class RegionalLicenseeController extends BaseController {
 
     getAll = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
-            const { status, limit, offset } = req.query;
+            const { status, limit, offset, regionId } = req.query;
             const result = await this.regionalLicenseeService.getAll({
                 status: status as LicenseeStatus,
                 limit: limit ? Number(limit) : undefined,
                 offset: offset ? Number(offset) : undefined,
+                regionId: regionId as string | undefined,
                 role: req.hrm8User?.role,
                 licenseeId: req.hrm8User?.licenseeId,
             });
@@ -85,7 +86,9 @@ export class RegionalLicenseeController extends BaseController {
 
     getOverview = async (req: Hrm8AuthenticatedRequest, res: Response) => {
         try {
+            const regionId = req.query.regionId as string | undefined;
             const result = await this.regionalLicenseeService.getOverview({
+                regionId,
                 role: req.hrm8User?.role,
                 licenseeId: req.hrm8User?.licenseeId,
             });
