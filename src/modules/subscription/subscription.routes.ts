@@ -8,5 +8,6 @@ const subscriptionController = new SubscriptionController();
 router.post('/', authenticate, subscriptionController.create);
 router.get('/active', authenticate, subscriptionController.getActive); // /api/subscriptions/active (current user)
 router.get('/company/:companyId/active', authenticate, subscriptionController.getActive); // /api/subscriptions/company/:id/active
+router.get('/can-use-ai', authenticate, subscriptionController.canUseAi);
 
 export default router;

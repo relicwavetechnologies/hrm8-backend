@@ -34,6 +34,10 @@ const REQUIRED_XERO_VARS = [
 /** When live mode, Xero is optional for sandbox testing (Airwallex-only). XeroService uses mock invoices when vars are missing. */
 export const XERO_ENABLED = REQUIRED_XERO_VARS.every((k) => !!process.env[k]);
 
+/** When true, fall back to mock when live Airwallex API calls fail (auth, network, 4xx/5xx). Ensures mocks continue when APIs are unavailable. */
+export const AIRWALLEX_FALLBACK_TO_MOCK_ON_ERROR =
+  (process.env.AIRWALLEX_FALLBACK_TO_MOCK_ON_ERROR ?? 'true').toLowerCase() === 'true';
+
 export function validateBillingEnv(): void {
   if (BILLING_PROVIDER_MODE !== 'live') return;
 

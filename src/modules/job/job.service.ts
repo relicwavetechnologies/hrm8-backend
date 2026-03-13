@@ -471,8 +471,25 @@ export class JobService extends BaseService {
         throw new HttpException(402, 'Active subscription required to publish jobs');
       }
 
+      case 'PAYG_REQUIRE_INVOICE':
+      case 'OVER_QUOTA_PAYG': {
+        throw new HttpException(402, 'Payment required to publish this job. Complete checkout to continue.', 'PAYG_INVOICE_REQUIRED');
+      }
+
+      case 'PLAN_EXPIRED': {
+        throw new HttpException(402, 'Your plan has expired. Upgrade to restore job quota and AI features.', 'PLAN_EXPIRED');
+      }
+
       case 'QUOTA_EXHAUSTED': {
         throw new HttpException(402, 'Job posting quota exhausted. Please upgrade your subscription.');
+      }
+
+      case 'PAYG_FREE_FIRST': {
+        updatedJob = await this.jobRepository.update(id, {
+          status: 'OPEN',
+          posting_date: new Date(),
+        });
+        break;
       }
 
       case 'USE_QUOTA': {

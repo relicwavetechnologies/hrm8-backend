@@ -1,52 +1,74 @@
+import { prisma } from '../../utils/prisma';
 import { SubscriptionService } from '../subscription/subscription.service';
 
 /**
  * UsageEngine — Central decision layer for job publishing.
  *
- * This is the ONLY component allowed to decide publishing behavior.
- * It enforces the BRD separation:
- *   - Subscription is required for all job publishing (self-managed and HRM8-managed).
- *   - SYSTEM A (Subscription): publishing consumes quota counters only.
- *   - SYSTEM B (Wallet): HRM8 managed services use wallet only.
+ * PAYG (no subscription): First job free, then invoice required.
+ * Paid plans: Quota consumed; over-quota jobs require invoice (AI stays on).
+ * Plan expired: Upgrade or fall to PAYG (no AI).
  */
 
 export type PublishDecision =
     | 'USE_QUOTA'
     | 'QUOTA_EXHAUSTED'
+    | 'OVER_QUOTA_PAYG'
     | 'REQUIRE_SUBSCRIPTION'
+    | 'PAYG_FREE_FIRST'
+    | 'PAYG_REQUIRE_INVOICE'
+    | 'PLAN_EXPIRED'
     | 'HRM8_MANAGED';
+
+const PAID_PLAN_TYPES = ['SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE'];
 
 export class UsageEngine {
     /**
      * Resolve how a job should be published.
-     *
-     * @param companyId - The company publishing the job
-     * @param hiringMode - The job's hiring mode (SELF_MANAGED, SHORTLISTING, FULL_SERVICE, EXECUTIVE_SEARCH, etc.)
-     * @returns PublishDecision indicating next action
      */
     static async resolveJobPublish(
         companyId: string,
-        hiringMode: string
+        _hiringMode: string
     ): Promise<PublishDecision> {
-        // All publish paths require an active subscription with available quota.
         const subscription = await SubscriptionService.getActiveSubscription(companyId);
 
         if (!subscription) {
-            return 'REQUIRE_SUBSCRIPTION';
+            const publishedCount = await prisma.job.count({
+                where: {
+                    company_id: companyId,
+                    status: 'OPEN',
+                    posting_date: { not: null },
+                },
+            });
+            return publishedCount === 0 ? 'PAYG_FREE_FIRST' : 'PAYG_REQUIRE_INVOICE';
         }
 
-        // Check quota (null quota = unlimited)
-        if (
-            subscription.job_quota !== null &&
-            subscription.job_quota !== undefined &&
-            subscription.jobs_used >= subscription.job_quota
-        ) {
-            return 'QUOTA_EXHAUSTED';
+        const planType = String(subscription.plan_type).toUpperCase();
+        const isPaidPlan = PAID_PLAN_TYPES.includes(planType);
+        const endDate = subscription.end_date ? new Date(subscription.end_date) : null;
+        const isExpired = endDate && endDate < new Date();
+
+        if (isExpired && isPaidPlan) {
+            return 'PLAN_EXPIRED';
         }
 
-        // All jobs (self-managed and HRM8-managed) consume subscription quota for publishing.
-        // Managed-service payment is handled via upgradeToManagedService either post-publish
-        // or as a separate step.
+        if (!isPaidPlan) {
+            const publishedCount = await prisma.job.count({
+                where: {
+                    company_id: companyId,
+                    status: 'OPEN',
+                    posting_date: { not: null },
+                },
+            });
+            return publishedCount === 0 ? 'PAYG_FREE_FIRST' : 'PAYG_REQUIRE_INVOICE';
+        }
+
+        const quota = subscription.job_quota;
+        const used = subscription.jobs_used ?? 0;
+
+        if (quota !== null && quota !== undefined && used >= quota) {
+            return 'OVER_QUOTA_PAYG';
+        }
+
         return 'USE_QUOTA';
     }
 }

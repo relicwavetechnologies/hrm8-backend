@@ -33,7 +33,7 @@ const PLAN_PERKS: Record<string, { jobQuota: number | null }> = {
   MEDIUM: { jobQuota: 25 },
   LARGE: { jobQuota: 50 },
   ENTERPRISE: { jobQuota: null }, // Unlimited
-  RPO: { jobQuota: null },
+  // RPO removed - no longer a selectable tier
 };
 
 export class SubscriptionService {
@@ -113,14 +113,14 @@ export class SubscriptionService {
       let priceBookId: string | undefined;
       let priceBookVersion: string | undefined;
 
-      const supportedPlanTypes = ['PAYG', 'SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE', 'RPO'] as const;
+      const supportedPlanTypes = ['SMALL', 'MEDIUM', 'LARGE', 'ENTERPRISE'] as const;
       const canFetchPrice = supportedPlanTypes.includes(planType as typeof supportedPlanTypes[number]);
 
       if (!basePrice && canFetchPrice) {
         // Fetch price from price book
         const pricing = await PriceBookSelectionService.getSubscriptionPrice(
           companyId,
-          planType as 'PAYG' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'ENTERPRISE' | 'RPO'
+          planType as 'SMALL' | 'MEDIUM' | 'LARGE' | 'ENTERPRISE'
         );
         basePrice = pricing.price;
         priceBookId = pricing.priceBook.id;

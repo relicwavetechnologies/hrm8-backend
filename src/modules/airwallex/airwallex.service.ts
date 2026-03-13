@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../../config/env';
-import { BILLING_PROVIDER_MODE } from '../../config/billing-env';
+import { BILLING_PROVIDER_MODE, AIRWALLEX_FALLBACK_TO_MOCK_ON_ERROR } from '../../config/billing-env';
 import { Logger } from '../../utils/logger';
 
 const log = Logger.create('airwallex');
@@ -224,12 +224,28 @@ export class AirwallexService {
     const idempotencyKey = buildIdempotencyKey(input);
     log.info('Creating live checkout session', { idempotencyKey, amount: input.amount, currency: input.currency });
 
+    try {
+      return await this.doCreateLiveCheckoutSession(input, idempotencyKey);
+    } catch (err) {
+      if (AIRWALLEX_FALLBACK_TO_MOCK_ON_ERROR) {
+        log.warn('Airwallex live checkout failed – falling back to mock', { error: err });
+        const mock = this.createMockCheckoutSession(input);
+        return { ...mock, autoConfirm: true };
+      }
+      throw err;
+    }
+  }
+
+  private static async doCreateLiveCheckoutSession(
+    input: AirwallexCheckoutInput,
+    idempotencyKey: string
+  ): Promise<AirwallexCheckoutSession> {
     const token = await liveAuth();
     const baseUrl = process.env.AIRWALLEX_API_BASE_URL!;
     const requestId = crypto.randomUUID();
 
-    /** Amount in minor units (cents for USD, etc.). Currencies like JPY have no decimals. */
-    const minorUnits = this.toMinorUnits(input.amount, input.currency);
+    /** Airwallex expects amount in major units (dollars for USD), not minor units. */
+    const amount = this.toAirwallexAmount(input.amount, input.currency);
 
     const res = await fetch(`${baseUrl}/api/v1/pa/payment_intents/create`, {
       method: 'POST',
@@ -240,7 +256,7 @@ export class AirwallexService {
       },
       body: JSON.stringify({
         request_id: requestId,
-        amount: minorUnits,
+        amount,
         currency: input.currency,
         merchant_order_id: input.reference,
         descriptor: input.description || 'HRM8 Payment',
@@ -253,7 +269,8 @@ export class AirwallexService {
       log.error('Airwallex Payment Intent create failed', { status: res.status, body: errBody });
       try {
         const err = JSON.parse(errBody) as { code?: string; message?: string };
-        if (err.code === 'configuration_error') {
+        const isSandbox = process.env.AIRWALLEX_API_BASE_URL?.includes('demo');
+        if (err.code === 'configuration_error' && isSandbox) {
           log.warn(
             'Airwallex sandbox not configured for Payment Intents – falling back to mock checkout. ' +
               'Contact Airwallex to enable Online Payments for your sandbox.'
@@ -294,12 +311,9 @@ export class AirwallexService {
     };
   }
 
-  private static toMinorUnits(amount: number, currency: string): number {
-    const noDecimalCurrencies = ['JPY', 'KRW', 'VND', 'CLP', 'XOF'];
-    if (noDecimalCurrencies.includes(currency.toUpperCase())) {
-      return Math.round(amount);
-    }
-    return Math.round(amount * 100);
+  /** Airwallex uses major units (e.g. 195 for $195 USD). No conversion needed for decimal currencies. */
+  private static toAirwallexAmount(amount: number, currency: string): number {
+    return Number(amount.toFixed(2));
   }
 
   private static currencyToCountry(currency: string): string {
@@ -361,6 +375,18 @@ export class AirwallexService {
   private static async createLiveTransfer(input: AirwallexTransferInput): Promise<AirwallexTransfer> {
     log.info('Creating live Airwallex transfer', { amount: input.amount, currency: input.currency });
     try {
+      return await this.doCreateLiveTransfer(input);
+    } catch (err) {
+      if (AIRWALLEX_FALLBACK_TO_MOCK_ON_ERROR) {
+        log.warn('Airwallex live transfer failed – falling back to mock', { error: err });
+        return this.createMockTransfer(input);
+      }
+      throw err;
+    }
+  }
+
+  private static async doCreateLiveTransfer(input: AirwallexTransferInput): Promise<AirwallexTransfer> {
+    try {
       const token = await liveAuth();
       const baseUrl = process.env.AIRWALLEX_API_BASE_URL!;
       const res = await fetch(`${baseUrl}/api/v1/pa/transfers/create`, {
@@ -391,6 +417,7 @@ export class AirwallexService {
       throw error;
     }
   }
+
 
   private static async getLiveTransferStatus(transferId: string): Promise<AirwallexTransferStatus> {
     log.info('Fetching transfer status', { transferId });

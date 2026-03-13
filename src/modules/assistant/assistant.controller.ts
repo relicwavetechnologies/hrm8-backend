@@ -3,6 +3,7 @@ import { BaseController } from '../../core/controller';
 import { AuthenticatedRequest, Hrm8AuthenticatedRequest, ConsultantAuthenticatedRequest } from '../../types';
 import { AssistantService } from './assistant.service';
 import { AssistantStreamService } from './assistant.stream.service';
+import { FeatureGateService } from '../feature-gate/feature-gate.service';
 import { prisma } from '../../utils/prisma';
 
 export class AssistantController extends BaseController {
@@ -14,6 +15,10 @@ export class AssistantController extends BaseController {
       if (!req.user) {
         return this.sendError(res, new Error('Not authenticated'), 401);
       }
+      if (!req.user.companyId) {
+        return this.sendError(res, new Error('Company context required'), 400);
+      }
+      await FeatureGateService.assertCanUseAi(req.user.companyId, 'AI_COPILOT_REQUIRES_UPGRADE');
 
       const result = await this.service.chat(
         {
@@ -38,6 +43,10 @@ export class AssistantController extends BaseController {
         console.error('[Assistant] Company user not authenticated');
         return this.sendError(res, new Error('Not authenticated'), 401);
       }
+      if (!req.user.companyId) {
+        return this.sendError(res, new Error('Company context required'), 400);
+      }
+      await FeatureGateService.assertCanUseAi(req.user.companyId, 'AI_COPILOT_REQUIRES_UPGRADE');
 
       // console.log('[Assistant] Company user authenticated:', {
       //   id: req.user.id,

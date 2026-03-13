@@ -12,6 +12,7 @@ import { NotificationService } from '../notification/notification.service';
 import { InterviewService } from '../interview/interview.service';
 import { PlacementCommissionService } from '../hrm8/placement-commission.service';
 import { ApplicationActivityService } from './application-activity.service';
+import { FeatureGateService } from '../feature-gate/feature-gate.service';
 
 export class ApplicationService extends BaseService {
   constructor(
@@ -184,6 +185,13 @@ export class ApplicationService extends BaseService {
 
   async triggerAiAnalysis(applicationId: string, jobId: string, actorId?: string): Promise<void> {
     try {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: { company_id: true },
+      });
+      if (!job?.company_id) return;
+      await FeatureGateService.assertCanUseAi(job.company_id, 'AI_SCREENING_REQUIRES_UPGRADE');
+
       const result = await CandidateScoringService.scoreCandidate({ applicationId, jobId });
 
       await this.applicationRepository.saveScreeningResult({
@@ -227,6 +235,15 @@ export class ApplicationService extends BaseService {
   }
 
   async bulkAiAnalysis(applicationIds: string[], jobId: string, actorId?: string): Promise<{ success: number; failed: number }> {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { company_id: true },
+    });
+    if (!job?.company_id) {
+      throw new HttpException(404, 'Job not found');
+    }
+    await FeatureGateService.assertCanUseAi(job.company_id, 'AI_SCREENING_REQUIRES_UPGRADE');
+
     let success = 0;
     let failed = 0;
 
