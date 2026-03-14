@@ -1,6 +1,7 @@
 import { prisma } from '../../utils/prisma';
 import { BaseService } from '../../core/service';
 import { AssignmentSource } from '@prisma/client';
+import { ConversationService } from '../communication/conversation.service';
 
 export class JobAllocationService extends BaseService {
     /**
@@ -17,7 +18,7 @@ export class JobAllocationService extends BaseService {
                     region_id: true,
                     assigned_consultant_id: true,
                     company: {
-                        select: { region_id: true }
+                        select: { region_id: true, default_consultant_id: true }
                     }
                 }
             });
@@ -26,8 +27,22 @@ export class JobAllocationService extends BaseService {
                 return { success: false, error: 'Job not found' };
             }
 
+            let consultant: { id: string; status: string; region_id: string | null } | null = null;
+
+            // Prefer company default consultant (360 conversion) when available and ACTIVE.
+            const defaultConsultantId = job.company?.default_consultant_id;
+            if (defaultConsultantId) {
+                const defaultConsultant = await prisma.consultant.findUnique({
+                    where: { id: defaultConsultantId },
+                    select: { id: true, status: true, region_id: true }
+                });
+                if (defaultConsultant?.status === 'ACTIVE') {
+                    consultant = defaultConsultant;
+                }
+            }
+
             // Idempotency: if already assigned to an active consultant, reuse assignment.
-            if (job.assigned_consultant_id) {
+            if (!consultant && job.assigned_consultant_id) {
                 const existingConsultant = await prisma.consultant.findUnique({
                     where: { id: job.assigned_consultant_id },
                     select: { id: true, status: true }
@@ -37,26 +52,18 @@ export class JobAllocationService extends BaseService {
                 }
             }
 
-            // Resolve region from job first, then company fallback.
-            const resolvedRegionId = job.region_id || job.company?.region_id || null;
-
-            // Prefer same-region consultant.
-            let consultant = resolvedRegionId
-                ? await prisma.consultant.findFirst({
-                    where: {
-                        region_id: resolvedRegionId,
-                        status: 'ACTIVE'
-                    },
-                    orderBy: {
-                        current_jobs: 'asc'
-                    }
-                })
-                : null;
-
+            // Only auto-assign when company has default_consultant_id (360 conversion).
+            // Sales/self-reg conversions have no default: regional admin must assign via ConsultantAssignmentRequest.
             if (!consultant) {
-                return { success: false, error: resolvedRegionId
-                    ? `No active consultant found in region ${resolvedRegionId}`
-                    : 'Job and company have no region assigned — cannot auto-assign' };
+                const resolvedRegionId = job.region_id || job.company?.region_id || null;
+                return {
+                    success: false,
+                    error: defaultConsultantId
+                        ? `Company default consultant is inactive or not found`
+                        : resolvedRegionId
+                            ? `No default consultant. Regional admin must assign via consultant assignment requests.`
+                            : 'Job and company have no region assigned — cannot auto-assign'
+                };
             }
 
             // Assign job
@@ -129,6 +136,12 @@ export class JobAllocationService extends BaseService {
                     });
                 }
             });
+
+            try {
+                await new ConversationService().findOrCreateCompanyConsultantConversation(jobId);
+            } catch (convErr) {
+                console.error('[JobAllocation] Failed to create company-consultant conversation:', convErr);
+            }
 
             return { success: true, consultantId: consultant.id };
         } catch (error: any) {

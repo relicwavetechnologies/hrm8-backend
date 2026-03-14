@@ -14,6 +14,7 @@ import { UsageEngine } from './job-usage.engine';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { env } from '../../config/env';
 import { jobAllocationService } from './job-allocation.service';
+import { ConsultantAssignmentRequestService } from '../hrm8/consultant-assignment-request.service';
 import { BillingService } from '../billing/billing.service';
 import { PriceBookSelectionService } from '../pricing/price-book-selection.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
@@ -38,7 +39,15 @@ export interface ManagedServicePendingPayment {
   servicePackage: string;
 }
 
-export type ManagedServiceUpgradeResult = ManagedServiceCompleted | ManagedServicePendingPayment;
+export interface ManagedServicePendingConsultantAssignment {
+  status: 'PENDING_CONSULTANT_ASSIGNMENT';
+  job: Job;
+}
+
+export type ManagedServiceUpgradeResult =
+  | ManagedServiceCompleted
+  | ManagedServicePendingPayment
+  | ManagedServicePendingConsultantAssignment;
 
 export class JobService extends BaseService {
   constructor(
@@ -231,7 +240,19 @@ export class JobService extends BaseService {
     const job = await this.jobRepository.findById(id);
     if (!job) throw new HttpException(404, 'Job not found');
     if (job.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
-    return this.mapToResponse(job);
+    const mapped = this.mapToResponse(job);
+    // If job already has assigned consultant, it's not pending (avoid stale ConsultantAssignmentRequest)
+    if ((job as any).assigned_consultant_id) {
+      return { ...mapped, pendingConsultantAssignment: false };
+    }
+    const pendingRequest = await prisma.consultantAssignmentRequest.findFirst({
+      where: { job_id: id, status: 'PENDING' },
+      select: { id: true },
+    });
+    return {
+      ...mapped,
+      pendingConsultantAssignment: !!pendingRequest,
+    };
   }
 
   async resolveJobId(idOrCode: string, companyId: string): Promise<string> {
@@ -250,10 +271,10 @@ export class JobService extends BaseService {
     // Map database fields to API response format (camelCase)
     const mappedJobs = jobs.map(job => this.mapToResponse(job));
 
-    // applicantsCount is already set from _count.applications in mapToResponse.
-    // Fetch unread counts in a single grouped query instead of 2 queries per job.
     if (mappedJobs.length > 0) {
       const jobIds = mappedJobs.map(j => j.id);
+
+      // Batch fetch unread counts
       const unreadGroups = await prisma.application.groupBy({
         by: ['job_id'],
         where: { job_id: { in: jobIds }, is_read: false },
@@ -261,10 +282,54 @@ export class JobService extends BaseService {
       });
       const unreadMap = new Map(unreadGroups.map(r => [r.job_id, r._count.id]));
 
-      return mappedJobs.map(job => ({
+      // Batch fetch pending consultant assignment (only for jobs without assigned_consultant_id)
+      const jobsWithoutConsultant = jobs.filter((j: any) => !j.assigned_consultant_id);
+      const pendingJobIds = new Set<string>();
+      if (jobsWithoutConsultant.length > 0) {
+        const pendingRequests = await prisma.consultantAssignmentRequest.findMany({
+          where: {
+            job_id: { in: jobsWithoutConsultant.map((j: any) => j.id) },
+            status: 'PENDING',
+          },
+          select: { job_id: true },
+        });
+        pendingRequests.forEach(r => pendingJobIds.add(r.job_id));
+      }
+
+      // For managed jobs with assigned consultant: check if advance setup (roles, rounds) is complete
+      const managedServiceTypes = ['shortlisting', 'full-service', 'executive-search'];
+      const managedAssignedJobIds = mappedJobs
+        .filter((j: any) => j.assignedConsultantId && managedServiceTypes.includes(j.serviceType || ''))
+        .map((j: any) => j.id);
+      const advanceSetupCompleteMap = new Map<string, boolean>();
+      if (managedAssignedJobIds.length > 0) {
+        const [rolesCounts, roundsCounts] = await Promise.all([
+          prisma.jobRole.groupBy({
+            by: ['job_id'],
+            where: { job_id: { in: managedAssignedJobIds } },
+            _count: { id: true },
+          }),
+          prisma.jobRound.groupBy({
+            by: ['job_id'],
+            where: { job_id: { in: managedAssignedJobIds } },
+            _count: { id: true },
+          }),
+        ]);
+        const rolesByJob = new Map(rolesCounts.map((r) => [r.job_id, r._count.id]));
+        const roundsByJob = new Map(roundsCounts.map((r) => [r.job_id, r._count.id]));
+        for (const jid of managedAssignedJobIds) {
+          advanceSetupCompleteMap.set(jid, (rolesByJob.get(jid) ?? 0) > 0 && (roundsByJob.get(jid) ?? 0) > 0);
+        }
+      }
+
+      return mappedJobs.map((job: any) => ({
         ...job,
         totalApplications: job.applicantsCount,
         unreadApplicants: unreadMap.get(job.id) ?? 0,
+        pendingConsultantAssignment: !job.assignedConsultantId && pendingJobIds.has(job.id),
+        advanceSetupComplete: advanceSetupCompleteMap.has(job.id)
+          ? advanceSetupCompleteMap.get(job.id)
+          : true, // non-managed or no consultant: treat as complete (no setup needed)
       }));
     }
 
@@ -981,27 +1046,39 @@ export class JobService extends BaseService {
       let consultantId = job.assigned_consultant_id || null;
       if (!consultantId) {
         const assignResult = await jobAllocationService.autoAssignJob(id);
-        console.log('[upgradeToManagedService] autoAssignJob result:', JSON.stringify(assignResult));
         consultantId = assignResult?.consultantId || null;
 
         if (!consultantId) {
-          const assignmentError = assignResult?.error || 'No consultant available for assignment. Please try again later.';
-          if (paymentAttemptId) {
-            await BillingService.refundPayment(paymentAttemptId, assignmentError);
-            BillingLogger.refundIssued({ paymentAttemptId, reason: assignmentError });
-            BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: true });
-            await this.jobRepository.update(id, {
-              payment_status: 'PENDING',
-              payment_completed_at: null,
-              payment_failed_at: new Date(),
-            });
-            throw new HttpException(
-              503,
-              `${assignmentError} Invoice payment was reversed automatically. Please retry later.`
-            );
-          }
-          BillingLogger.assignmentFailure({ jobId: id, servicePackage, reason: assignmentError, refundIssued: false });
-          throw new HttpException(503, assignmentError);
+          // No consultant available: create ConsultantAssignmentRequest for regional admin.
+          // Do NOT refund; job remains paid and pending assignment.
+          const carService = new ConsultantAssignmentRequestService();
+          const regionId = job.region_id ?? (await prisma.company.findUnique({
+            where: { id: companyId },
+            select: { region_id: true },
+          }))?.region_id ?? null;
+          await carService.create(companyId, id, regionId);
+
+          const updatedJob = await this.jobRepository.update(id, {
+            service_package: servicePackage,
+            hiring_mode: hiringMode,
+            management_type: 'hrm8-managed',
+            setup_type: 'ADVANCED',
+            status: 'OPEN',
+            posting_date: job.posting_date ?? new Date(),
+          });
+
+          BillingLogger.assignmentFailure({
+            jobId: id,
+            servicePackage,
+            reason: assignResult?.error || 'No consultant in region; pending admin assignment',
+            refundIssued: false,
+          });
+
+          const mappedJob = this.mapToResponse(updatedJob);
+          return {
+            status: 'PENDING_CONSULTANT_ASSIGNMENT' as const,
+            job: { ...mappedJob, pendingConsultantAssignment: true },
+          };
         }
       }
 
@@ -1061,9 +1138,20 @@ export class JobService extends BaseService {
     return `JOB-${String(count + 1).padStart(3, '0')}`;
   }
 
+  private async assertNoPendingConsultant(jobId: string): Promise<void> {
+    const pending = await this.jobRepository.hasPendingConsultantAssignment(jobId);
+    if (pending) {
+      throw new HttpException(
+        403,
+        'Cannot configure hiring team or rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
+  }
+
   async inviteTeamMember(jobId: string, companyId: string, data: any): Promise<void> {
     const { email, name, role, roles: roleIds, inviterId, permissions } = data;
     await this.getJob(jobId, companyId); // Verify access
+    await this.assertNoPendingConsultant(jobId);
 
     // Check if already in team
     const existingMember = await this.jobRepository.findTeamMemberByEmail(jobId, email);
@@ -1142,6 +1230,7 @@ export class JobService extends BaseService {
 
   async createJobRole(jobId: string, companyId: string, data: { name: string; isDefault?: boolean }) {
     await this.getJob(jobId, companyId);
+    await this.assertNoPendingConsultant(jobId);
     if (!data.name?.trim()) throw new HttpException(400, 'Role name is required');
     const role = await this.jobRepository.createJobRole(jobId, {
       name: data.name.trim(),
@@ -1170,17 +1259,20 @@ export class JobService extends BaseService {
 
   async removeTeamMember(jobId: string, memberId: string, companyId: string) {
     await this.getJob(jobId, companyId);
+    await this.assertNoPendingConsultant(jobId);
     // Ideally verify member belongs to job, but cascade delete handles cleanup if job deleted
     await this.jobRepository.removeTeamMember(memberId);
   }
 
   async updateTeamMemberRole(jobId: string, memberId: string, companyId: string, role: any) {
     await this.getJob(jobId, companyId);
+    await this.assertNoPendingConsultant(jobId);
     await this.jobRepository.updateTeamMember(memberId, { role: role?.toUpperCase() });
   }
 
   async updateTeamMemberRoles(jobId: string, memberId: string, companyId: string, roleIds: string[]) {
     await this.getJob(jobId, companyId);
+    await this.assertNoPendingConsultant(jobId);
     await this.jobRepository.setMemberJobRoles(memberId, roleIds ?? []);
   }
 

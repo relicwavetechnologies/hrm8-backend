@@ -488,4 +488,19 @@ export class JobRepository extends BaseRepository {
       where: { email: { equals: email, mode: 'insensitive' } }
     });
   }
+
+  /** True if job is HRM8-managed and has a PENDING ConsultantAssignmentRequest (consultant not yet assigned). */
+  async hasPendingConsultantAssignment(jobId: string): Promise<boolean> {
+    const job = await this.findById(jobId);
+    if (!job) return false;
+    const isManaged =
+      (job as any).management_type === 'hrm8-managed' ||
+      ['shortlisting', 'full-service', 'executive-search'].includes((job as any).service_package || '');
+    if (!isManaged) return false;
+    const pending = await this.prisma.consultantAssignmentRequest.findFirst({
+      where: { job_id: jobId, status: 'PENDING' },
+      select: { id: true },
+    });
+    return !!pending;
+  }
 }

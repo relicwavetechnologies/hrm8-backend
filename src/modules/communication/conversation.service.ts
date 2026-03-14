@@ -125,6 +125,12 @@ export class ConversationService {
         // === MESSAGE RESTRICTION LOGIC ===
         // 1. Skip system messages
         if (data.senderType !== 'SYSTEM' as any) {
+            const conversation = await prisma.conversation.findUnique({
+                where: { id: data.conversationId },
+                select: { channel_type: true },
+            });
+            const isCompanyConsultant = conversation?.channel_type === ConversationChannelType.COMPANY_CONSULTANT;
+
             const messages = await prisma.message.findMany({
                 where: { conversation_id: data.conversationId },
                 orderBy: { created_at: 'asc' }, // Get all history to correctly identify HR/Candidate turns
@@ -162,8 +168,11 @@ export class ConversationService {
                     throw new HttpException(403, 'You have already replied to this message. Please wait for the hiring team to respond.', 4011);
                 }
 
-            } else if (data.senderType === ParticipantType.EMPLOYER || data.senderType === ParticipantType.CONSULTANT) {
-                // HR RESTRICTION: Only allow one follow-up message after the initial HR message
+            } else if (
+                (data.senderType === ParticipantType.EMPLOYER || data.senderType === ParticipantType.CONSULTANT) &&
+                !isCompanyConsultant
+            ) {
+                // HR RESTRICTION (candidate threads only): Only allow one follow-up message after the initial HR message
                 let consecutiveHrMessages = 0;
                 for (let i = messages.length - 1; i >= 0; i--) {
                     if (messages[i].sender_type === ParticipantType.CANDIDATE) break;
@@ -319,6 +328,70 @@ export class ConversationService {
         }
 
         return { ...conversation, candidate };
+    }
+
+    /**
+     * Find or create a company-consultant conversation for a job.
+     * Called when a consultant is assigned to an HRM8 managed job.
+     */
+    async findOrCreateCompanyConsultantConversation(jobId: string): Promise<any | null> {
+        const job = await prisma.job.findUnique({
+            where: { id: jobId },
+            select: {
+                id: true,
+                title: true,
+                created_by: true,
+                assigned_consultant_id: true,
+                company_id: true,
+            },
+        });
+
+        if (!job?.assigned_consultant_id || !job.created_by) return null;
+
+        const existing = await prisma.conversation.findFirst({
+            where: {
+                job_id: jobId,
+                channel_type: ConversationChannelType.COMPANY_CONSULTANT,
+            },
+        });
+        if (existing) return existing;
+
+        const [employerUser, consultant] = await Promise.all([
+            prisma.user.findUnique({
+                where: { id: job.created_by },
+                select: { id: true, email: true, name: true },
+            }),
+            prisma.consultant.findUnique({
+                where: { id: job.assigned_consultant_id },
+                select: { id: true, email: true, first_name: true, last_name: true },
+            }),
+        ]);
+
+        if (!employerUser || !consultant) return null;
+
+        const consultantName = [consultant.first_name, consultant.last_name].filter(Boolean).join(' ').trim() || consultant.email;
+
+        return this.createConversation({
+            subject: `Consultant chat: ${job.title}`,
+            jobId: job.id,
+            employerUserId: employerUser.id,
+            consultantId: consultant.id,
+            channelType: ConversationChannelType.COMPANY_CONSULTANT,
+            participants: [
+                {
+                    participantType: ParticipantType.EMPLOYER,
+                    participantId: employerUser.id,
+                    participantEmail: employerUser.email,
+                    displayName: employerUser.name || undefined,
+                },
+                {
+                    participantType: ParticipantType.CONSULTANT,
+                    participantId: consultant.id,
+                    participantEmail: consultant.email,
+                    displayName: consultantName,
+                },
+            ],
+        });
     }
 
     async archiveConversation(conversationId: string, reason: string) {

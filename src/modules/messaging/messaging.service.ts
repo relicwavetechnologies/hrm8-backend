@@ -88,6 +88,12 @@ export class MessagingService extends BaseService {
         // === MESSAGE RESTRICTION LOGIC ===
         // 1. Skip system messages
         if (sender.type !== 'SYSTEM' as any) {
+            const conversation = await this.prisma.conversation.findUnique({
+                where: { id: conversationId },
+                select: { channel_type: true },
+            });
+            const isCompanyConsultant = conversation?.channel_type === ConversationChannelType.COMPANY_CONSULTANT;
+
             const messages = await this.prisma.message.findMany({
                 where: { conversation_id: conversationId },
                 orderBy: { created_at: 'asc' },
@@ -123,8 +129,11 @@ export class MessagingService extends BaseService {
                     throw new HttpException(403, 'You have already replied to this message. Please wait for the hiring team to respond.', 4011);
                 }
 
-            } else if (sender.type === ParticipantType.EMPLOYER || sender.type === ParticipantType.CONSULTANT) {
-                // HR RESTRICTION
+            } else if (
+                (sender.type === ParticipantType.EMPLOYER || sender.type === ParticipantType.CONSULTANT) &&
+                !isCompanyConsultant
+            ) {
+                // HR RESTRICTION (candidate threads only)
                 let consecutiveHrMessages = 0;
                 for (let i = messages.length - 1; i >= 0; i--) {
                     if (messages[i].sender_type === ParticipantType.CANDIDATE) break;

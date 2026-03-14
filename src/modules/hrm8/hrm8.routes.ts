@@ -27,6 +27,7 @@ import { authenticateHrm8 } from '../../middlewares/hrm8-auth.middleware';
 import { requireHrm8Role } from '../../middlewares/hrm8-auth.middleware';
 
 import { CareersRequestController } from './careers-request.controller';
+import { ConsultantAssignmentRequestController } from './consultant-assignment-request.controller';
 
 const router = Router();
 const hrm8Controller = new Hrm8Controller();
@@ -54,6 +55,7 @@ const alertController = new AlertController();
 const overviewController = new OverviewController();
 const attributionController = new AttributionController();
 const careersRequestController = new CareersRequestController();
+const consultantAssignmentRequestController = new ConsultantAssignmentRequestController();
 
 // Auth Routes
 router.post('/auth/login', hrm8Controller.login);
@@ -102,6 +104,10 @@ router.get('/jobs/allocation', authenticateHrm8, jobAllocationController.getJobs
 router.get('/jobs/detail/:jobId', authenticateHrm8, jobAllocationController.getJobDetail);
 router.post('/jobs/:jobId/auto-assign', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), jobAllocationController.autoAssign);
 router.get('/consultants/for-assignment', authenticateHrm8, jobAllocationController.getConsultantsForAssignment);
+
+// Consultant assignment requests (regional admin)
+router.get('/consultant-assignment-requests', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), consultantAssignmentRequestController.listPending);
+router.post('/consultant-assignment-requests/:id/assign', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN', 'REGIONAL_LICENSEE']), consultantAssignmentRequestController.assign);
 
 // Regional Licensee Routes
 router.get('/regional-licensee', authenticateHrm8, requireHrm8Role(['GLOBAL_ADMIN']), regionalLicenseeController.getAll);

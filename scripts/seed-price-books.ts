@@ -147,6 +147,78 @@ const priceBooks: PriceBookData[] = [
     ]
   },
   
+  // NZD Pricing
+  {
+    code: 'PRICE_NZD_2026Q1',
+    name: 'NZD Pricing - 2026 Q1',
+    pricing_peg: 'NZD',
+    billing_currency: 'NZD',
+    products: [
+      // Subscriptions (≈1.07x AUD, rounded)
+      { code: 'SUB_PAYG', name: 'Pay As You Go', category: 'SUBSCRIPTION', price: 295 },
+      { code: 'SUB_SMALL', name: 'Small Business', category: 'SUBSCRIPTION', price: 455 },
+      { code: 'SUB_MEDIUM', name: 'Medium Business', category: 'SUBSCRIPTION', price: 745 },
+      { code: 'SUB_LARGE', name: 'Large Enterprise', category: 'SUBSCRIPTION', price: 1065 },
+      { code: 'SUB_ENTERPRISE', name: 'Enterprise', category: 'SUBSCRIPTION', price: 1495 },
+      { code: 'SUB_RPO', name: 'RPO Custom', category: 'SUBSCRIPTION', price: 0 },
+      // Recruitment Services
+      { code: 'RECRUIT_SHORTLISTING', name: 'Shortlisting', category: 'JOB_POSTING', price: 3190 },
+      { code: 'RECRUIT_FULL', name: 'Full Recruitment', category: 'JOB_POSTING', price: 9590 },
+      { code: 'RECRUIT_EXEC_BAND_1', name: 'Executive Search - Band 1', category: 'JOB_POSTING', price: 15990, salary_band_min: 150000, salary_band_max: 200000, band_name: 'Band 1' },
+      { code: 'RECRUIT_EXEC_BAND_2', name: 'Executive Search - Band 2', category: 'JOB_POSTING', price: 21390, salary_band_min: 200000, salary_band_max: 320000, band_name: 'Band 2' },
+      { code: 'RECRUIT_EXEC_BAND_3', name: 'Executive Search - Band 3', category: 'JOB_POSTING', price: 31990, salary_band_min: 320000, salary_band_max: null, band_name: 'Band 3' },
+      { code: 'RECRUIT_RPO', name: 'RPO Custom', category: 'JOB_POSTING', price: 0 },
+    ]
+  },
+  
+  // SGD Pricing
+  {
+    code: 'PRICE_SGD_2026Q1',
+    name: 'SGD Pricing - 2026 Q1',
+    pricing_peg: 'SGD',
+    billing_currency: 'SGD',
+    products: [
+      // Subscriptions (≈1.35x USD, rounded)
+      { code: 'SUB_PAYG', name: 'Pay As You Go', category: 'SUBSCRIPTION', price: 265 },
+      { code: 'SUB_SMALL', name: 'Small Business', category: 'SUBSCRIPTION', price: 399 },
+      { code: 'SUB_MEDIUM', name: 'Medium Business', category: 'SUBSCRIPTION', price: 669 },
+      { code: 'SUB_LARGE', name: 'Large Enterprise', category: 'SUBSCRIPTION', price: 939 },
+      { code: 'SUB_ENTERPRISE', name: 'Enterprise', category: 'SUBSCRIPTION', price: 1345 },
+      { code: 'SUB_RPO', name: 'RPO Custom', category: 'SUBSCRIPTION', price: 0 },
+      // Recruitment Services
+      { code: 'RECRUIT_SHORTLISTING', name: 'Shortlisting', category: 'JOB_POSTING', price: 2685 },
+      { code: 'RECRUIT_FULL', name: 'Full Recruitment', category: 'JOB_POSTING', price: 8085 },
+      { code: 'RECRUIT_EXEC_BAND_1', name: 'Executive Search - Band 1', category: 'JOB_POSTING', price: 13485, salary_band_min: 120000, salary_band_max: 200000, band_name: 'Band 1' },
+      { code: 'RECRUIT_EXEC_BAND_2', name: 'Executive Search - Band 2', category: 'JOB_POSTING', price: 20235, salary_band_min: 200000, salary_band_max: 340000, band_name: 'Band 2' },
+      { code: 'RECRUIT_EXEC_BAND_3', name: 'Executive Search - Band 3', category: 'JOB_POSTING', price: 33735, salary_band_min: 340000, salary_band_max: null, band_name: 'Band 3' },
+      { code: 'RECRUIT_RPO', name: 'RPO Custom', category: 'JOB_POSTING', price: 0 },
+    ]
+  },
+  
+  // CAD Pricing
+  {
+    code: 'PRICE_CAD_2026Q1',
+    name: 'CAD Pricing - 2026 Q1',
+    pricing_peg: 'CAD',
+    billing_currency: 'CAD',
+    products: [
+      // Subscriptions (≈1.35x USD, rounded)
+      { code: 'SUB_PAYG', name: 'Pay As You Go', category: 'SUBSCRIPTION', price: 265 },
+      { code: 'SUB_SMALL', name: 'Small Business', category: 'SUBSCRIPTION', price: 399 },
+      { code: 'SUB_MEDIUM', name: 'Medium Business', category: 'SUBSCRIPTION', price: 669 },
+      { code: 'SUB_LARGE', name: 'Large Enterprise', category: 'SUBSCRIPTION', price: 939 },
+      { code: 'SUB_ENTERPRISE', name: 'Enterprise', category: 'SUBSCRIPTION', price: 1345 },
+      { code: 'SUB_RPO', name: 'RPO Custom', category: 'SUBSCRIPTION', price: 0 },
+      // Recruitment Services
+      { code: 'RECRUIT_SHORTLISTING', name: 'Shortlisting', category: 'JOB_POSTING', price: 2685 },
+      { code: 'RECRUIT_FULL', name: 'Full Recruitment', category: 'JOB_POSTING', price: 8085 },
+      { code: 'RECRUIT_EXEC_BAND_1', name: 'Executive Search - Band 1', category: 'JOB_POSTING', price: 13485, salary_band_min: 120000, salary_band_max: 200000, band_name: 'Band 1' },
+      { code: 'RECRUIT_EXEC_BAND_2', name: 'Executive Search - Band 2', category: 'JOB_POSTING', price: 20235, salary_band_min: 200000, salary_band_max: 340000, band_name: 'Band 2' },
+      { code: 'RECRUIT_EXEC_BAND_3', name: 'Executive Search - Band 3', category: 'JOB_POSTING', price: 33735, salary_band_min: 340000, salary_band_max: null, band_name: 'Band 3' },
+      { code: 'RECRUIT_RPO', name: 'RPO Custom', category: 'JOB_POSTING', price: 0 },
+    ]
+  },
+  
   // INR Pricing with USD Billing (Pakistan, Bangladesh, Sri Lanka)
   {
     code: 'PRICE_INR_USD_2026Q1',

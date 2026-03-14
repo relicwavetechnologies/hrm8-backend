@@ -100,12 +100,19 @@ export class NotificationRepository extends BaseRepository {
   }
 
   async findRecipientEmail(recipientType: NotificationRecipientType, recipientId: string): Promise<string | null> {
-    if (recipientType === NotificationRecipientType.USER || recipientType === NotificationRecipientType.HRM8_USER) {
+    if (recipientType === NotificationRecipientType.USER) {
       const user = await this.prisma.user.findUnique({
         where: { id: recipientId },
         select: { email: true }
       });
       return user?.email || null;
+    }
+    if (recipientType === NotificationRecipientType.HRM8_USER) {
+      const hrm8User = await this.prisma.hRM8User.findUnique({
+        where: { id: recipientId },
+        select: { email: true }
+      });
+      return hrm8User?.email || null;
     }
 
     if (recipientType === NotificationRecipientType.CANDIDATE) {

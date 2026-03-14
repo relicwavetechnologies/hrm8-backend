@@ -24,6 +24,7 @@ export class PriceBookSelectionService {
       select: {
         pricing_peg: true,
         billing_currency: true,
+        currency_locked_at: true,
         price_book_id: true,
         enterprise_overrides: {
           where: {
@@ -68,7 +69,7 @@ export class PriceBookSelectionService {
     const pricingPeg = company.pricing_peg || 'USD';
     const billingCurrency = company.billing_currency || 'USD';
     
-    const priceBook = await prisma.priceBook.findFirst({
+    let priceBook = await prisma.priceBook.findFirst({
       where: {
         pricing_peg: pricingPeg,
         billing_currency: billingCurrency,
@@ -82,12 +83,38 @@ export class PriceBookSelectionService {
       },
       orderBy: { effective_from: 'desc' }
     });
+
+    // 4b. If no exact peg+currency match, try by billing_currency or currency only (e.g. NZD pricing)
+    if (!priceBook && billingCurrency !== 'USD') {
+      priceBook = await prisma.priceBook.findFirst({
+        where: {
+          AND: [
+            {
+              OR: [
+                { billing_currency: billingCurrency },
+                { currency: billingCurrency },
+              ],
+            },
+            { is_active: true },
+            { is_approved: true },
+            { effective_from: { lte: new Date() } },
+            {
+              OR: [
+                { effective_to: null },
+                { effective_to: { gte: new Date() } },
+              ],
+            },
+          ],
+        },
+        orderBy: { effective_from: 'desc' }
+      });
+    }
     
     if (priceBook) {
       return priceBook;
     }
     
-    // 5. Fallback to global USD
+    // 5. Fallback to global USD - but only if company's billing currency matches
     const fallback = await prisma.priceBook.findFirst({
       where: {
         is_global: true,
@@ -98,7 +125,24 @@ export class PriceBookSelectionService {
     });
     
     if (fallback) {
-      console.warn(`⚠️  Using fallback USD price book for company ${companyId}`);
+      const fallbackCurrency = (fallback.billing_currency || fallback.currency || 'USD').toUpperCase();
+      const companyBillingCurrency = (billingCurrency || 'USD').toUpperCase();
+
+      if (fallbackCurrency !== companyBillingCurrency) {
+        if (company?.currency_locked_at) {
+          throw new HttpException(400,
+            `No price book available for ${companyBillingCurrency}. Your company's billing currency is locked to ${companyBillingCurrency}. ` +
+            `Please contact support to add ${companyBillingCurrency} pricing, or ensure an ${companyBillingCurrency} price book exists for your region.`,
+            'CURRENCY_PRICE_BOOK_MISMATCH'
+          );
+        }
+        throw new HttpException(400,
+          `No price book found for ${companyBillingCurrency}. Found pricing in ${fallbackCurrency} only. ` +
+          `Please contact support to add ${companyBillingCurrency} pricing.`,
+          'CURRENCY_PRICE_BOOK_MISMATCH'
+        );
+      }
+      console.warn(`⚠️  Using fallback ${fallbackCurrency} price book for company ${companyId}`);
       return fallback;
     }
     
