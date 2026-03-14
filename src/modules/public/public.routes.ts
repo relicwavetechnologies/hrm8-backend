@@ -17,6 +17,9 @@ router.get('/jobs/:id', publicController.getJobDetails);
 router.get('/jobs/:id/related', publicController.getRelatedJobs);
 router.get('/jobs/:jobId/application-form', publicController.getApplicationForm);
 router.post('/jobs/:id/track', publicController.trackJobView);
+router.get('/jobtarget/questionnaire/:jobId', publicController.getJobTargetQuestionnaire);
+router.post('/jobtarget/questionnaire/:jobId', publicController.getJobTargetQuestionnaire);
+router.post('/jobtarget/application-delivery/:jobId', publicController.receiveJobTargetApplicationDelivery);
 
 // Public Application Endpoints
 router.post('/applications/guest', publicController.submitGuestApplication);

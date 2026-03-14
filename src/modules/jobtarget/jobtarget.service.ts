@@ -32,6 +32,21 @@ type JobTargetLocation = {
   postalCode?: string;
 };
 
+type JobTargetEasyApplyConfig = {
+  enabled: boolean;
+  type: 'basic' | 'full';
+  hostedApply: boolean;
+  questionnaireEnabled: boolean;
+};
+
+type JobTargetQuestion = {
+  id: string;
+  question: string;
+  required: boolean;
+  type: 'select' | 'multiselect' | 'text' | 'file';
+  options?: Array<{ label: string; value: string }>;
+};
+
 class JobTargetService {
   private defaultBaseUrl(mode: 'uat' | 'production'): string {
     return mode === 'production'
@@ -316,6 +331,72 @@ class JobTargetService {
     return `${cleanBase}/jobs/${jobId}`;
   }
 
+  private buildWebhookBaseUrl(): string {
+    const base =
+      process.env.JOBTARGET_WEBHOOK_BASE_URL ||
+      process.env.PUBLIC_API_BASE_URL ||
+      process.env.BACKEND_PUBLIC_BASE_URL ||
+      process.env.API_BASE_URL ||
+      'http://localhost:3000';
+    return base.endsWith('/') ? base.slice(0, -1) : base;
+  }
+
+  private buildQuestionnaireWebhookUrl(jobId: string): string {
+    return `${this.buildWebhookBaseUrl()}/api/public/jobtarget/questionnaire/${jobId}`;
+  }
+
+  private buildApplicationDeliveryWebhookUrl(jobId: string): string {
+    return `${this.buildWebhookBaseUrl()}/api/public/jobtarget/application-delivery/${jobId}`;
+  }
+
+  private normalizeEasyApplyConfig(raw: unknown): JobTargetEasyApplyConfig {
+    const obj = (raw && typeof raw === 'object' && !Array.isArray(raw))
+      ? (raw as Record<string, unknown>)
+      : {};
+    const enabled = Boolean(obj.enabled);
+    const type = String(obj.type || '').trim().toLowerCase() === 'basic' ? 'basic' : 'full';
+    const hostedApply = obj.hostedApply !== undefined ? Boolean(obj.hostedApply) : enabled;
+    const questionnaireEnabled = obj.questionnaireEnabled !== undefined ? Boolean(obj.questionnaireEnabled) : enabled;
+    return { enabled, type, hostedApply, questionnaireEnabled };
+  }
+
+  private getEasyApplyConfigFromJob(job: any): JobTargetEasyApplyConfig {
+    const appForm = (job?.application_form && typeof job.application_form === 'object' && !Array.isArray(job.application_form))
+      ? (job.application_form as Record<string, unknown>)
+      : {};
+    return this.normalizeEasyApplyConfig(appForm.jobTargetEasyApplyConfig);
+  }
+
+  private normalizeQuestionType(rawType: unknown): JobTargetQuestion['type'] {
+    const value = String(rawType || '').trim().toLowerCase();
+    if (['single-select', 'single_select', 'radio', 'select', 'yes_no', 'yes-no', 'boolean'].includes(value)) return 'select';
+    if (['multi-select', 'multi_select', 'multiselect', 'checkbox', 'checkboxes'].includes(value)) return 'multiselect';
+    if (['file', 'upload'].includes(value)) return 'file';
+    return 'text';
+  }
+
+  private normalizeQuestionOptions(raw: unknown): Array<{ label: string; value: string }> | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    const options = raw
+      .map((opt) => {
+        if (opt == null) return null;
+        if (typeof opt === 'string' || typeof opt === 'number' || typeof opt === 'boolean') {
+          const val = String(opt).trim();
+          return val ? { label: val, value: val } : null;
+        }
+        if (typeof opt === 'object') {
+          const o = opt as Record<string, unknown>;
+          const label = String(o.label ?? o.text ?? o.name ?? o.value ?? '').trim();
+          const value = String(o.value ?? o.id ?? o.key ?? label).trim();
+          if (!label && !value) return null;
+          return { label: label || value, value: value || label };
+        }
+        return null;
+      })
+      .filter((opt): opt is { label: string; value: string } => !!opt);
+    return options.length ? options : undefined;
+  }
+
   private async getCompanyLink(companyId: string) {
     return prisma.integration.findFirst({
       where: {
@@ -575,6 +656,7 @@ class JobTargetService {
     contactEmail: string
   ): Promise<{ remoteJobId: string; response: any }> {
     const location = this.normalizeJobLocation(job.location, fallbackCountry);
+    const easyApply = this.getEasyApplyConfigFromJob(job);
     const payload: Record<string, unknown> = {
       requisitionName: job.job_code || job.id,
       title: job.title,
@@ -587,8 +669,16 @@ class JobTargetService {
       salaryHigh: job.salary_max != null ? String(job.salary_max) : undefined,
       contactName: contactName || 'Recruiter',
       contactEmail,
-      easyApply: false,
-      hostedApply: false,
+      easyApply: easyApply.enabled,
+      easyApplyType: easyApply.enabled ? (easyApply.type === 'basic' ? 1 : 2) : undefined,
+      hostedApply: easyApply.enabled ? easyApply.hostedApply : false,
+      questionnaireWebhook: easyApply.enabled && easyApply.questionnaireEnabled
+        ? this.buildQuestionnaireWebhookUrl(job.id)
+        : undefined,
+      applicationdeliveryWebhook: easyApply.enabled
+        ? this.buildApplicationDeliveryWebhookUrl(job.id)
+        : undefined,
+      locale: easyApply.enabled ? 'en-US' : undefined,
       active: job.status === 'OPEN',
       metadata: {
         hrm8JobId: job.id,
@@ -855,6 +945,203 @@ class JobTargetService {
       remoteJobId,
       syncStatus,
     };
+  }
+
+  verifyIncomingWebhookSecret(secretHeader?: string): void {
+    const configured = String(process.env.JOBTARGET_WEBHOOK_SECRET || '').trim();
+    if (!configured) return;
+    const incoming = String(secretHeader || '').trim();
+    if (!incoming || incoming !== configured) {
+      throw new HttpException(401, 'Invalid JobTarget webhook secret');
+    }
+  }
+
+  async getQuestionnaireForJob(jobId: string): Promise<{ questions: JobTargetQuestion[] }> {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        distribution_scope: true,
+        application_form: true,
+      },
+    });
+
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.distribution_scope !== 'GLOBAL') {
+      return { questions: [] };
+    }
+
+    const easyApply = this.getEasyApplyConfigFromJob(job);
+    if (!easyApply.enabled || !easyApply.questionnaireEnabled) {
+      return { questions: [] };
+    }
+
+    const appForm = (job.application_form && typeof job.application_form === 'object' && !Array.isArray(job.application_form))
+      ? (job.application_form as Record<string, unknown>)
+      : {};
+    const rawQuestions = Array.isArray(appForm.questions) ? appForm.questions : [];
+
+    const questions: JobTargetQuestion[] = rawQuestions
+      .map((rawQuestion, idx) => {
+        if (!rawQuestion || typeof rawQuestion !== 'object' || Array.isArray(rawQuestion)) return null;
+        const q = rawQuestion as Record<string, unknown>;
+        const id = String(q.id || q.questionId || q.key || `q-${idx + 1}`).trim();
+        const question = String(q.question || q.text || q.label || q.title || '').trim();
+        if (!id || !question) return null;
+
+        const type = this.normalizeQuestionType(q.type);
+        const options = this.normalizeQuestionOptions(q.options);
+        return {
+          id,
+          question,
+          required: Boolean(q.required),
+          type,
+          options: (type === 'select' || type === 'multiselect') ? (options || []) : undefined,
+        } as JobTargetQuestion;
+      })
+      .filter((q): q is JobTargetQuestion => !!q);
+
+    return { questions };
+  }
+
+  async ingestApplicationDelivery(jobId: string, payload: any): Promise<{ applicationId: string; duplicate: boolean }> {
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: {
+        id: true,
+        status: true,
+        distribution_scope: true,
+        title: true,
+      },
+    });
+
+    if (!job) throw new HttpException(404, 'Job not found');
+    if (job.distribution_scope !== 'GLOBAL') {
+      throw new HttpException(400, 'JobTarget application delivery is only available for GLOBAL jobs');
+    }
+
+    const deliveryId = String(payload?.id || '').trim();
+    if (deliveryId) {
+      const duplicateByDeliveryId = await prisma.application.findFirst({
+        where: {
+          job_id: job.id,
+          questionnaire_data: {
+            path: ['jobtargetDeliveryId'],
+            equals: deliveryId,
+          },
+        } as any,
+        select: { id: true },
+      });
+      if (duplicateByDeliveryId) {
+        return { applicationId: duplicateByDeliveryId.id, duplicate: true };
+      }
+    }
+
+    const applicant = (payload?.applicant || {}) as Record<string, unknown>;
+    const fullName = String(applicant.fullName || '').trim();
+    const firstName = String(applicant.firstName || fullName.split(/\s+/)[0] || 'JobTarget').trim();
+    const lastName = String(applicant.lastName || fullName.split(/\s+/).slice(1).join(' ') || 'Applicant').trim();
+    const email = String(applicant.email || '').trim().toLowerCase();
+    const phoneNumber = String(applicant.phoneNumber || '').trim();
+
+    if (!email) {
+      throw new HttpException(400, 'Application delivery payload is missing applicant email');
+    }
+
+    const rawAnswers = Array.isArray(payload?.questions?.answers) ? payload.questions.answers : [];
+    const customAnswers: Record<string, unknown> = {};
+    rawAnswers.forEach((answer: any) => {
+      if (!answer || typeof answer !== 'object') return;
+      const id = String(answer.id || '').trim();
+      if (!id) return;
+      customAnswers[id] = answer.value ?? null;
+    });
+
+    const applicantGuid = String(payload?.applicantGuid || payload?.applicant?.applicantGuid || '').trim();
+    if (applicantGuid) {
+      const duplicateByApplicantGuid = await prisma.application.findFirst({
+        where: {
+          job_id: job.id,
+          job_target_attribution: {
+            path: ['applicantGuid'],
+            equals: applicantGuid,
+          },
+        } as any,
+        select: { id: true },
+      });
+      if (duplicateByApplicantGuid) {
+        return { applicationId: duplicateByApplicantGuid.id, duplicate: true };
+      }
+    }
+
+    let candidate = await prisma.candidate.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (!candidate) {
+      const bcrypt = await import('bcrypt');
+      const generatedPassword = `jt_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const passwordHash = await bcrypt.hash(generatedPassword, 10);
+      candidate = await prisma.candidate.create({
+        data: {
+          email,
+          password_hash: passwordHash,
+          first_name: firstName || 'JobTarget',
+          last_name: lastName || 'Applicant',
+          phone: phoneNumber || null,
+          status: 'ACTIVE',
+          email_verified: false,
+        },
+        select: { id: true },
+      });
+    }
+
+    const resumeFile = (applicant?.resume as any)?.file as Record<string, unknown> | undefined;
+    const resumeUrl =
+      String((applicant?.resume as any)?.url || '').trim() ||
+      (resumeFile?.fileName ? `jobtarget://resume/${encodeURIComponent(String(resumeFile.fileName))}` : null);
+
+    const attribution = this.extractAttribution({
+      applicantGuid: applicantGuid || undefined,
+      source: payload?.source,
+      medium: payload?.medium,
+      campaign: payload?.campaign,
+      rawQuery: {
+        ochash: payload?.ochash,
+        ocprof: payload?.ocprof,
+        ats: payload?.ats,
+      },
+    });
+    const sourceLabel = this.sourceLabelFromAttribution(attribution) || 'JobTarget';
+
+    const questionnaireData = {
+      jobtargetDeliveryId: deliveryId || undefined,
+      jobtargetPayload: payload,
+      questions: payload?.questions?.questions || [],
+      answers: rawAnswers,
+    };
+
+    const application = await prisma.application.create({
+      data: {
+        candidate_id: candidate.id,
+        job_id: job.id,
+        status: 'NEW',
+        stage: 'NEW_APPLICATION',
+        source: sourceLabel,
+        resume_url: resumeUrl,
+        cover_letter_url: String(applicant?.coverLetter || '').trim() || null,
+        custom_answers: customAnswers as any,
+        questionnaire_data: questionnaireData as any,
+        job_target_attribution: attribution as any,
+      },
+      select: { id: true, stage: true },
+    });
+
+    await this.retryPendingSyncIfDue(application.id, application.stage);
+    await this.syncNewApplicationEvent(application.id);
+
+    return { applicationId: application.id, duplicate: false };
   }
 
   extractAttribution(payload: any): JobTargetAttribution | null {

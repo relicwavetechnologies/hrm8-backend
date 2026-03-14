@@ -460,4 +460,12 @@ export class PublicService extends BaseService {
       }
     };
   }
+
+  async getJobTargetQuestionnaire(jobId: string) {
+    return jobTargetService.getQuestionnaireForJob(jobId);
+  }
+
+  async receiveJobTargetApplicationDelivery(jobId: string, payload: any) {
+    return jobTargetService.ingestApplicationDelivery(jobId, payload);
+  }
 }

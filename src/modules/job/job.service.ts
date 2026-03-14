@@ -54,6 +54,64 @@ export class JobService extends BaseService {
     return normalized === 'GLOBAL' ? 'GLOBAL' : 'HRM8_ONLY';
   }
 
+  private normalizeEasyApplyConfig(raw: unknown): {
+    enabled: boolean;
+    type: 'basic' | 'full';
+    hostedApply: boolean;
+    questionnaireEnabled: boolean;
+  } | undefined {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const obj = raw as Record<string, unknown>;
+    const enabled = Boolean(obj.enabled);
+    const type = String(obj.type || '').trim().toLowerCase() === 'basic' ? 'basic' : 'full';
+    const hostedApply = obj.hostedApply !== undefined ? Boolean(obj.hostedApply) : enabled;
+    const questionnaireEnabled = obj.questionnaireEnabled !== undefined ? Boolean(obj.questionnaireEnabled) : enabled;
+    return { enabled, type, hostedApply, questionnaireEnabled };
+  }
+
+  private extractEasyApplyConfig(data: any): {
+    enabled: boolean;
+    type: 'basic' | 'full';
+    hostedApply: boolean;
+    questionnaireEnabled: boolean;
+  } | undefined {
+    const globalConfig = (data?.globalPublishConfig || {}) as Record<string, unknown>;
+    const raw = globalConfig.easyApplyConfig ?? data?.easyApplyConfig ?? data?.jobTargetEasyApplyConfig;
+    return this.normalizeEasyApplyConfig(raw);
+  }
+
+  private readEasyApplyConfigFromApplicationForm(applicationForm: unknown): {
+    enabled: boolean;
+    type: 'basic' | 'full';
+    hostedApply: boolean;
+    questionnaireEnabled: boolean;
+  } | undefined {
+    if (!applicationForm || typeof applicationForm !== 'object' || Array.isArray(applicationForm)) return undefined;
+    const appForm = applicationForm as Record<string, unknown>;
+    return this.normalizeEasyApplyConfig(appForm.jobTargetEasyApplyConfig);
+  }
+
+  private mergeApplicationFormWithEasyApply(
+    baseForm: unknown,
+    easyApplyConfig: {
+      enabled: boolean;
+      type: 'basic' | 'full';
+      hostedApply: boolean;
+      questionnaireEnabled: boolean;
+    } | undefined
+  ): Record<string, unknown> | undefined {
+    if (baseForm === undefined && !easyApplyConfig) return undefined;
+    const merged = (baseForm && typeof baseForm === 'object' && !Array.isArray(baseForm))
+      ? { ...(baseForm as Record<string, unknown>) }
+      : {};
+
+    if (easyApplyConfig) {
+      merged.jobTargetEasyApplyConfig = easyApplyConfig;
+    }
+
+    return merged;
+  }
+
   private extractJobTargetConfigPatch(data: any, includeDefaults = false): Record<string, unknown> {
     const patch: Record<string, unknown> = {};
     const globalConfig = (data?.globalPublishConfig || {}) as Record<string, unknown>;
@@ -102,6 +160,8 @@ export class JobService extends BaseService {
     // Publishing must go through publishJob() so quota/wallet/assignment rules are enforced centrally.
     const publishImmediately = false;
     const jobTargetConfigPatch = this.extractJobTargetConfigPatch(data, true);
+    const easyApplyConfig = this.extractEasyApplyConfig(data);
+    const applicationForm = this.mergeApplicationFormWithEasyApply(data.applicationForm, easyApplyConfig);
     const jobPayload = {
       // Explicitly map all fields to ensure no data loss
       company: { connect: { id: companyId } },
@@ -138,7 +198,7 @@ export class JobService extends BaseService {
 
       // Configs
       video_interviewing_enabled: data.videoInterviewingEnabled || false,
-      application_form: data.applicationForm ? data.applicationForm : undefined,
+      application_form: applicationForm,
 
       // Logistic
       close_date: data.closeDate || null,
@@ -189,7 +249,6 @@ export class JobService extends BaseService {
       requirements: data.requirements,
       responsibilities: data.responsibilities,
       promotional_tags: data.tags || data.promotionalTags,
-      application_form: data.applicationForm,
       close_date: data.closeDate !== undefined ? (data.closeDate || null) : undefined,
       video_interviewing_enabled: data.videoInterviewingEnabled,
       setup_type: data.setupType ? data.setupType.toUpperCase() : undefined,
@@ -199,6 +258,16 @@ export class JobService extends BaseService {
       visibility: data.visibility,
       ...this.extractJobTargetConfigPatch(data, false),
     };
+
+    const incomingEasyApplyConfig = this.extractEasyApplyConfig(data);
+    if (data.applicationForm !== undefined || incomingEasyApplyConfig !== undefined) {
+      const baseApplicationForm = data.applicationForm !== undefined ? data.applicationForm : job.application_form;
+      const existingEasyApplyConfig = this.readEasyApplyConfigFromApplicationForm(job.application_form);
+      updateData.application_form = this.mergeApplicationFormWithEasyApply(
+        baseApplicationForm,
+        incomingEasyApplyConfig || existingEasyApplyConfig
+      );
+    }
 
     // Remove undefined keys
     Object.keys(updateData).forEach(key => {
@@ -335,6 +404,8 @@ export class JobService extends BaseService {
 
     const servicePackage = this.normalizeServicePackage(job.service_package, job.hiring_mode);
 
+    const easyApplyConfig = this.readEasyApplyConfigFromApplicationForm(job.application_form);
+
     // Return ONLY camelCase fields (no duplication)
     return {
       id: job.id,
@@ -382,6 +453,12 @@ export class JobService extends BaseService {
         customBudget: job.job_target_budget ?? undefined,
         hrm8ServiceRequiresApproval: servicePackage !== 'self-managed' && servicePackage !== 'rpo',
         hrm8ServiceApproved: !!job.job_target_approved,
+        easyApplyConfig: easyApplyConfig || {
+          enabled: false,
+          type: 'full',
+          hostedApply: false,
+          questionnaireEnabled: false,
+        },
       },
       serviceType: servicePackage,
       servicePackage,
@@ -640,7 +717,9 @@ export class JobService extends BaseService {
   }
 
   async saveDraft(id: string, companyId: string, data: any): Promise<Job> {
-    await this.getJob(id, companyId); // Verify ownership
+    const existingJob = await this.jobRepository.findById(id);
+    if (!existingJob) throw new HttpException(404, 'Job not found');
+    if (existingJob.company_id !== companyId) throw new HttpException(403, 'Unauthorized');
 
     const stepRaw = data.draftStep ?? data.draft_step;
     const stepNum = stepRaw != null ? Number(stepRaw) : NaN;
@@ -661,7 +740,6 @@ export class JobService extends BaseService {
       requirements: data.requirements ?? [],
       responsibilities: data.responsibilities ?? [],
       promotional_tags: data.tags ?? data.promotionalTags ?? data.promotional_tags ?? [],
-      application_form: data.applicationForm ?? data.application_form,
       close_date: (data.closeDate ?? data.close_date) || null,
       visibility: data.visibility ?? 'public',
       work_arrangement: data.workArrangement ? String(data.workArrangement).toUpperCase().replace('-', '_') : undefined,
@@ -670,6 +748,16 @@ export class JobService extends BaseService {
       hide_salary: data.hideSalary ?? data.hide_salary,
       ...this.extractJobTargetConfigPatch(data, false),
     };
+    const incomingEasyApplyConfig = this.extractEasyApplyConfig(data);
+    if (data.applicationForm !== undefined || data.application_form !== undefined || incomingEasyApplyConfig !== undefined) {
+      const incomingApplicationForm = data.applicationForm ?? data.application_form;
+      const baseApplicationForm = incomingApplicationForm !== undefined ? incomingApplicationForm : existingJob.application_form;
+      const existingEasyApplyConfig = this.readEasyApplyConfigFromApplicationForm(existingJob.application_form);
+      updatePayload.application_form = this.mergeApplicationFormWithEasyApply(
+        baseApplicationForm,
+        incomingEasyApplyConfig || existingEasyApplyConfig
+      );
+    }
     Object.keys(updatePayload).forEach(key => {
       if (updatePayload[key] === undefined) delete updatePayload[key];
     });

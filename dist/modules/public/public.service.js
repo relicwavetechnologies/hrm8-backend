@@ -408,5 +408,11 @@ class PublicService extends service_1.BaseService {
             }
         };
     }
+    async getJobTargetQuestionnaire(jobId) {
+        return jobtarget_service_1.jobTargetService.getQuestionnaireForJob(jobId);
+    }
+    async receiveJobTargetApplicationDelivery(jobId, payload) {
+        return jobtarget_service_1.jobTargetService.ingestApplicationDelivery(jobId, payload);
+    }
 }
 exports.PublicService = PublicService;

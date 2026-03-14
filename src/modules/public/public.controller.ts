@@ -3,6 +3,7 @@ import { BaseController } from '../../core/controller';
 import { PublicService } from './public.service';
 import { JobRepository } from '../job/job.repository';
 import { CompanyRepository } from '../company/company.repository';
+import { jobTargetService } from '../jobtarget/jobtarget.service';
 
 export class PublicController extends BaseController {
   private publicService: PublicService;
@@ -222,6 +223,30 @@ export class PublicController extends BaseController {
       };
       const result = await this.publicService.submitGuestApplication(payload);
       return this.sendSuccess(res, result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  getJobTargetQuestionnaire = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const incomingSecret = String(req.headers['x-jobtarget-webhook-secret'] || req.headers['x-jobtarget-secret'] || '');
+      jobTargetService.verifyIncomingWebhookSecret(incomingSecret);
+      const result = await this.publicService.getJobTargetQuestionnaire(jobId);
+      return res.status(200).json(result);
+    } catch (error) {
+      return this.sendError(res, error);
+    }
+  };
+
+  receiveJobTargetApplicationDelivery = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const incomingSecret = String(req.headers['x-jobtarget-webhook-secret'] || req.headers['x-jobtarget-secret'] || '');
+      jobTargetService.verifyIncomingWebhookSecret(incomingSecret);
+      const result = await this.publicService.receiveJobTargetApplicationDelivery(jobId, req.body);
+      return res.status(200).json(result);
     } catch (error) {
       return this.sendError(res, error);
     }

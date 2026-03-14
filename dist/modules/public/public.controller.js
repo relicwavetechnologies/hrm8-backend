@@ -5,6 +5,7 @@ const controller_1 = require("../../core/controller");
 const public_service_1 = require("./public.service");
 const job_repository_1 = require("../job/job.repository");
 const company_repository_1 = require("../company/company.repository");
+const jobtarget_service_1 = require("../jobtarget/jobtarget.service");
 class PublicController extends controller_1.BaseController {
     constructor() {
         super();
@@ -201,6 +202,30 @@ class PublicController extends controller_1.BaseController {
                 };
                 const result = await this.publicService.submitGuestApplication(payload);
                 return this.sendSuccess(res, result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.getJobTargetQuestionnaire = async (req, res) => {
+            try {
+                const { jobId } = req.params;
+                const incomingSecret = String(req.headers['x-jobtarget-webhook-secret'] || req.headers['x-jobtarget-secret'] || '');
+                jobtarget_service_1.jobTargetService.verifyIncomingWebhookSecret(incomingSecret);
+                const result = await this.publicService.getJobTargetQuestionnaire(jobId);
+                return res.status(200).json(result);
+            }
+            catch (error) {
+                return this.sendError(res, error);
+            }
+        };
+        this.receiveJobTargetApplicationDelivery = async (req, res) => {
+            try {
+                const { jobId } = req.params;
+                const incomingSecret = String(req.headers['x-jobtarget-webhook-secret'] || req.headers['x-jobtarget-secret'] || '');
+                jobtarget_service_1.jobTargetService.verifyIncomingWebhookSecret(incomingSecret);
+                const result = await this.publicService.receiveJobTargetApplicationDelivery(jobId, req.body);
+                return res.status(200).json(result);
             }
             catch (error) {
                 return this.sendError(res, error);
