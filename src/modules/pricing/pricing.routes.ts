@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { PricingController } from './pricing.controller';
 import { authenticate } from '../../middlewares/auth.middleware';
+import { authenticateUnified } from '../../middlewares/unified-auth.middleware';
 
 const router = Router();
 
-// All pricing routes require authentication
+// Available currencies - accessible by both company users and consultants (first-login setup)
+router.get('/available-currencies', authenticateUnified, PricingController.getAvailableCurrencies);
+
+// All other pricing routes require company authentication
 router.use(authenticate);
 
 // Get subscription tiers for current company

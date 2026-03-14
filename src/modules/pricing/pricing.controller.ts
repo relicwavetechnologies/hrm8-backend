@@ -4,8 +4,30 @@ import { PriceBookSelectionService } from './price-book-selection.service';
 import { SalaryBandService } from './salary-band.service';
 import { CurrencyAssignmentService } from './currency-assignment.service';
 import { PricingAuditService } from './pricing-audit.service';
+import { AvailableCurrenciesService } from './available-currencies.service';
 
 export class PricingController {
+  /**
+   * GET /api/pricing/available-currencies
+   * Returns currencies that have active price books mapped in the system.
+   * Used on first-login currency setup so users only see currencies with pricing.
+   */
+  static async getAvailableCurrencies(_req: Request, res: Response) {
+    try {
+      const currencies = await AvailableCurrenciesService.getAvailableCurrencies();
+      res.json({
+        success: true,
+        data: { currencies },
+      });
+    } catch (error: any) {
+      console.error('Get available currencies error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to get available currencies',
+      });
+    }
+  }
+
   /**
    * GET /api/pricing/subscription-tiers
    * Get all subscription pricing tiers for current company

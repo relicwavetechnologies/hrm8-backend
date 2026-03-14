@@ -8,78 +8,82 @@ datasource db {
 }
 
 model Company {
-  id                      String                     @id @default(uuid())
-  name                    String
-  website                 String
-  domain                  String                     @unique
-  country_or_region       String                     @default("") @map("country_or_region")
-  accepted_terms          Boolean                    @default(false) @map("accepted_terms")
-  verification_status     CompanyVerificationStatus  @default(PENDING) @map("verificationStatus")
-  verification_method     VerificationMethod?        @map("verificationMethod")
-  verified_at             DateTime?                  @map("verifiedAt")
-  verified_by             String?                    @map("verifiedBy")
-  gst_number              String?                    @map("gstNumber")
-  registration_number     String?                    @map("registrationNumber")
-  linked_in_url           String?                    @map("linkedInUrl")
-  created_at              DateTime                   @default(now()) @map("createdAt")
-  updated_at              DateTime                   @default(now()) @updatedAt @map("updatedAt")
-  region_id               String?                    @map("region_id")
-  job_assignment_mode     JobAssignmentMode          @default(AUTO_RULES_ONLY) @map("job_assignment_mode")
-  preferred_recruiter_id  String?                    @map("preferred_recruiter_id")
-  created_by              String?
-  licensee_id             String?
-  region_owner_type       RegionOwnerType            @default(HRM8)
-  commission_status       CommissionStatus           @default(PENDING)
-  price_book_id           String?                    @map("price_book_id")
-  referred_by             String?
-  attribution_locked      Boolean                    @default(false) @map("attribution_locked")
-  attribution_locked_at   DateTime?                  @map("attribution_locked_at")
-  sales_agent_id          String?                    @map("sales_agent_id")
-  careers_page_about      String?                    @map("careers_page_about")
-  careers_page_banner     String?                    @map("careers_page_banner")
-  careers_page_logo       String?                    @map("careers_page_logo")
-  careers_page_social     Json?                      @map("careers_page_social")
-  careers_page_status     CareersPageStatus          @default(PENDING) @map("careers_page_status")
-  careers_pending_changes Json?                      @map("careers_pending_changes")
-  careers_review_notes    Json?                      @map("careers_review_notes")
-  careers_page_images     Json?                      @map("careers_page_images")
-  billing_currency        String?                    @default("USD") @map("billing_currency")
-  country                 String?                    @map("country")
-  currency_locked_at      DateTime?                  @map("currency_locked_at")
-  currency_preference_confirmed_at DateTime?         @map("currency_preference_confirmed_at")
-  pricing_peg             String?                    @default("USD") @map("pricing_peg")
-  region_code             String?                    @map("region_code")
-  account_team            AccountTeam[]
-  activity                Activity[]
-  bill                    Bill[]
-  price_book              PriceBook?                 @relation(fields: [price_book_id], references: [id])
-  region                  Region?                    @relation(fields: [region_id], references: [id])
-  sales_agent             Consultant?                @relation("CompanySalesAgent", fields: [sales_agent_id], references: [id])
-  profile                 CompanyProfile?
-  company_settings        CompanySettings?
-  contact                 Contact[]
-  email_template          EmailTemplate[]
-  integration             Integration[]
-  invitations             Invitation[]
-  jobs                    Job[]
-  job_template            JobTemplate[]
-  lead                    Lead[]
-  opportunity             Opportunity[]
-  signup_requests         SignupRequest[]
-  subscription            Subscription[]
-  users                   User[]
-  verification_tokens     VerificationToken[]
-  company_documents       CompanyDocument[]
-  enterprise_overrides    EnterpriseOverride[]
-  conversion_requests     LeadConversionRequest[]
-  screening_templates     screening_templates[]
-  refund_requests         TransactionRefundRequest[]
+  id                               String                     @id @default(uuid())
+  name                             String
+  website                          String
+  domain                           String                     @unique
+  country_or_region                String                     @default("") @map("country_or_region")
+  accepted_terms                   Boolean                    @default(false) @map("accepted_terms")
+  verification_status              CompanyVerificationStatus  @default(PENDING) @map("verificationStatus")
+  verification_method              VerificationMethod?        @map("verificationMethod")
+  verified_at                      DateTime?                  @map("verifiedAt")
+  verified_by                      String?                    @map("verifiedBy")
+  gst_number                       String?                    @map("gstNumber")
+  registration_number              String?                    @map("registrationNumber")
+  linked_in_url                    String?                    @map("linkedInUrl")
+  created_at                       DateTime                   @default(now()) @map("createdAt")
+  updated_at                       DateTime                   @default(now()) @updatedAt @map("updatedAt")
+  region_id                        String?                    @map("region_id")
+  job_assignment_mode              JobAssignmentMode          @default(AUTO_RULES_ONLY) @map("job_assignment_mode")
+  preferred_recruiter_id           String?                    @map("preferred_recruiter_id")
+  created_by                       String?
+  licensee_id                      String?
+  region_owner_type                RegionOwnerType            @default(HRM8)
+  commission_status                CommissionStatus           @default(PENDING)
+  price_book_id                    String?                    @map("price_book_id")
+  referred_by                      String?
+  attribution_locked               Boolean                    @default(false) @map("attribution_locked")
+  attribution_locked_at            DateTime?                  @map("attribution_locked_at")
+  sales_agent_id                   String?                    @map("sales_agent_id")
+  default_consultant_id            String?                    @map("default_consultant_id")
+  careers_page_about               String?                    @map("careers_page_about")
+  careers_page_banner              String?                    @map("careers_page_banner")
+  careers_page_logo                String?                    @map("careers_page_logo")
+  careers_page_social              Json?                      @map("careers_page_social")
+  careers_page_status              CareersPageStatus          @default(PENDING) @map("careers_page_status")
+  careers_pending_changes          Json?                      @map("careers_pending_changes")
+  careers_review_notes             Json?                      @map("careers_review_notes")
+  careers_page_images              Json?                      @map("careers_page_images")
+  billing_currency                 String?                    @default("USD") @map("billing_currency")
+  country                          String?                    @map("country")
+  currency_locked_at               DateTime?                  @map("currency_locked_at")
+  pricing_peg                      String?                    @default("USD") @map("pricing_peg")
+  region_code                      String?                    @map("region_code")
+  currency_preference_confirmed_at DateTime?                  @map("currency_preference_confirmed_at")
+  account_team                     AccountTeam[]
+  activity                         Activity[]
+  bill                             Bill[]
+  price_book                       PriceBook?                 @relation(fields: [price_book_id], references: [id])
+  region                           Region?                    @relation(fields: [region_id], references: [id])
+  sales_agent                      Consultant?                @relation("CompanySalesAgent", fields: [sales_agent_id], references: [id])
+  default_consultant               Consultant?                @relation("CompanyDefaultConsultant", fields: [default_consultant_id], references: [id])
+  consultant_assignment_requests   ConsultantAssignmentRequest[]
+  profile                          CompanyProfile?
+  company_settings                 CompanySettings?
+  contact                          Contact[]
+  email_template                   EmailTemplate[]
+  integration                      Integration[]
+  invitations                      Invitation[]
+  jobs                             Job[]
+  job_template                     JobTemplate[]
+  lead                             Lead[]
+  opportunity                      Opportunity[]
+  signup_requests                  SignupRequest[]
+  subscription                     Subscription[]
+  users                            User[]
+  verification_tokens              VerificationToken[]
+  company_documents                CompanyDocument[]
+  enterprise_overrides             EnterpriseOverride[]
+  conversion_requests              LeadConversionRequest[]
+  screening_templates              screening_templates[]
+  refund_requests                  TransactionRefundRequest[]
 
   @@index([domain])
   @@index([verification_status])
   @@index([region_id])
   @@index([created_by])
   @@index([licensee_id])
+  @@index([default_consultant_id])
 }
 
 model CompanyProfile {
@@ -278,16 +282,10 @@ model Job {
   application_form                    Json?                       @map("application_form")
   video_interviewing_enabled          Boolean                     @default(false) @map("video_interviewing_enabled")
   alerts_enabled                      Json?                       @map("alerts_enabled")
-  distribution_scope                  DistributionScope           @default(HRM8_ONLY) @map("distribution_scope")
   job_target_approved                 Boolean                     @default(false) @map("jobtarget_approved")
   job_target_budget                   Float?                      @map("jobtarget_budget")
-  job_target_budget_tier              String?                     @map("jobtarget_budget_tier")
   job_target_budget_spent             Float?                      @default(0) @map("jobtarget_budget_spent")
   job_target_channels                 String[]                    @default([]) @map("jobtarget_channels")
-  job_target_remote_job_id            String?                     @map("jobtarget_remote_job_id")
-  job_target_sync_status              JobTargetSyncStatus         @default(NOT_SYNCED) @map("jobtarget_sync_status")
-  job_target_last_synced_at           DateTime?                   @map("jobtarget_last_synced_at")
-  job_target_last_error               String?                     @map("jobtarget_last_error")
   job_target_promotion_id             String?                     @map("jobtarget_promotion_id")
   job_target_status                   String?                     @map("jobtarget_status")
   referral_link                       String?                     @map("referral_link")
@@ -329,16 +327,17 @@ model Job {
   price_book_id                       String?                     @map("price_book_id")
   price_book_version                  String?                     @map("price_book_version")
   pricing_peg                         String?                     @map("pricing_peg")
-  distribution_scope                  DistributionScope           @default(HRM8_ONLY)
-  jobtarget_budget_tier               String?
-  jobtarget_remote_job_id             String?
-  jobtarget_sync_status               JobTargetSyncStatus         @default(NOT_SYNCED)
-  jobtarget_last_synced_at            DateTime?
-  jobtarget_last_error                String?
+  distribution_scope                  DistributionScope           @default(HRM8_ONLY) @map("distribution_scope")
+  job_target_budget_tier              String?                     @map("jobtarget_budget_tier")
+  job_target_remote_job_id            String?                     @map("jobtarget_remote_job_id")
+  job_target_sync_status              JobTargetSyncStatus         @default(NOT_SYNCED) @map("jobtarget_sync_status")
+  job_target_last_synced_at           DateTime?                   @map("jobtarget_last_synced_at")
+  job_target_last_error               String?                     @map("jobtarget_last_error")
   applications                        Application[]
   commissions                         Commission[]
   consultant_decision_requests        ConsultantDecisionRequest[]
   consultant_assignments              ConsultantJobAssignment[]
+  consultant_assignment_request       ConsultantAssignmentRequest?
   conversations                       Conversation[]
   email_message                       EmailMessage[]
   email_template                      EmailTemplate[]
@@ -1081,6 +1080,8 @@ model Consultant {
   commissions                  Commission[]
   withdrawals                  CommissionWithdrawal[]      @relation("ConsultantWithdrawals")
   sales_companies              Company[]                   @relation("CompanySalesAgent")
+  default_consultant_companies Company[]                   @relation("CompanyDefaultConsultant")
+  consultant_assignment_requests ConsultantAssignmentRequest[]
   region                       Region                      @relation(fields: [region_id], references: [id])
   consultant_decision_requests ConsultantDecisionRequest[]
   job_assignments              ConsultantJobAssignment[]
@@ -1236,10 +1237,35 @@ model Region {
   licensee                 RegionalLicensee?       @relation(fields: [licensee_id], references: [id])
   revenue                  RegionalRevenue[]
   conversion_requests      LeadConversionRequest[]
+  consultant_assignment_requests ConsultantAssignmentRequest[]
 
   @@index([is_active])
   @@index([licensee_id])
   @@index([owner_type])
+}
+
+model ConsultantAssignmentRequest {
+  id             String                            @id @default(uuid())
+  company_id     String                            @map("company_id")
+  job_id         String                            @unique @map("job_id")
+  region_id      String?                           @map("region_id")
+  status         ConsultantAssignmentRequestStatus @default(PENDING)
+  assigned_by    String?                           @map("assigned_by")
+  assigned_at    DateTime?                         @map("assigned_at")
+  consultant_id  String?                           @map("consultant_id")
+  created_at     DateTime                          @default(now()) @map("created_at")
+  updated_at     DateTime                          @default(now()) @updatedAt @map("updated_at")
+
+  company     Company      @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  job         Job          @relation(fields: [job_id], references: [id], onDelete: Cascade)
+  region      Region?      @relation(fields: [region_id], references: [id])
+  consultant  Consultant?  @relation(fields: [consultant_id], references: [id])
+
+  @@index([company_id])
+  @@index([region_id])
+  @@index([status])
+  @@index([consultant_id])
+  @@map("consultant_assignment_requests")
 }
 
 model RegionalLicensee {
@@ -3098,6 +3124,8 @@ enum UniversalNotificationType {
   COMMISSION_EARNED
   LEAD_CONVERSION_REQUESTED
   LEAD_CONVERSION_DECLINED
+  CONSULTANT_ASSIGNMENT_NEEDED
+  CONSULTANT_ASSIGNED
 }
 
 enum NotificationRecipientType {
@@ -3128,6 +3156,7 @@ enum AssignmentSource {
 enum ConversationChannelType {
   CANDIDATE_EMPLOYER
   CANDIDATE_CONSULTANT
+  COMPANY_CONSULTANT
   SYSTEM
 }
 
@@ -3295,6 +3324,12 @@ enum ConversionRequestStatus {
   APPROVED
   DECLINED
   CONVERTED
+  CANCELLED
+}
+
+enum ConsultantAssignmentRequestStatus {
+  PENDING
+  ASSIGNED
   CANCELLED
 }
 
@@ -3482,17 +3517,4 @@ enum TaskPriority {
   MEDIUM
   HIGH
   URGENT
-}
-
-enum DistributionScope {
-  HRM8_ONLY
-  GLOBAL
-}
-
-enum JobTargetSyncStatus {
-  NOT_SYNCED
-  SYNCING
-  SYNCED
-  FAILED
-  CLOSED
 }

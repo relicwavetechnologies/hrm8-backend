@@ -9,6 +9,7 @@ import { XeroService } from '../xero/xero.service';
 import { BillingLogger } from '../../utils/billing-logger';
 import { Logger } from '../../utils/logger';
 import { jobAllocationService } from '../job/job-allocation.service';
+import { ConsultantAssignmentRequestService } from '../hrm8/consultant-assignment-request.service';
 import { toCommissionRateDecimal } from '../hrm8/commission-rate.util';
 import { resolveCommissionFx } from '../hrm8/commission-fx.util';
 import { BILLING_PROVIDER_MODE } from '../../config/billing-env';
@@ -475,8 +476,20 @@ export class BillingService {
               }
             }
           } else {
-            log.warn('Webhook: consultant auto-assignment failed after managed-service payment', {
-              jobId, error: assignResult.error,
+            // Create ConsultantAssignmentRequest for regional admin; do not refund.
+            const carService = new ConsultantAssignmentRequestService();
+            const jobWithRegion = await prisma.job.findUnique({
+              where: { id: jobId },
+              select: { company_id: true, region_id: true, company: { select: { region_id: true } } },
+            });
+            const regionId = jobWithRegion?.region_id ?? jobWithRegion?.company?.region_id ?? null;
+            await carService.create(
+              jobWithRegion?.company_id ?? bill.company_id,
+              jobId,
+              regionId
+            );
+            log.info('Webhook: created ConsultantAssignmentRequest (no consultant in region)', {
+              jobId, regionId,
             });
           }
         }

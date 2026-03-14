@@ -172,6 +172,13 @@ export class JobController extends BaseController {
         });
       }
 
+      if (result.status === 'PENDING_CONSULTANT_ASSIGNMENT') {
+        return res.status(202).json({
+          success: true,
+          data: result,
+        });
+      }
+
       return this.sendSuccess(res, { job: result.job });
     } catch (error) {
       return this.sendError(res, error);

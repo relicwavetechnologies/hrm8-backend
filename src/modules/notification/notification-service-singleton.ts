@@ -101,3 +101,51 @@ export async function broadcastToConsultants(data: {
     console.error('[NotificationService] Error broadcasting:', error);
   }
 }
+
+/**
+ * Create a notification for an HRM8 user (regional admin, global admin)
+ */
+export async function notifyHrm8User(hrm8UserId: string, data: {
+  title: string;
+  message: string;
+  type?: string;
+  actionUrl?: string;
+}) {
+  try {
+    const service = getNotificationService();
+    await service.createNotification({
+      recipientType: 'HRM8_USER',
+      recipientId: hrm8UserId,
+      type: (data.type as any) || 'SYSTEM_ANNOUNCEMENT',
+      title: data.title,
+      message: data.message,
+      actionUrl: data.actionUrl,
+    });
+  } catch (error) {
+    console.error('[NotificationService] Error notifying HRM8 user:', error);
+  }
+}
+
+/**
+ * Create a notification for a company user
+ */
+export async function notifyCompanyUser(userId: string, data: {
+  title: string;
+  message: string;
+  type?: string;
+  actionUrl?: string;
+}) {
+  try {
+    const service = getNotificationService();
+    await service.createNotification({
+      recipientType: 'USER',
+      recipientId: userId,
+      type: (data.type as any) || 'SYSTEM_ANNOUNCEMENT',
+      title: data.title,
+      message: data.message,
+      actionUrl: data.actionUrl,
+    });
+  } catch (error) {
+    console.error('[NotificationService] Error notifying company user:', error);
+  }
+}

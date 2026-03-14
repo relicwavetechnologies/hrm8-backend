@@ -421,6 +421,13 @@ export class LeadConversionService extends BaseService {
       : 'company';
     const domain = `${baseDomain}-${request.lead_id}.local`;
 
+    // If 360 consultant converted, they become the default consultant for HRM8 managed jobs
+    const consultant = await prisma.consultant.findUnique({
+      where: { id: request.consultant_id },
+      select: { role: true },
+    });
+    const is360Conversion = consultant?.role === 'CONSULTANT_360';
+
     const companyCreateData: Record<string, unknown> = {
       name: request.company_name,
       domain,
@@ -428,6 +435,7 @@ export class LeadConversionService extends BaseService {
       region_id: request.region_id,
       country_or_region: request.country,
       sales_agent_id: request.consultant_id,
+      ...(is360Conversion && { default_consultant_id: request.consultant_id }),
     };
     if (mapping) {
       (companyCreateData as any).pricing_peg = mapping.pricingPeg;

@@ -27,6 +27,7 @@ async function buildCompanyAuthResponse(user: User) {
     (base as any).profile = profile;
     (base as any).requiresCurrencySetup = requiresCurrencySetup;
     (base as any).billingCurrency = company?.billing_currency ?? 'USD';
+    (base as any).suggestedBillingCurrency = company?.billing_currency ?? 'USD';
   } catch {
     // Fallback if profile/company fetch fails
   }

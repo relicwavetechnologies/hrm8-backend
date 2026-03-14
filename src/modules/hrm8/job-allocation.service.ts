@@ -4,6 +4,7 @@ import { HttpException } from '../../core/http-exception';
 import { AssignmentSource, PipelineStage } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { Logger } from '../../utils/logger';
+import { ConversationService } from '../communication/conversation.service';
 
 export class JobAllocationService extends BaseService {
   private readonly logger = Logger.create('hrm8-job-allocation-service');
@@ -19,6 +20,7 @@ export class JobAllocationService extends BaseService {
     assignedByName?: string;
     reason?: string;
     source?: AssignmentSource;
+    skipRegionCheck?: boolean;
   }) {
     const [consultant, job] = await Promise.all([
       prisma.consultant.findUnique({
@@ -36,14 +38,26 @@ export class JobAllocationService extends BaseService {
     }
 
     const jobRegionId = job?.region_id || job?.company?.region_id;
-    if (jobRegionId && jobRegionId !== consultant.region_id) {
+    if (!data.skipRegionCheck && jobRegionId && jobRegionId !== consultant.region_id) {
       throw new HttpException(400, 'Consultant must be in the same region as the job/company');
     }
 
-    return this.jobAllocationRepository.assignToConsultant({
+    const regionId = consultant.region_id;
+    const result = await this.jobAllocationRepository.assignToConsultant({
       ...data,
-      regionId: consultant.region_id,
+      regionId,
     });
+
+    try {
+      await new ConversationService().findOrCreateCompanyConsultantConversation(data.jobId);
+    } catch (convErr) {
+      this.logger.warn('Failed to create company-consultant conversation', {
+        jobId: data.jobId,
+        error: (convErr as Error).message,
+      });
+    }
+
+    return result;
   }
 
   async assignRegion(jobId: string, regionId: string, assignedBy: string) {
@@ -207,6 +221,8 @@ export class JobAllocationService extends BaseService {
 
     const where: any = {
       status: 'ACTIVE',
+      // Only Consultant (RECRUITER) and Consultant 360 - exclude Sales Agents from assignment list
+      role: { in: ['RECRUITER', 'CONSULTANT_360'] },
     };
 
     if (regionId && regionId !== 'all') {
@@ -222,7 +238,8 @@ export class JobAllocationService extends BaseService {
     }
 
     const normalizedRole = role?.trim().toUpperCase().replace(/[-\s]/g, '_');
-    if (normalizedRole) {
+    // Only allow narrowing to RECRUITER or CONSULTANT_360 - never show SALES_AGENT in assignment list
+    if (normalizedRole && ['RECRUITER', 'CONSULTANT_360'].includes(normalizedRole)) {
       where.role = normalizedRole;
     }
 
@@ -516,3 +533,5 @@ export class JobAllocationService extends BaseService {
     });
   }
 }
+
+export const jobAllocationService = new JobAllocationService(new JobAllocationRepository());

@@ -44,6 +44,7 @@ export class ConsultantController extends BaseController {
           lastName: consultant.last_name,
           role: consultant.role,
           defaultCurrency: consultant.default_currency ?? 'USD',
+          suggestedPayoutCurrency: consultant.payout_currency ?? consultant.default_currency ?? 'USD',
           payoutCurrency: consultant.payout_currency ?? null,
           requiresCurrencySetup,
         }
@@ -64,6 +65,7 @@ export class ConsultantController extends BaseController {
         consultant: {
           ...consultant,
           defaultCurrency: consultant.default_currency ?? 'USD',
+          suggestedPayoutCurrency: consultant.payout_currency ?? consultant.default_currency ?? 'USD',
           payoutCurrency: consultant.payout_currency ?? null,
           requiresCurrencySetup,
         }

@@ -113,6 +113,14 @@ export class JobRoundService extends BaseService {
     const job = await this.jobRepository.findById(jobId);
     if (!job) throw new HttpException(404, 'Job not found');
 
+    const pendingConsultant = await this.jobRepository.hasPendingConsultantAssignment(jobId);
+    if (pendingConsultant) {
+      throw new HttpException(
+        403,
+        'Cannot configure rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
+
     // Simple flow allows both INTERVIEW (with role) and ASSESSMENT (normal round); no automation/assessment config
     // No need to block ASSESSMENT here; saveAssessmentConfig is already blocked for SIMPLE jobs.
 
@@ -163,6 +171,14 @@ export class JobRoundService extends BaseService {
     const target = await this.jobRoundRepository.findById(roundId);
     if (!target) throw new HttpException(404, 'Round not found');
     if (target.job_id !== jobId) throw new HttpException(403, 'Round does not belong to job');
+
+    const pendingConsultant = await this.jobRepository.hasPendingConsultantAssignment(jobId);
+    if (pendingConsultant) {
+      throw new HttpException(
+        403,
+        'Cannot configure rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
 
     // Fixed rounds: allow only assigned_role_id and sync_permissions (email_config via separate endpoint)
     if (target.is_fixed) {
@@ -277,6 +293,14 @@ export class JobRoundService extends BaseService {
     if (!round) throw new HttpException(404, 'Round not found');
     if (round.job_id !== jobId) throw new HttpException(403, 'Round does not belong to job');
 
+    const pendingConsultant = await this.jobRepository.hasPendingConsultantAssignment(jobId);
+    if (pendingConsultant) {
+      throw new HttpException(
+        403,
+        'Cannot configure rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
+
     if (round.is_fixed) {
       throw new HttpException(400, 'Fixed rounds cannot be deleted');
     }
@@ -303,6 +327,15 @@ export class JobRoundService extends BaseService {
   }
 
   async saveInterviewConfig(roundId: string, data: any) {
+    const round = await this.jobRoundRepository.findById(roundId);
+    if (!round) throw new HttpException(404, 'Round not found');
+    const pendingConsultant = await this.jobRepository.hasPendingConsultantAssignment(round.job_id);
+    if (pendingConsultant) {
+      throw new HttpException(
+        403,
+        'Cannot configure rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
     return this.jobRoundRepository.upsertInterviewConfig(roundId, data);
   }
 
@@ -315,6 +348,13 @@ export class JobRoundService extends BaseService {
   async saveAssessmentConfig(roundId: string, data: any) {
     const round = await this.jobRoundRepository.findById(roundId);
     if (!round) throw new HttpException(404, 'Round not found');
+    const pendingConsultant = await this.jobRepository.hasPendingConsultantAssignment(round.job_id);
+    if (pendingConsultant) {
+      throw new HttpException(
+        403,
+        'Cannot configure rounds until a consultant is assigned. A regional admin will assign shortly.'
+      );
+    }
     return this.jobRoundRepository.upsertAssessmentConfig(roundId, data);
   }
 }
